@@ -4,7 +4,7 @@
             "fileMatch": [
                 "**/*.dotconfig.json"
             ],
-            "url": "./schema/configuration_schema.json"
+            "url": "../common/schema/configuration_schema.json"
         }
     ]
 }
