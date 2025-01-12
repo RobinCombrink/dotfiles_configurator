@@ -2,8 +2,7 @@ use crate::dotfiles::DotfilesDetails;
 use crate::{cli_commands, download::Downloader, github};
 use anyhow::{anyhow, Context, Result};
 use common::configuration::{
-    ApplicationDetails, AssetFind, CliCommand, Configuration, DetailsType, Downloads, FileDetails,
-    GitClone, GitCloneConfig, RepositoryDetails,
+    ApplicationDetails, AssetFind, Configuration, GitClone, RepositoryDetails,
 };
 use futures::future::join_all;
 use git2::build::RepoBuilder;
@@ -12,13 +11,13 @@ use log::{error, trace};
 use reqwest::Client;
 use secrecy::SecretString;
 use std::borrow::Cow;
+use std::future::Future;
 use std::time::Duration;
 use std::{fs, path::PathBuf};
 use tokio::task::JoinSet;
-use url::Url;
 
 pub trait Executor {
-    async fn execute(&self) -> Result<()>;
+    fn execute(&self) -> impl Future<Output = Result<()>> + Send;
 }
 
 pub struct Config {
@@ -46,10 +45,7 @@ impl Config {
             home_dir,
         }
     }
-}
-
-impl Executor for Config {
-    async fn execute(&self) -> Result<()> {
+    pub async fn execute(self) -> Result<()> {
         let repositories_path = self
             .configuration
             .clone_config
@@ -380,7 +376,7 @@ impl GitCloneArgs {
     }
     pub async fn clone_and_execute(&self, progress_bar: ProgressBar) -> Result<()> {
         self.git_clone(progress_bar).await?;
-        cli_commands::execute_all(&self.git_clone.cli_commands);
+        cli_commands::execute_all(&self.git_clone.cli_commands).await;
         Ok(())
     }
     async fn git_clone(&self, progress_bar: ProgressBar) -> Result<()> {

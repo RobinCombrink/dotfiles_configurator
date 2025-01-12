@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Args, Parser};
+use config::ConfigurationLoader;
 use env_logger;
-use impls::Executor;
 use log::{error, trace, LevelFilter};
 use std::fs;
 use std::io::Write;
@@ -98,23 +98,21 @@ async fn main() {
         let _ = fs::remove_dir_all(directory);
     }
 
-    let configurations = config::load_all_configurations(args).await;
+    let config_loader = ConfigurationLoader::new(args);
 
-    for repository_configurations in configurations {
-        match repository_configurations {
-            Ok(configurations) => {
-                for configuration in configurations {
-                    if let Err(err) = configuration.execute().await {
-                        error!("Could not apply entire configuration: {:?}", err)
+    config::apply_all(config_loader.load_all_configurations().await)
+        .await
+        .into_iter()
+        .for_each(|applied_config| match applied_config {
+            Ok(applied_config) => {
+                applied_config.into_iter().for_each(|result| {
+                    if let Err(err) = result {
+                        error!("Had a problem when applying a config: {:?}", err)
                     }
-                }
+                });
             }
-            Err(err) => {
-                error!("Could not load configuration: {:?}", err);
-                continue;
-            }
-        };
-    }
+            Err(err) => error!("Could not fetch configuration: {:?}", err),
+        });
 }
 
 fn setup_logging(level_filter: LevelFilter) {
