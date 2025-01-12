@@ -1,13 +1,10 @@
-use crate::{
-    cli_commands,
-    common::{
-        ApplicationDetails, AssetFind, CliCommand, Configuration, DetailsType, Downloads,
-        FileDetails, GitClone, GitCloneConfig, RepositoryDetails,
-    },
-    download::Downloader,
-    github,
-};
+use crate::dotfiles::DotfilesDetails;
+use crate::{cli_commands, download::Downloader, github};
 use anyhow::{anyhow, Context, Result};
+use common::configuration::{
+    ApplicationDetails, AssetFind, CliCommand, Configuration, DetailsType, Downloads, FileDetails,
+    GitClone, GitCloneConfig, RepositoryDetails,
+};
 use futures::future::join_all;
 use git2::build::RepoBuilder;
 use indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle};
@@ -20,19 +17,234 @@ use std::{fs, path::PathBuf};
 use tokio::task::JoinSet;
 use url::Url;
 
-const CONFIG_DEFAULT_VERSION: &str = "0.1.0";
+pub trait Executor {
+    async fn execute(&self) -> Result<()>;
+}
 
-impl Configuration {
-    pub fn new() -> Self {
+pub struct Config {
+    configuration: Configuration,
+    download_directory: PathBuf,
+    home_dir: PathBuf,
+}
+
+impl Config {
+    fn new(configuration: Configuration, download_directory: PathBuf, home_dir: PathBuf) -> Self {
         Self {
-            version: CONFIG_DEFAULT_VERSION.to_owned(),
-            clone_config: GitCloneConfig::default(),
-            dotfiles_repository: GitClone::default(),
-            downloads: Downloads::new(),
-            to_clones: vec![GitClone::default()],
-            dotfiles: Some(vec![DetailsType::File(FileDetails::default())]),
-            cli_commands: Some(vec![CliCommand::default()]),
+            configuration,
+            download_directory,
+            home_dir,
         }
+    }
+    pub fn from_configuration(
+        configuration: Configuration,
+        download_directory: PathBuf,
+        home_dir: PathBuf,
+    ) -> Self {
+        Config {
+            configuration,
+            download_directory,
+            home_dir,
+        }
+    }
+}
+
+impl Executor for Config {
+    async fn execute(&self) -> Result<()> {
+        let repositories_path = self
+            .configuration
+            .clone_config
+            .repositories_directory_path
+            .clone();
+        let dotfiles_repository_path =
+            repositories_path.join(self.configuration.dotfiles_repository.repo.clone());
+        let name = &self.configuration.dotfiles_repository.repo;
+        let _ = GitCloneArgs::from_gitclone(
+            self.configuration.dotfiles_repository.clone(),
+            dotfiles_repository_path.clone(),
+            None,
+        )
+        .git_clone(Self::create_download_asset_progress_bar(
+            &self.configuration.dotfiles_repository.owner,
+            name,
+            repositories_path.clone(),
+        ))
+        .await;
+        println!("\n");
+
+        self.download_and_install_all(
+            &self.download_directory,
+        )
+        .await;
+
+        for result in self.clone_repos(repositories_path).await {
+            if let Err(err) = result {
+                error!("Could not clone or fetch repo: {:?}", err);
+            }
+        }
+        let _ = cli_commands::execute_all(&self.configuration.cli_commands);
+        Ok(())
+    }
+}
+
+impl Config {
+    async fn download_and_install_all(&self, download_directory: &PathBuf) {
+        let client = Client::default();
+        join_all(
+            self.configuration
+                .downloads
+                .github_releases
+                .iter()
+                .map(|details| {
+                    details.download_self(
+                        client.clone(),
+                        download_directory.to_path_buf(),
+                        Self::create_download_asset_progress_bar(
+                            &details.owner,
+                            &details.repo,
+                            download_directory.join(&details.repo),
+                        ),
+                    )
+                }),
+        )
+        .await;
+
+        self.download_applications(client, download_directory).await;
+
+        let github_releases_dotfiles_details = self
+            .configuration
+            .downloads
+            .github_releases
+            .clone()
+            .into_iter()
+            .filter_map(|release| release.dotfiles)
+            .flatten()
+            .map(|details| {
+                DotfilesDetails::from_details(
+                    details,
+                    self.configuration
+                        .clone_config
+                        .repositories_directory_path
+                        .join(self.configuration.dotfiles_repository.repo.clone()),
+                    self.home_dir.clone(),
+                )
+            });
+
+        let github_releases_commands = self
+            .configuration
+            .downloads
+            .github_releases
+            .clone()
+            .into_iter()
+            .filter_map(|release| release.commands)
+            .flatten();
+
+        for details in github_releases_dotfiles_details {
+            let _ = details.execute().await;
+        }
+
+        for command in github_releases_commands {
+            let _ = command.execute();
+        }
+    }
+
+    async fn download_applications(&self, client: Client, download_directory: &PathBuf) {
+        let multi_progress = MultiProgress::new();
+
+        let to_download = self.configuration.downloads.applications.len();
+        let coordinator_progress_bar = multi_progress.add(Self::create_progress_bar(
+            to_download,
+            format!("Downloading applications"),
+            ProgressFinish::WithMessage(Cow::from(format!("{} downloaded", to_download))),
+            ProgressStyle::with_template(&format!(
+                "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
+                to_download
+            ))
+            .unwrap()
+            .progress_chars("✓▢▢"),
+        ));
+        coordinator_progress_bar.set_position(0);
+        let mut tasks = JoinSet::new();
+
+        let applications = self
+            .configuration
+            .downloads
+            .applications
+            .clone()
+            .into_iter();
+
+        for details in applications {
+            let progress_bar = multi_progress.add(Self::create_download_application_progress_bar());
+            let download_directory = download_directory.clone();
+            let client = client.clone();
+            tasks.spawn(async move {
+                let _ = details
+                    .download_self(client, download_directory, progress_bar)
+                    .await;
+            });
+        }
+        let mut results: Vec<Result<()>> = Vec::new();
+        while let Some(res) = tasks.join_next().await {
+            match res {
+                Ok(_) => results.push(Ok(())),
+                Err(err) => results.push(Err(err.into())),
+            }
+            coordinator_progress_bar.set_position(results.len().try_into().unwrap());
+        }
+    }
+
+    async fn clone_repos(&self, directory_path: PathBuf) -> Vec<Result<()>> {
+        let token = Some(github::get_github_token());
+        let git_clones = self
+            .configuration
+            .to_clones
+            .clone()
+            .into_iter()
+            .map(|git_clone| {
+                GitCloneArgs::from_gitclone(git_clone, directory_path.clone(), token.clone())
+            });
+
+        let multi_progress = MultiProgress::new();
+        let mut tasks = JoinSet::new();
+
+        let coordinator_progress_bar = Self::create_progress_bar(
+            self.configuration.to_clones.len(),
+            format!(
+                "Cloning {} repositories",
+                self.configuration.to_clones.len()
+            ),
+            ProgressFinish::WithMessage(Cow::from(format!(
+                "{} repos downloaded",
+                self.configuration.to_clones.len()
+            ))),
+            ProgressStyle::with_template(&format!(
+                "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
+                self.configuration.to_clones.len()
+            ))
+            .unwrap()
+            .progress_chars("✓▢▢"),
+        );
+
+        let coordinator_progress_bar = multi_progress.add(coordinator_progress_bar);
+        coordinator_progress_bar.set_position(0);
+        print!("\n");
+
+        for repo_details in git_clones {
+            let progress_bar = multi_progress.add(Self::create_download_asset_progress_bar(
+                &repo_details.git_clone.owner,
+                &repo_details.git_clone.repo,
+                directory_path.join(&repo_details.git_clone.repo),
+            ));
+            tasks.spawn(async move { repo_details.clone_and_execute(progress_bar).await });
+        }
+        let mut results = Vec::new();
+        while let Some(res) = tasks.join_next().await {
+            match res {
+                Ok(a) => results.push(a),
+                Err(err) => results.push(Err(err.into())),
+            }
+            coordinator_progress_bar.set_position(results.len().try_into().unwrap());
+        }
+        results
     }
 
     fn create_progress_bar(
@@ -76,235 +288,6 @@ impl Configuration {
 
         Self::create_progress_bar(100, message, finish, style)
     }
-
-    pub async fn apply(
-        &self,
-        download_directory: impl Into<&PathBuf>,
-        home_dir: impl Into<&PathBuf>,
-    ) -> Result<()> {
-        let repositories_path = self.clone_config.repositories_directory_path.clone();
-        let dotfiles_repository_path =
-            repositories_path.join(self.dotfiles_repository.repo.clone());
-        let name = &self.dotfiles_repository.repo;
-        let _ = &self
-            .dotfiles_repository
-            .git_clone(
-                repositories_path.clone(),
-                None,
-                Self::create_download_asset_progress_bar(
-                    &self.dotfiles_repository.owner,
-                    name,
-                    repositories_path.clone(),
-                ),
-            )
-            .await;
-        println!("\n");
-
-        self.download_and_install_all(
-            download_directory.into(),
-            home_dir.into(),
-            &dotfiles_repository_path,
-        )
-        .await;
-
-        for result in self.clone_repos(repositories_path).await {
-            if let Err(err) = result {
-                error!("Could not clone or fetch repo: {:?}", err);
-            }
-        }
-        let _ = cli_commands::execute_all(&self.cli_commands);
-        Ok(())
-    }
-
-    async fn download_and_install_all(
-        &self,
-        download_directory: &PathBuf,
-        home_dir: &PathBuf,
-        dotfiles_repository_path: &PathBuf,
-    ) {
-        let client = Client::default();
-        join_all(self.downloads.github_releases.iter().map(|details| {
-            details.download_self(
-                client.clone(),
-                download_directory.to_path_buf(),
-                Self::create_download_asset_progress_bar(
-                    &details.owner,
-                    &details.repo,
-                    download_directory.join(&details.repo),
-                ),
-            )
-        }))
-        .await;
-
-        self.download_applications(client, download_directory).await;
-
-        let github_releases_dotfiles_details = self
-            .downloads
-            .github_releases
-            .clone()
-            .into_iter()
-            .filter_map(|release| release.dotfiles)
-            .flatten();
-
-        let github_releases_commands = self
-            .downloads
-            .github_releases
-            .clone()
-            .into_iter()
-            .filter_map(|release| release.commands)
-            .flatten();
-
-        for details in github_releases_dotfiles_details {
-            details.setup(home_dir, dotfiles_repository_path)
-        }
-
-        for command in github_releases_commands {
-            let _ = command.execute();
-        }
-    }
-
-    async fn download_applications(&self, client: Client, download_directory: &PathBuf) {
-        let multi_progress = MultiProgress::new();
-
-        let to_download = self.downloads.applications.len();
-        let coordinator_progress_bar = multi_progress.add(Self::create_progress_bar(
-            to_download,
-            format!("Downloading applications"),
-            ProgressFinish::WithMessage(Cow::from(format!("{} downloaded", to_download))),
-            ProgressStyle::with_template(&format!(
-                "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
-                to_download
-            ))
-            .unwrap()
-            .progress_chars("✓▢▢"),
-        ));
-        coordinator_progress_bar.set_position(0);
-        let mut tasks = JoinSet::new();
-
-        let applications = self.downloads.applications.clone().into_iter();
-
-        for details in applications {
-            let progress_bar = multi_progress.add(Self::create_download_application_progress_bar());
-            let download_directory = download_directory.clone();
-            let client = client.clone();
-            tasks.spawn(async move {
-                let _ = details
-                    .download_self(client, download_directory, progress_bar)
-                    .await;
-            });
-        }
-        let mut results: Vec<Result<()>> = Vec::new();
-        while let Some(res) = tasks.join_next().await {
-            match res {
-                Ok(_) => results.push(Ok(())),
-                Err(err) => results.push(Err(err.into())),
-            }
-            coordinator_progress_bar.set_position(results.len().try_into().unwrap());
-        }
-    }
-
-    async fn clone_repos(&self, directory_path: PathBuf) -> Vec<Result<()>> {
-        let token = Some(github::get_github_token());
-        let git_clones = self.to_clones.clone().into_iter();
-
-        let multi_progress = MultiProgress::new();
-        let mut tasks = JoinSet::new();
-
-        let coordinator_progress_bar = Self::create_progress_bar(
-            self.to_clones.len(),
-            format!("Cloning {} repositories", self.to_clones.len()),
-            ProgressFinish::WithMessage(Cow::from(format!(
-                "{} repos downloaded",
-                self.to_clones.len()
-            ))),
-            ProgressStyle::with_template(&format!(
-                "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
-                self.to_clones.len()
-            ))
-            .unwrap()
-            .progress_chars("✓▢▢"),
-        );
-
-        let coordinator_progress_bar = multi_progress.add(coordinator_progress_bar);
-        coordinator_progress_bar.set_position(0);
-        print!("\n");
-
-        for repo_details in git_clones {
-            let progress_bar = multi_progress.add(Self::create_download_asset_progress_bar(
-                &repo_details.owner,
-                &repo_details.repo,
-                directory_path.join(&repo_details.repo),
-            ));
-            let token = token.clone();
-            let directory_path = directory_path.clone();
-            tasks.spawn(async move {
-                repo_details
-                    .clone_and_execute(directory_path, token, progress_bar)
-                    .await
-            });
-        }
-        let mut results = Vec::new();
-        while let Some(res) = tasks.join_next().await {
-            match res {
-                Ok(a) => results.push(a),
-                Err(err) => results.push(Err(err.into())),
-            }
-            coordinator_progress_bar.set_position(results.len().try_into().unwrap());
-        }
-        results
-    }
-}
-
-impl Default for Configuration {
-    fn default() -> Self {
-        Self {
-            version: CONFIG_DEFAULT_VERSION.to_owned(),
-            clone_config: GitCloneConfig::default(),
-            dotfiles_repository: GitClone::default(),
-            downloads: Downloads::default(),
-            to_clones: vec![GitClone::default()],
-            dotfiles: Some(vec![DetailsType::File(FileDetails::default())]),
-            cli_commands: Some(vec![CliCommand::default()]),
-        }
-    }
-}
-
-impl Default for GitCloneConfig {
-    fn default() -> Self {
-        Self {
-            repositories_directory_path: Default::default(),
-            github_username: Default::default(),
-        }
-    }
-}
-
-impl Downloads {
-    fn new() -> Self {
-        Self {
-            applications: vec![ApplicationDetails::default()],
-            github_releases: vec![RepositoryDetails {
-                owner: "cli".to_owned(),
-                repo: "cli".to_owned(),
-                asset_find: Some(AssetFind::AssetEndsWith {
-                    asset_ends_with: "_windows_amd64.msi".to_owned(),
-                }),
-                commands: Some(vec![CliCommand::new(
-                    true,
-                    vec!["gh".to_owned(), "auth".to_owned(), "login".to_owned()],
-                )]),
-                dotfiles: None,
-            }],
-        }
-    }
-}
-
-impl Default for Downloads {
-    fn default() -> Self {
-        Self {
-            applications: vec![ApplicationDetails::default()],
-            github_releases: vec![RepositoryDetails::default()],
-        }
-    }
 }
 
 impl Downloader for ApplicationDetails {
@@ -321,16 +304,6 @@ impl Downloader for ApplicationDetails {
             progress_bar,
         )
         .await
-    }
-}
-
-impl Default for ApplicationDetails {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            uri: Url::parse("http://localhost").unwrap(),
-            dotfiles: None,
-        }
     }
 }
 
@@ -387,53 +360,48 @@ impl Downloader for RepositoryDetails {
     }
 }
 
-impl Default for RepositoryDetails {
-    fn default() -> Self {
-        Self {
-            owner: String::new(),
-            repo: String::new(),
-            asset_find: None,
-            commands: None,
-            dotfiles: None,
-        }
-    }
+pub struct GitCloneArgs {
+    git_clone: GitClone,
+    directory_path: PathBuf,
+    token: Option<secrecy::SecretBox<str>>,
 }
 
-impl GitClone {
-    pub async fn clone_and_execute(
-        &self,
-        directory_path: PathBuf,
-        token: Option<secrecy::SecretBox<str>>,
-        progress_bar: ProgressBar,
-    ) -> Result<()> {
-        self.git_clone(directory_path, token, progress_bar).await?;
-        cli_commands::execute_all(&self.cli_commands);
-        Ok(())
-    }
-    async fn git_clone(
-        &self,
+impl GitCloneArgs {
+    pub fn from_gitclone(
+        git_clone: GitClone,
         directory_path: PathBuf,
         token: Option<SecretString>,
-        progress_bar: ProgressBar,
-    ) -> Result<()> {
-        let token = match token {
+    ) -> GitCloneArgs {
+        GitCloneArgs {
+            git_clone,
+            directory_path,
+            token,
+        }
+    }
+    pub async fn clone_and_execute(&self, progress_bar: ProgressBar) -> Result<()> {
+        self.git_clone(progress_bar).await?;
+        cli_commands::execute_all(&self.git_clone.cli_commands);
+        Ok(())
+    }
+    async fn git_clone(&self, progress_bar: ProgressBar) -> Result<()> {
+        let token = match &self.token {
             Some(token) => token,
             None => {
-                github::initialise_octocrab(&self.owner)?;
-                github::get_github_token()
+                github::initialise_octocrab(&self.git_clone.owner)?;
+                &github::get_github_token()
             }
         };
 
         let repo = octocrab::instance()
-            .repos(&self.owner, &self.repo)
+            .repos(&self.git_clone.owner, &self.git_clone.repo)
             .get()
             .await
             .expect("Invalid repo");
 
-        fs::create_dir_all(&directory_path)
-            .with_context(|| format!("Could not create directory: {:#?}", &directory_path))?;
+        fs::create_dir_all(&self.directory_path)
+            .with_context(|| format!("Could not create directory: {:#?}", &self.directory_path))?;
 
-        let directory_path = directory_path.join(self.repo.clone());
+        let directory_path = self.directory_path.join(self.git_clone.repo.clone());
 
         let local_repo = git2::Repository::open(&directory_path);
         match local_repo {
@@ -453,8 +421,11 @@ impl GitClone {
                     repo.full_name.unwrap_or_else(|| repo.name.clone())
                 ))?;
 
-                let fetch_options =
-                    github::create_repository_fetch_options(&token, &self.owner, progress_bar);
+                let fetch_options = github::create_repository_fetch_options(
+                    &token,
+                    &self.git_clone.owner,
+                    progress_bar,
+                );
 
                 match RepoBuilder::new()
                     .fetch_options(fetch_options)
@@ -469,16 +440,6 @@ impl GitClone {
                     }
                 }
             }
-        }
-    }
-}
-
-impl Default for GitClone {
-    fn default() -> Self {
-        Self {
-            owner: String::new(),
-            repo: String::new(),
-            cli_commands: None,
         }
     }
 }

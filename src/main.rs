@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Args, Parser};
 use env_logger;
+use impls::Executor;
 use log::{error, trace, LevelFilter};
 use std::fs;
 use std::io::Write;
@@ -8,7 +9,6 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 mod cli_commands;
-pub mod common;
 mod config;
 mod dotfiles;
 mod download;
@@ -93,9 +93,6 @@ async fn main() {
     setup_logging(LevelFilter::Info);
     trace!("Logging setup successful");
     let args = Dotfiles::parse();
-    let download_directory = dirs::download_dir().expect("Failed to find download directory");
-    let home_dir = dirs::home_dir().expect("Failed to find home directory");
-
     let directory = "C:\\Repositories\\Personal\\Testing";
     if fs::exists(directory).unwrap_or(false) {
         let _ = fs::remove_dir_all(directory);
@@ -107,7 +104,7 @@ async fn main() {
         match repository_configurations {
             Ok(configurations) => {
                 for configuration in configurations {
-                    if let Err(err) = configuration.apply(&download_directory, &home_dir).await {
+                    if let Err(err) = configuration.execute().await {
                         error!("Could not apply entire configuration: {:?}", err)
                     }
                 }

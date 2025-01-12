@@ -1,28 +1,50 @@
-use log::{error, info};
+use anyhow::{anyhow, Result};
+use common::configuration::DetailsType;
+use log::info;
 use std::{fs, io, path::PathBuf};
 use walkdir::WalkDir;
 
-use crate::common::DetailsType;
+use crate::impls::Executor;
 
+pub struct DotfilesDetails {
+    details: DetailsType,
+    home_dir: PathBuf,
+    dotfiles_repository_path: PathBuf,
+}
 
-impl DetailsType {
-    pub fn setup(&self, home_dir: &PathBuf, dotfiles_repository_path: &PathBuf) {
-        let symlink_result = match self {
+impl DotfilesDetails {
+    pub fn from_details(
+        details: DetailsType,
+        dotfiles_repository_path: PathBuf,
+        home_dir: PathBuf,
+    ) -> Self {
+        Self {
+            details,
+            dotfiles_repository_path,
+            home_dir,
+        }
+    }
+}
+
+impl Executor for DotfilesDetails {
+    async fn execute(&self) -> Result<()> {
+        let symlink_result = match &self.details {
             DetailsType::File(details) => {
                 let link_path = match &details.link_path {
                     Some(path) => path,
-                    None => &home_dir,
+                    None => &self.home_dir,
                 };
-                let original_path =
-                    dotfiles_repository_path.join(&details.original_path.join(&details.file_name));
-                let link_path = home_dir.join(link_path).join(&details.file_name);
+                let original_path = self
+                    .dotfiles_repository_path
+                    .join(&details.original_path.join(&details.file_name));
+                let link_path = self.home_dir.join(link_path).join(&details.file_name);
 
                 log_symlink(&original_path, &link_path);
                 fs::hard_link(&original_path, link_path)
             }
             DetailsType::Directory(details) => {
-                let original_path = dotfiles_repository_path.join(&details.original_path);
-                let link_path = home_dir.join(&details.link_path);
+                let original_path = self.dotfiles_repository_path.join(&details.original_path);
+                let link_path = self.home_dir.join(&details.link_path);
 
                 log_symlink(&original_path, &link_path);
                 hard_link_directory(&original_path, &link_path)
@@ -30,8 +52,8 @@ impl DetailsType {
         };
 
         match symlink_result {
-            Ok(ok) => ok,
-            Err(e) => error!("There was an error creating the symlink: {e}"),
+            Ok(ok) => Ok(ok),
+            Err(e) => Err(anyhow!(format!("Could not create symlink: {e}"))),
         }
     }
 }

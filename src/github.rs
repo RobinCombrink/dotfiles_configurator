@@ -1,13 +1,11 @@
 use std::process::Command;
-
 use anyhow::{anyhow, Context, Error, Result};
+use common::configuration::Configuration;
 use git2::{Cred, FetchOptions, RemoteCallbacks};
 use indicatif::ProgressBar;
 use log::info;
 use octocrab::Octocrab;
 use secrecy::{ExposeSecret, SecretString};
-
-use crate::common::Configuration;
 
 pub fn initialise_octocrab(user: &str) -> Result<()> {
     switch_github_cli_user(user)?;
