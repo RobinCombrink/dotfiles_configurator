@@ -1,0 +1,39 @@
+[package]
+name = "dotfiles"
+version = "0.2.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.5.21", features = ["derive", "string"] }
+oauth2 = "4.4.2"
+octocrab = "0.42.1"
+log = "0.4.22"
+env_logger = "0.11.5"
+tokio = { version = "1.41.1", features = ["full"] }
+reqwest = { version = "0.12.9", features = ["stream"] }
+dirs = "5.0.1"
+chrono = "0.4.38"
+git2="0.19.0"
+indicatif = { version = "0.17.9", features = ["tokio"] }
+anyhow = "1.0.93"
+url = { version = "2.5.4", features = ["serde"] }
+secrecy = "0.10.3"
+walkdir = "2.5.0"
+schemars = { version = "0.8.21", features = ["url"] }
+serde = "1.0.215"
+serde_json = "1.0.133"
+strum = { version = "0.26.3", features = ["derive"] }
+time = "0.3.36"
+futures = "0.3.31"
+
+[build-dependencies]
+serde = "1.0.215"
+serde_json = "1.0.133"
+schemars = { version = "0.8.21", features = ["url"] }
+strum = { version = "0.26.3", features = ["derive"] }
+url = { version = "2.5.4", features = ["serde"] }
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winresource = "0.1.17"

@@ -1,0 +1,10 @@
+{
+    "json.schemas": [
+        {
+            "fileMatch": [
+                "**/*.dotconfig.json"
+            ],
+            "url": "./schema/configuration_schema.json"
+        }
+    ]
+}
