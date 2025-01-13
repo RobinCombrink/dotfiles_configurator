@@ -1,5 +1,6 @@
 use crate::dotfiles::DotfilesDetails;
-use crate::{cli_commands, download::Downloader, github};
+use crate::shell_command;
+use crate::{download::Downloader, github};
 use anyhow::{anyhow, Context, Result};
 use common::configuration::{
     ApplicationDetails, AssetFind, Configuration, GitClone, RepositoryDetails,
@@ -77,7 +78,7 @@ impl Config {
                 error!("Could not clone or fetch repo: {:?}", err);
             }
         }
-        let _ = cli_commands::execute_all(&self.configuration.cli_commands);
+        let _ = shell_command::execute_all(&self.configuration.shell_commands);
         Ok(())
     }
 }
@@ -131,7 +132,7 @@ impl Config {
             .github_releases
             .clone()
             .into_iter()
-            .filter_map(|release| release.commands)
+            .filter_map(|release| release.shell_commands)
             .flatten();
 
         for details in github_releases_dotfiles_details {
@@ -376,7 +377,7 @@ impl GitCloneArgs {
     }
     pub async fn clone_and_execute(&self, progress_bar: ProgressBar) -> Result<()> {
         self.git_clone(progress_bar).await?;
-        cli_commands::execute_all(&self.git_clone.cli_commands).await;
+        shell_command::execute_all(&self.git_clone.shell_commands).await;
         Ok(())
     }
     async fn git_clone(&self, progress_bar: ProgressBar) -> Result<()> {

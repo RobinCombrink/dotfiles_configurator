@@ -8,7 +8,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-mod cli_commands;
+mod shell_command;
 mod config;
 mod dotfiles;
 mod download;
