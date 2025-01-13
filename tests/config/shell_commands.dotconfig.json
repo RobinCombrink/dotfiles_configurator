@@ -13,14 +13,16 @@
         "github_releases": []
     },
     "git_clones": [],
-    "cli_commands": [
+    "shell_commands": [
         {
+            "shell": "CommandPrompt",
             "interactive": true,
             "args": [
                 "wsl"
             ]
         },
         {
+            "shell": "CommandPrompt",
             "interactive": false,
             "args": [
                 "echo",
