@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use crate::{github, impls::Config, Dotfiles};
+use crate::{github, impls::Config, Dotfiles, RemoteConfigArguments};
 use anyhow::{anyhow, Result};
 use common::configuration::Configuration;
 use futures::future::join_all;
@@ -8,28 +8,33 @@ use log::error;
 
 pub struct ConfigurationLoader {
     args: Dotfiles,
+    download_directory: PathBuf,
+    home_directory: PathBuf,
 }
 
 impl ConfigurationLoader {
     pub fn new(args: Dotfiles) -> Self {
-        Self { args }
-    }
-    pub async fn load_all_configurations(self) -> Vec<Result<Vec<Config>>> {
         let download_directory = dirs::download_dir().expect("Failed to find download directory");
         let home_directory = dirs::home_dir().expect("Failed to find home directory");
-
+        Self {
+            args,
+            download_directory,
+            home_directory,
+        }
+    }
+    pub async fn load_all_configurations(self) -> Vec<Result<Vec<Config>>> {
         let mut configs = vec![Config::from_configuration(
             Configuration::new(),
-            download_directory.clone(),
-            home_directory.clone(),
+            self.download_directory.clone(),
+            self.home_directory.clone(),
         )];
         let result = match &self.args {
             Dotfiles::Local(args) => {
                 match self
                     .load_local_configurations(
                         &args.directory_path,
-                        download_directory,
-                        home_directory,
+                        self.download_directory.clone(),
+                        self.home_directory.clone(),
                     )
                     .await
                 {
@@ -39,14 +44,12 @@ impl ConfigurationLoader {
                     )],
                 }
             }
-            Dotfiles::Remote(args) => {
+            Dotfiles::Remote(remote) => {
                 match self
                     .load_external_configurations(
-                        &args.owner,
-                        &args.repo,
-                        args.config_file_paths.clone(),
-                        download_directory,
-                        home_directory,
+                        &remote,
+                        self.download_directory.clone(),
+                        self.home_directory.clone(),
                     )
                     .await
                 {
@@ -59,11 +62,9 @@ impl ConfigurationLoader {
             Dotfiles::Remotes(args) => {
                 let loaded_external_configurations = args.remotes.iter().map(|remote| {
                     self.load_external_configurations(
-                        &remote.owner,
-                        &remote.repo,
-                        remote.config_file_paths.clone(),
-                        download_directory.clone(),
-                        home_directory.clone(),
+                        remote,
+                        self.download_directory.clone(),
+                        self.home_directory.clone(),
                     )
                 });
                 join_all(loaded_external_configurations).await
@@ -72,8 +73,8 @@ impl ConfigurationLoader {
                 let local = match (&self)
                     .load_local_configurations(
                         &args.local.directory_path,
-                        download_directory.clone(),
-                        home_directory.clone(),
+                        self.download_directory.clone(),
+                        self.home_directory.clone(),
                     )
                     .await
                 {
@@ -87,11 +88,9 @@ impl ConfigurationLoader {
 
                 let external = match self
                     .load_external_configurations(
-                        &args.remote.owner,
-                        &args.remote.repo,
-                        args.remote.config_file_paths.clone(),
-                        download_directory,
-                        home_directory,
+                        &args.remote,
+                        self.download_directory.clone(),
+                        self.home_directory.clone(),
                     )
                     .await
                 {
@@ -158,12 +157,14 @@ impl ConfigurationLoader {
 
     async fn load_external_configurations(
         &self,
-        owner: &str,
-        repo: &str,
-        file_paths: Vec<impl Into<String>>,
+        remote: &RemoteConfigArguments,
         download_directory: PathBuf,
         home_dir: PathBuf,
     ) -> Result<Vec<Config>> {
+        let owner = &remote.owner;
+        let repo = &remote.repo;
+        let file_paths = &remote.config_file_paths;
+
         github::initialise_octocrab(owner)?;
         let mut external_configs: Vec<Result<Config>> = vec![];
 
