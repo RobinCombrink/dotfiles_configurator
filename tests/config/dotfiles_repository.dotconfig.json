@@ -12,20 +12,5 @@
         "applications": [],
         "github_releases": []
     },
-    "git_clones": [],
-    "cli_commands": [
-        {
-            "interactive": true,
-            "args": [
-                "wsl"
-            ]
-        },
-        {
-            "interactive": false,
-            "args": [
-                "echo",
-                "Don't forget to sync the Android Studio Settings Repository"
-            ]
-        }
-    ]
+    "git_clones": []
 }
