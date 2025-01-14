@@ -30,52 +30,29 @@ impl ConfigurationLoader {
         )];
         let result = match &self.args {
             Dotfiles::Local(args) => {
-                match self
-                    .load_local_configurations(
-                        &args.directory_path,
-                        self.download_directory.clone(),
-                        self.home_directory.clone(),
-                    )
-                    .await
-                {
+                match self.load_local_configurations(&args.directory_path).await {
                     Ok(configs) => vec![Ok(configs)],
                     Err(e) => vec![Err(
                         anyhow!("Could not load local configuration files").context(e)
                     )],
                 }
             }
-            Dotfiles::Remote(remote) => {
-                match self
-                    .load_external_configurations(
-                        &remote,
-                        self.download_directory.clone(),
-                        self.home_directory.clone(),
-                    )
-                    .await
-                {
-                    Ok(configs) => vec![Ok(configs)],
-                    Err(e) => vec![Err(
-                        anyhow!("Could not load remote configuration files").context(e)
-                    )],
-                }
-            }
+            Dotfiles::Remote(remote) => match self.load_external_configurations(&remote).await {
+                Ok(configs) => vec![Ok(configs)],
+                Err(e) => vec![Err(
+                    anyhow!("Could not load remote configuration files").context(e)
+                )],
+            },
             Dotfiles::Remotes(args) => {
-                let loaded_external_configurations = args.remotes.iter().map(|remote| {
-                    self.load_external_configurations(
-                        remote,
-                        self.download_directory.clone(),
-                        self.home_directory.clone(),
-                    )
-                });
+                let loaded_external_configurations = args
+                    .remotes
+                    .iter()
+                    .map(|remote| self.load_external_configurations(remote));
                 join_all(loaded_external_configurations).await
             }
             Dotfiles::All(args) => {
                 let local = match (&self)
-                    .load_local_configurations(
-                        &args.local.directory_path,
-                        self.download_directory.clone(),
-                        self.home_directory.clone(),
-                    )
+                    .load_local_configurations(&args.local.directory_path)
                     .await
                 {
                     Ok(mut local_configs) => Ok(configs.append(&mut local_configs)),
@@ -86,14 +63,7 @@ impl ConfigurationLoader {
                     error!("Could not fetch local configuration: {err}")
                 }
 
-                let external = match self
-                    .load_external_configurations(
-                        &args.remote,
-                        self.download_directory.clone(),
-                        self.home_directory.clone(),
-                    )
-                    .await
-                {
+                let external = match self.load_external_configurations(&args.remote).await {
                     Ok(mut remote_configs) => Ok(configs.append(&mut remote_configs)),
                     Err(e) => Err(anyhow!("Could not load remote configuration files").context(e)),
                 };
@@ -109,8 +79,6 @@ impl ConfigurationLoader {
     async fn load_local_configurations(
         &self,
         configuration_directory: &PathBuf,
-        download_directory: PathBuf,
-        home_directory: PathBuf,
     ) -> Result<Vec<Config>> {
         let configuration_files = fs::read_dir(configuration_directory)?.filter_map(|file| {
             file.ok().and_then(
@@ -147,8 +115,8 @@ impl ConfigurationLoader {
             .map(|configuration| {
                 Config::from_configuration(
                     configuration,
-                    download_directory.clone(),
-                    home_directory.clone(),
+                    self.download_directory.clone(),
+                    self.home_directory.clone(),
                 )
             })
             .collect();
@@ -158,8 +126,6 @@ impl ConfigurationLoader {
     async fn load_external_configurations(
         &self,
         remote: &RemoteConfigArguments,
-        download_directory: PathBuf,
-        home_dir: PathBuf,
     ) -> Result<Vec<Config>> {
         let owner = &remote.owner;
         let repo = &remote.repo;
@@ -176,8 +142,8 @@ impl ConfigurationLoader {
                         .map(|config| match config {
                             Ok(configuration) => Ok(Config::from_configuration(
                                 configuration,
-                                download_directory.clone(),
-                                home_dir.clone(),
+                                self.download_directory.clone(),
+                                self.home_directory.clone(),
                             )),
                             Err(err) => Err(err).into(),
                         })
