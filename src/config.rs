@@ -1,9 +1,9 @@
 use std::{fs, path::PathBuf};
 
 use crate::{github, impls::Config, Dotfiles, RemoteConfigArguments};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use common::configuration::Configuration;
-use futures::future::join_all;
+use futures::future::{join, join_all};
 use log::error;
 
 pub struct ConfigurationLoader {
@@ -22,58 +22,53 @@ impl ConfigurationLoader {
             home_directory,
         }
     }
-    pub async fn load_all_configurations(self) -> Vec<Result<Vec<Config>>> {
+    pub async fn load_all_configurations(self) -> Result<Vec<Config>> {
         let mut configs = vec![Config::from_configuration(
             Configuration::new(),
             self.download_directory.clone(),
             self.home_directory.clone(),
         )];
-        let result = match &self.args {
-            Dotfiles::Local(args) => {
-                match self.load_local_configurations(&args.directory_path).await {
-                    Ok(configs) => vec![Ok(configs)],
-                    Err(e) => vec![Err(
-                        anyhow!("Could not load local configuration files").context(e)
-                    )],
-                }
-            }
-            Dotfiles::Remote(remote) => match self.load_external_configurations(&remote).await {
-                Ok(configs) => vec![Ok(configs)],
-                Err(e) => vec![Err(
-                    anyhow!("Could not load remote configuration files").context(e)
-                )],
-            },
+
+        match &self.args {
+            Dotfiles::Local(args) => configs.append(
+                &mut self
+                    .load_local_configurations(&args.directory_path)
+                    .await
+                    .with_context(|| format!("Could not load local configuration"))?,
+            ),
+            Dotfiles::Remote(remote) => configs.append(
+                &mut self
+                    .load_external_configurations(&remote)
+                    .await
+                    .with_context(|| {
+                        format!("could not load remote configuration: {:#?}", remote)
+                    })?,
+            ),
             Dotfiles::Remotes(args) => {
                 let loaded_external_configurations = args
                     .remotes
                     .iter()
                     .map(|remote| self.load_external_configurations(remote));
-                join_all(loaded_external_configurations).await
+                let remotes = join_all(loaded_external_configurations)
+                    .await
+                    .into_iter()
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter()
+                    .flatten();
+
+                configs.extend(remotes);
             }
             Dotfiles::All(args) => {
-                let local = match (&self)
-                    .load_local_configurations(&args.local.directory_path)
-                    .await
-                {
-                    Ok(mut local_configs) => Ok(configs.append(&mut local_configs)),
-                    Err(e) => Err(anyhow!("Could not load local configuration files").context(e)),
-                };
-
-                if let Err(err) = local {
-                    error!("Could not fetch local configuration: {err}")
-                }
-
-                let external = match self.load_external_configurations(&args.remote).await {
-                    Ok(mut remote_configs) => Ok(configs.append(&mut remote_configs)),
-                    Err(e) => Err(anyhow!("Could not load remote configuration files").context(e)),
-                };
-                if let Err(err) = external {
-                    error!("Could not fetch local configuration: {err}")
-                }
-                vec![Ok(configs)]
+                let (local_configs, external_configs) = join(
+                    self.load_local_configurations(&args.local.directory_path),
+                    self.load_external_configurations(&args.remote),
+                )
+                .await;
+                configs.append(&mut local_configs?);
+                configs.append(&mut external_configs?);
             }
         };
-        result
+        Ok(configs)
     }
 
     async fn load_local_configurations(
