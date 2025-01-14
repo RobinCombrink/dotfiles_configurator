@@ -7,6 +7,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::exit;
+use std::process::exit;
 use std::str::FromStr;
 
 mod config;
@@ -14,6 +15,7 @@ mod dotfiles;
 mod download;
 mod github;
 pub mod impls;
+mod shell_command;
 mod shell_command;
 
 const DEFAULT_DIRECTORY_PATH: &str = "config";
@@ -100,23 +102,22 @@ async fn main() {
     }
 
     let config_loader = ConfigurationLoader::new(args);
-
-    let configs = match config_loader.load_all_configurations().await {
-        Ok(configs) => configs,
-        Err(err) => {
-            error!("{:#?}", err);
-            exit(1)
+    match config_loader.load_all_configurations().await {
+        Ok(configs) => {
+            config::apply_all(configs)
+                .await
+                .into_iter()
+                .for_each(|applied_config| {
+                    if let Err(err) = applied_config {
+                        error!("Could not apply configuration: {:?}", err)
+                    }
+                });
         }
-    };
-
-    config::apply_all(configs)
-        .await
-        .into_iter()
-        .for_each(|applied_config| {
-            if let Err(err) = applied_config {
-                error!("Had a problem when applying a config: {:?}", err);
-            }
-        });
+        Err(err) => {
+            println!("There was an error loading a configuration: {:?}", err);
+            exit(1);
+        }
+    }
 }
 
 fn setup_logging(level_filter: LevelFilter) {

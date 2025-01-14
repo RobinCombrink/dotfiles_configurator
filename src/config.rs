@@ -162,6 +162,6 @@ impl ConfigurationLoader {
     }
 }
 
-pub async fn apply_all(configurations: Vec<Config>) -> Vec<Result<()>> {
-    join_all(configurations.into_iter().map(|config| config.execute())).await
+pub async fn apply_all(configs: Vec<Config>) -> Vec<Result<()>> {
+    join_all(configs.into_iter().map(|config| config.execute())).await
 }
