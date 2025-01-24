@@ -162,18 +162,6 @@ impl ConfigurationLoader {
     }
 }
 
-pub async fn apply_all(configurations: Vec<Result<Vec<Config>>>) -> Vec<Result<Vec<Result<()>>>> {
-    join_all(
-        configurations
-            .into_iter()
-            .map(|configuration_file| maybe_execute(configuration_file)),
-    )
-    .await
-}
-
-async fn maybe_execute(configuration_file: Result<Vec<Config>>) -> Result<Vec<Result<()>>> {
-    match configuration_file {
-        Ok(configs) => Ok(join_all(configs.into_iter().map(|config| config.execute())).await),
-        Err(err) => Err(err),
-    }
+pub async fn apply_all(configurations: Vec<Config>) -> Vec<Result<()>> {
+    join_all(configurations.into_iter().map(|config| config.execute())).await
 }

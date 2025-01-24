@@ -6,14 +6,15 @@ use log::{error, trace, LevelFilter};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::exit;
 use std::str::FromStr;
 
-mod shell_command;
 mod config;
 mod dotfiles;
 mod download;
 mod github;
 pub mod impls;
+mod shell_command;
 
 const DEFAULT_DIRECTORY_PATH: &str = "config";
 
@@ -100,18 +101,21 @@ async fn main() {
 
     let config_loader = ConfigurationLoader::new(args);
 
-    config::apply_all(config_loader.load_all_configurations().await)
+    let configs = match config_loader.load_all_configurations().await {
+        Ok(configs) => configs,
+        Err(err) => {
+            error!("{:#?}", err);
+            exit(1)
+        }
+    };
+
+    config::apply_all(configs)
         .await
         .into_iter()
-        .for_each(|applied_config| match applied_config {
-            Ok(applied_config) => {
-                applied_config.into_iter().for_each(|result| {
-                    if let Err(err) = result {
-                        error!("Had a problem when applying a config: {:?}", err)
-                    }
-                });
+        .for_each(|applied_config| {
+            if let Err(err) = applied_config {
+                error!("Had a problem when applying a config: {:?}", err);
             }
-            Err(err) => error!("Could not fetch configuration: {:?}", err),
         });
 }
 
