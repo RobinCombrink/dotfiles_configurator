@@ -7,7 +7,6 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::exit;
-use std::process::exit;
 use std::str::FromStr;
 
 mod config;
@@ -15,7 +14,6 @@ mod dotfiles;
 mod download;
 mod github;
 pub mod impls;
-mod shell_command;
 mod shell_command;
 
 const DEFAULT_DIRECTORY_PATH: &str = "config";
