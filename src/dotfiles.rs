@@ -26,6 +26,7 @@ impl DotfilesDetails {
     }
 }
 
+//TODO: Replace this with OS specific directory symlink
 impl Executor for DotfilesDetails {
     async fn execute(&self) -> Result<()> {
         let symlink_result = match &self.details {
