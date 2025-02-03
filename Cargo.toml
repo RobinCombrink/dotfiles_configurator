@@ -7,31 +7,31 @@ edition = "2021"
 
 [dependencies]
 common = { path = "../common" }
-clap = { version = "4.5.26", features = ["derive", "string"] }
-oauth2 = "4.4.2"
-octocrab = "0.42.1"
-log = "0.4.22"
+clap = { version = "4.5.27", features = ["derive", "string"] }
+oauth2 = "5.0.0"
+octocrab = "0.43.0"
+log = "0.4.25"
 env_logger = "0.11.6"
 tokio = { version = "1.43.0", features = ["full"] }
 reqwest = { version = "0.12.12", features = ["stream"] }
-dirs = "5.0.1"
+dirs = "6.0.0"
 chrono = "0.4.39"
 git2="0.20.0"
-indicatif = { version = "0.17.9", features = ["tokio"] }
+indicatif = { version = "0.17.11", features = ["tokio"] }
 anyhow = "1.0.95"
 url = { version = "2.5.4", features = ["serde"] }
 secrecy = "0.10.3"
 walkdir = "2.5.0"
 schemars = { version = "0.8.21", features = ["url"] }
 serde = "1.0.217"
-serde_json = "1.0.135"
+serde_json = "1.0.138"
 strum = { version = "0.26.3", features = ["derive"] }
 time = "0.3.37"
 futures = "0.3.31"
 
 [build-dependencies]
 serde = "1.0.217"
-serde_json = "1.0.135"
+serde_json = "1.0.138"
 schemars = { version = "0.8.21", features = ["url"] }
 strum = { version = "0.26.3", features = ["derive"] }
 url = { version = "2.5.4", features = ["serde"] }
