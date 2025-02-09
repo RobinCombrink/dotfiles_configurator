@@ -1,8 +1,7 @@
 use anyhow::{anyhow, Result};
 use common::configuration::DetailsType;
 use log::info;
-use std::{fs, io, path::PathBuf};
-use walkdir::WalkDir;
+use std::path::PathBuf;
 
 use crate::impls::Executor;
 
@@ -26,7 +25,7 @@ impl DotfilesDetails {
     }
 }
 
-//TODO: Replace this with OS specific directory symlink
+//TODO: Add Unix directory link
 impl Executor for DotfilesDetails {
     async fn execute(&self) -> Result<()> {
         let symlink_result = match &self.details {
@@ -41,14 +40,22 @@ impl Executor for DotfilesDetails {
                 let link_path = self.home_dir.join(link_path).join(&details.file_name);
 
                 log_symlink(&original_path, &link_path);
-                fs::hard_link(&original_path, link_path)
+
+                #[cfg(target_os = "windows")]
+                {
+                    std::os::windows::fs::symlink_file(original_path, link_path)
+                }
             }
             DetailsType::Directory(details) => {
                 let original_path = self.dotfiles_repository_path.join(&details.original_path);
                 let link_path = self.home_dir.join(&details.link_path);
 
                 log_symlink(&original_path, &link_path);
-                hard_link_directory(&original_path, &link_path)
+
+                #[cfg(target_os = "windows")]
+                {
+                    std::os::windows::fs::symlink_dir(original_path, link_path)
+                }
             }
         };
 
@@ -64,20 +71,4 @@ fn log_symlink(original_path: &PathBuf, link_path: &PathBuf) {
         " \r\nOriginal: {:#?}\r\nLink: {:#?}",
         original_path, link_path
     );
-}
-
-fn hard_link_directory(original_path: &PathBuf, link_path: &PathBuf) -> io::Result<()> {
-    for entry in WalkDir::new(&original_path) {
-        let entry = entry?;
-        let path = entry.path();
-        let relative_path = path.strip_prefix(&original_path).unwrap();
-        let link_directory_path = &link_path.join(relative_path);
-
-        if path.is_dir() {
-            fs::create_dir_all(&link_directory_path)?;
-        } else {
-            fs::hard_link(path, &link_directory_path)?;
-        }
-    }
-    Ok(())
 }
