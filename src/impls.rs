@@ -28,13 +28,6 @@ pub struct Config {
 }
 
 impl Config {
-    fn new(configuration: Configuration, download_directory: PathBuf, home_dir: PathBuf) -> Self {
-        Self {
-            configuration,
-            download_directory,
-            home_dir,
-        }
-    }
     pub fn from_configuration(
         configuration: Configuration,
         download_directory: PathBuf,
