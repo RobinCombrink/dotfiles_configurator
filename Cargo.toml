@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 common = { path = "../common" }
-clap = { version = "4.5.27", features = ["derive", "string"] }
+clap = { version = "4.5.28", features = ["derive", "string"] }
 oauth2 = "5.0.0"
 octocrab = "0.43.0"
 log = "0.4.25"
@@ -25,7 +25,7 @@ walkdir = "2.5.0"
 schemars = { version = "0.8.21", features = ["url"] }
 serde = "1.0.217"
 serde_json = "1.0.138"
-strum = { version = "0.26.3", features = ["derive"] }
+strum = { version = "0.27.0", features = ["derive"] }
 time = "0.3.37"
 futures = "0.3.31"
 
@@ -33,7 +33,7 @@ futures = "0.3.31"
 serde = "1.0.217"
 serde_json = "1.0.138"
 schemars = { version = "0.8.21", features = ["url"] }
-strum = { version = "0.26.3", features = ["derive"] }
+strum = { version = "0.27.0", features = ["derive"] }
 url = { version = "2.5.4", features = ["serde"] }
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
