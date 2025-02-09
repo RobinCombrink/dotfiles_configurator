@@ -1,13 +1,37 @@
-use std::process::Command;
 use anyhow::{anyhow, Context, Error, Result};
 use common::configuration::Configuration;
 use git2::{Cred, FetchOptions, RemoteCallbacks};
 use indicatif::ProgressBar;
-use log::info;
+use log::{error, info, trace};
 use octocrab::Octocrab;
 use secrecy::{ExposeSecret, SecretString};
+use std::{io, process::Command, sync::LazyLock};
+
+static GITHUB_CLI_PRESENT: LazyLock<bool> =
+    LazyLock::new(|| is_github_cli_on_path().unwrap_or_else(|_| false));
+
+fn is_github_cli_on_path() -> Result<bool> {
+    match Command::new("gh").spawn() {
+        Ok(_) => {
+            trace!("Github cli present: gh");
+            Ok(true)
+        }
+        Err(e) => {
+            if let io::ErrorKind::NotFound = e.kind() {
+                Ok(false)
+            } else {
+                error!("An unknown error has occured: {}", e);
+                Err(e).with_context(||format!("An unknown error has occured while checking if the `gh` command was available"))
+            }
+        }
+    }
+}
 
 pub fn initialise_octocrab(user: &str) -> Result<()> {
+    if let false = *GITHUB_CLI_PRESENT {
+        return Err(anyhow!("`gh` was not found! Install github cli and or add it to your path"));
+    };
+
     switch_github_cli_user(user)?;
     let token = get_github_token();
     let instance = Octocrab::builder()

@@ -23,11 +23,7 @@ impl ConfigurationLoader {
         }
     }
     pub async fn load_all_configurations(self) -> Result<Vec<Config>> {
-        let mut configs = vec![Config::from_configuration(
-            Configuration::new(),
-            self.download_directory.clone(),
-            self.home_directory.clone(),
-        )];
+        let mut configs = vec![];
 
         match &self.args {
             Dotfiles::Local(args) => configs.append(

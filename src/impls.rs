@@ -48,7 +48,7 @@ impl Config {
         let dotfiles_repository_path =
             repositories_path.join(self.configuration.dotfiles_repository.repo.clone());
         let name = &self.configuration.dotfiles_repository.repo;
-        let _ = GitCloneArgs::from_gitclone(
+        let dotfiles_repo_result = GitCloneArgs::from_gitclone(
             self.configuration.dotfiles_repository.clone(),
             dotfiles_repository_path.clone(),
             None,
@@ -59,12 +59,15 @@ impl Config {
             repositories_path.clone(),
         ))
         .await;
+
+        if let Err(e) = dotfiles_repo_result {
+            error!("Something went wrong cloning the dotfiles repo: {e}")
+        }
+
         println!("\n");
 
-        self.download_and_install_all(
-            &self.download_directory,
-        )
-        .await;
+        self.download_and_install_all(&self.download_directory)
+            .await;
 
         for result in self.clone_repos(repositories_path).await {
             if let Err(err) = result {
