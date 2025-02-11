@@ -41,7 +41,7 @@ impl Executor for DotfilesDetails {
 
                 log_symlink(&original_path, &link_path);
 
-                #[cfg(target_os = "windows")]
+                #[cfg(target_family = "windows")]
                 {
                     std::os::windows::fs::symlink_file(original_path, link_path)
                 }
@@ -52,7 +52,7 @@ impl Executor for DotfilesDetails {
 
                 log_symlink(&original_path, &link_path);
 
-                #[cfg(target_os = "windows")]
+                #[cfg(target_family = "windows")]
                 {
                     std::os::windows::fs::symlink_dir(original_path, link_path)
                 }
