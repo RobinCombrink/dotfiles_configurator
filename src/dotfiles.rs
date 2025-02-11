@@ -60,7 +60,7 @@ impl Executor for DotfilesDetails {
 fn symlink_file(original_path: PathBuf, link_path: PathBuf) -> Result<()> {
     log_symlink(&original_path, &link_path);
 
-    std::os::windows::fs::symlink_file(original_path, link_path)
+    std::os::windows::fs::symlink_file(original_path, link_path).map_err(|err| err.into())
 }
 
 #[cfg(target_family = "unix")]
@@ -74,7 +74,7 @@ fn symlink_file(original_path: PathBuf, link_path: PathBuf) -> Result<()> {
 fn symlink_directory(original_path: PathBuf, link_path: PathBuf) -> Result<()> {
     log_symlink(&original_path, &link_path);
 
-    std::os::windows::fs::symlink_dir(original_path, link_path)
+    std::os::windows::fs::symlink_dir(original_path, link_path).map_err(|err| err.into())
 }
 
 #[cfg(target_family = "unix")]
