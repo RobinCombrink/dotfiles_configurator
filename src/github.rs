@@ -1,11 +1,13 @@
 use anyhow::{anyhow, Context, Error, Result};
-use common::configuration::Configuration;
+use common::configuration::{Configuration, ShellCommand};
 use git2::{Cred, FetchOptions, RemoteCallbacks};
 use indicatif::ProgressBar;
 use log::{error, info, trace};
 use octocrab::Octocrab;
 use secrecy::{ExposeSecret, SecretString};
 use std::{io, process::Command, sync::LazyLock};
+
+use crate::impls::ExecutorSync;
 
 static GITHUB_CLI_PRESENT: LazyLock<bool> =
     LazyLock::new(|| is_github_cli_on_path().unwrap_or_else(|_| false));
@@ -29,7 +31,9 @@ fn is_github_cli_on_path() -> Result<bool> {
 
 pub fn initialise_octocrab(user: &str) -> Result<()> {
     if let false = *GITHUB_CLI_PRESENT {
-        return Err(anyhow!("`gh` was not found! Install github cli and or add it to your path"));
+        return Err(anyhow!(
+            "`gh` was not found! Install github cli and/or add it to your path"
+        ));
     };
 
     switch_github_cli_user(user)?;
@@ -47,33 +51,17 @@ pub fn initialise_octocrab(user: &str) -> Result<()> {
 }
 
 fn switch_github_cli_user(user: &str) -> Result<()> {
-    let command = &[
-        "cmd",
-        "/C",
-        "gh",
-        "auth",
-        "switch",
-        "--user",
-        &format!("{user}"),
-    ];
-
-    let output = Command::new("cmd")
-        .args(command)
-        .output()
-        .expect("Failed to execute github cli account switch");
-
-    match output.status.success() {
-        true => Ok(()),
-        false => Err(anyhow!(
-            "Could not switch to github cli account by username: {user}"
-        ))
-        .with_context(|| {
-            format!(
-                "{}",
-                String::from_utf8(output.stderr).expect("Uf8 only for standard err")
-            )
-        }),
-    }
+    let command = ShellCommand::new(
+        vec![
+            "gh".into(),
+            "auth".into(),
+            "switch".into(),
+            "--user".into(),
+            format!("{user}"),
+        ],
+        false,
+    );
+    command.execute_sync()
 }
 
 pub(crate) fn get_github_token() -> secrecy::SecretBox<str> {

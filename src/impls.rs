@@ -21,6 +21,10 @@ pub trait Executor {
     fn execute(&self) -> impl Future<Output = Result<()>> + Send;
 }
 
+pub trait ExecutorSync {
+    fn execute_sync(&self) -> Result<()>;
+}
+
 pub struct Config {
     configuration: Configuration,
     download_directory: PathBuf,
