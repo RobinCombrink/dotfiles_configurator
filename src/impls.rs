@@ -49,12 +49,10 @@ impl Config {
             .clone_config
             .repositories_directory_path
             .clone();
-        let dotfiles_repository_path =
-            repositories_path.join(self.configuration.dotfiles_repository.repo.clone());
         let name = &self.configuration.dotfiles_repository.repo;
         let dotfiles_repo_result = GitCloneArgs::from_gitclone(
             self.configuration.dotfiles_repository.clone(),
-            dotfiles_repository_path.clone(),
+            repositories_path.clone(),
             None,
         )
         .git_clone(Self::create_download_asset_progress_bar(
@@ -395,6 +393,7 @@ impl GitCloneArgs {
             .await
             .expect("Invalid repo");
 
+        println!("clone dir: {:#?}", &self.directory_path);
         fs::create_dir_all(&self.directory_path)
             .with_context(|| format!("Could not create directory: {:#?}", &self.directory_path))?;
 
