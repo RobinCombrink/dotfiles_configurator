@@ -94,10 +94,6 @@ async fn main() {
     setup_logging(LevelFilter::Info);
     trace!("Logging setup successful");
     let args = Dotfiles::parse();
-    let directory = "C:\\Repositories\\Personal\\Testing";
-    if fs::exists(directory).unwrap_or(false) {
-        let _ = fs::remove_dir_all(directory);
-    }
 
     let config_loader = ConfigurationLoader::new(args);
     match config_loader.load_all_configurations().await {
