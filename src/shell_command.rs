@@ -23,9 +23,12 @@ fn get_shell_command(shell_command: &ShellCommand) -> (Vec<String>, &str, bool) 
         }
         ShellCommand::CommandPrompt(cli_command) => {
             let mut args = vec![];
-            if cli_command.interactive {
+            if cli_command.require_output {
+                args.extend(vec!["/C".into()]);
+            } else if cli_command.interactive {
                 args.extend(vec!["/C".into(), "start".into()]);
             }
+
             args.extend(cli_command.args.clone());
             (args, "cmd", cli_command.interactive)
         }
@@ -86,7 +89,7 @@ impl Executor for ShellCommand {
 }
 
 impl ExecutorSync for ShellCommand {
-    fn execute_sync(&self) -> Result<()> {
+    fn execute_sync(&self) -> Result<String> {
         let (args, shell_program, _) = get_shell_command(self);
         info!("In {shell_program}, executing {}", args.join(" "));
 
@@ -102,7 +105,7 @@ impl ExecutorSync for ShellCommand {
 
         match result {
             Ok(output) => match output.status.success() {
-                true => Ok(()),
+                true => Ok(String::from_utf8(output.stdout).expect("Uf8 only for standard out")),
                 false => {
                     Err(anyhow!("Command exited with non zero exit status")).with_context(|| {
                         format!(

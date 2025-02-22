@@ -22,7 +22,7 @@ pub trait Executor {
 }
 
 pub trait ExecutorSync {
-    fn execute_sync(&self) -> Result<()>;
+    fn execute_sync(&self) -> Result<String>;
 }
 
 pub struct Config {

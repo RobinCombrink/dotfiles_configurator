@@ -5,7 +5,11 @@ use indicatif::ProgressBar;
 use log::{error, info, trace};
 use octocrab::Octocrab;
 use secrecy::{ExposeSecret, SecretString};
-use std::{io, process::Command, sync::LazyLock};
+use std::{
+    io,
+    process::{exit, Command},
+    sync::LazyLock,
+};
 
 use crate::impls::ExecutorSync;
 
@@ -60,24 +64,26 @@ fn switch_github_cli_user(user: &str) -> Result<()> {
             format!("{user}"),
         ],
         false,
+        false,
     );
-    command.execute_sync()
+    command.execute_sync()?;
+    Ok(())
 }
 
 pub(crate) fn get_github_token() -> secrecy::SecretBox<str> {
-    let token = SecretString::new(
-        String::from_utf8(
-            Command::new("cmd")
-                .args(&["cmd", "/C", "gh", "auth", "token"])
-                .output()
-                .expect("Not utf8 output")
-                .stdout,
-        )
-        .expect("Invalid token")
-        .trim()
-        .to_owned()
-        .into(),
+    let command = ShellCommand::new(
+        vec!["gh".to_string(), "auth".to_string(), "token".to_string()],
+        true,
+        false,
     );
+
+    let token = match command.execute_sync() {
+        Ok(token) => token.trim().to_owned().into(),
+        Err(err) => {
+            eprintln!("Could not get token: {:#?}", err);
+            exit(1)
+        }
+    };
     token
 }
 
