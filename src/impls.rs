@@ -11,6 +11,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle};
 use log::{error, trace};
 use reqwest::Client;
 use secrecy::SecretString;
+use serde::Serialize;
 use std::borrow::Cow;
 use std::future::Future;
 use std::time::Duration;
@@ -25,6 +26,8 @@ pub trait ExecutorSync {
     fn execute_sync(&self) -> Result<String>;
 }
 
+
+#[derive(Serialize)]
 pub struct Config {
     configuration: Configuration,
     download_directory: PathBuf,

@@ -1,19 +1,19 @@
 use std::{fs, path::PathBuf};
 
-use crate::{github, impls::Config, Dotfiles, RemoteConfigArguments};
+use crate::{github, impls::Config, Command, RemoteConfigArguments};
 use anyhow::{anyhow, Context, Result};
 use common::configuration::Configuration;
 use futures::future::{join, join_all};
 use log::error;
 
 pub struct ConfigurationLoader {
-    args: Dotfiles,
+    args: Command,
     download_directory: PathBuf,
     home_directory: PathBuf,
 }
 
 impl ConfigurationLoader {
-    pub fn new(args: Dotfiles) -> Self {
+    pub fn new(args: Command) -> Self {
         let download_directory = dirs::download_dir().expect("Failed to find download directory");
         let home_directory = dirs::home_dir().expect("Failed to find home directory");
         Self {
@@ -26,13 +26,13 @@ impl ConfigurationLoader {
         let mut configs = vec![];
 
         match &self.args {
-            Dotfiles::Local(args) => configs.append(
+            Command::Local(args) => configs.append(
                 &mut self
                     .load_local_configurations(&args.directory_path)
                     .await
                     .with_context(|| format!("Could not load local configuration"))?,
             ),
-            Dotfiles::Remote(remote) => configs.append(
+            Command::Remote(remote) => configs.append(
                 &mut self
                     .load_external_configurations(&remote)
                     .await
@@ -40,7 +40,7 @@ impl ConfigurationLoader {
                         format!("could not load remote configuration: {:#?}", remote)
                     })?,
             ),
-            Dotfiles::Remotes(args) => {
+            Command::Remotes(args) => {
                 let loaded_external_configurations = args
                     .remotes
                     .iter()
@@ -54,7 +54,7 @@ impl ConfigurationLoader {
 
                 configs.extend(remotes);
             }
-            Dotfiles::All(args) => {
+            Command::All(args) => {
                 let (local_configs, external_configs) = join(
                     self.load_local_configurations(&args.local.directory_path),
                     self.load_external_configurations(&args.remote),

@@ -3,7 +3,6 @@ use clap::{Args, Parser};
 use config::ConfigurationLoader;
 use env_logger;
 use log::{error, trace, LevelFilter};
-use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::exit;
@@ -67,7 +66,7 @@ struct RemotesConfigArguments {
 #[derive(Args, Debug)]
 #[command(about = "Use local config files", long_about = None)]
 struct LocalConfigArguments {
-    #[clap(short = 'p', long = "directory-path", default_value = DEFAULT_DIRECTORY_PATH)]
+    #[clap(short = 'd', long = "directory-path", default_value = DEFAULT_DIRECTORY_PATH)]
     directory_path: PathBuf,
 }
 
@@ -80,32 +79,51 @@ struct AllConfigArguments {
     local: LocalConfigArguments,
 }
 #[derive(Parser, Debug)]
-#[clap(name = "Dotfiles")]
-#[command(version, about, long_about = None)]
-enum Dotfiles {
+enum Command {
     Local(LocalConfigArguments),
     Remote(RemoteConfigArguments),
     Remotes(RemotesConfigArguments),
     All(AllConfigArguments),
 }
 
+#[derive(Parser, Debug)]
+#[clap(name = "Dotfiles")]
+#[command(version, about, long_about = None)]
+struct Arguments {
+    #[command(subcommand)]
+    command: Command,
+    #[arg(
+        global = true,
+        long("dry-run"),
+        help = "Display an execution plan instead of executing on the plan"
+    )]
+    dry_run: bool,
+}
+
 #[tokio::main]
 async fn main() {
     setup_logging(LevelFilter::Info);
     trace!("Logging setup successful");
-    let args = Dotfiles::parse();
+    let args = Arguments::parse();
 
-    let config_loader = ConfigurationLoader::new(args);
+    let config_loader = ConfigurationLoader::new(args.command);
     match config_loader.load_all_configurations().await {
         Ok(configs) => {
-            config::apply_all(configs)
-                .await
-                .into_iter()
-                .for_each(|applied_config| {
-                    if let Err(err) = applied_config {
-                        error!("Could not apply configuration: {:?}", err)
-                    }
-                });
+            if args.dry_run {
+                let dry_run_output =
+                    serde_json::to_string_pretty(&configs).expect("Invalid serialization");
+
+                println!("{}", dry_run_output);
+            } else {
+                config::apply_all(configs)
+                    .await
+                    .into_iter()
+                    .for_each(|applied_config| {
+                        if let Err(err) = applied_config {
+                            error!("Could not apply configuration: {:?}", err)
+                        }
+                    });
+            }
         }
         Err(err) => {
             println!("There was an error loading a configuration: {:?}", err);
