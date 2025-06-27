@@ -17,7 +17,7 @@ static GITHUB_CLI_PRESENT: LazyLock<bool> =
     LazyLock::new(|| is_github_cli_on_path().unwrap_or_else(|_| false));
 
 fn is_github_cli_on_path() -> Result<bool> {
-    match Command::new("gh").spawn() {
+    match Command::new("gh").output() {
         Ok(_) => {
             trace!("Github cli present: gh");
             Ok(true)
