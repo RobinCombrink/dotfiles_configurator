@@ -102,18 +102,22 @@ struct Arguments {
 
 #[tokio::main]
 async fn main() {
-    setup_logging(LevelFilter::Info);
-    trace!("Logging setup successful");
     let args = Arguments::parse();
+
+    match args.dry_run {
+        true => setup_logging(LevelFilter::Error),
+        false => setup_logging(LevelFilter::Info),
+    }
+
+    trace!("Logging setup successful");
 
     let config_loader = ConfigurationLoader::new(args.command);
     match config_loader.load_all_configurations().await {
         Ok(configs) => {
             if args.dry_run {
-                let dry_run_output =
-                    serde_json::to_string_pretty(&configs).expect("Invalid serialization");
+                let dry_run_output = config::dry_run_all(configs);
 
-                println!("{}", dry_run_output);
+                println!("{:#?}", dry_run_output);
             } else {
                 config::apply_all(configs)
                     .await

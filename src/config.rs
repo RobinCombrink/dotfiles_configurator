@@ -1,10 +1,11 @@
-use std::{fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use crate::{github, impls::Config, Command, RemoteConfigArguments};
 use anyhow::{anyhow, Context, Result};
-use common::configuration::Configuration;
+use common::configuration::{ApplicationDetails, Configuration, GitClone, GitCloneConfig};
 use futures::future::{join, join_all};
 use log::error;
+use serde::Serialize;
 
 pub struct ConfigurationLoader {
     args: Command,
@@ -160,4 +161,38 @@ impl ConfigurationLoader {
 
 pub async fn apply_all(configs: Vec<Config>) -> Vec<Result<()>> {
     join_all(configs.into_iter().map(|config| config.execute())).await
+}
+
+#[derive(Debug,Serialize)]
+pub struct DryRun {
+    downloads: Vec<ApplicationDetails>,
+    repository_clones: HashMap<GitCloneConfig, Vec<GitClone>>,
+}
+
+pub fn dry_run_all(configs: Vec<Config>) -> DryRun {
+    let downloads = configs
+        .clone()
+        .into_iter()
+        .flat_map(|config| config.configuration.downloads.applications)
+        .collect();
+
+    let mut repository_clones: HashMap<GitCloneConfig, Vec<GitClone>> = HashMap::new();
+    for config in configs {
+        if let Some(to_clones) = repository_clones.get(&config.configuration.clone_config) {
+            let mut new_to_clones = to_clones.to_owned();
+            new_to_clones.extend(config.configuration.to_clones);
+
+            repository_clones.insert(config.configuration.clone_config, new_to_clones);
+        } else {
+            repository_clones.insert(
+                config.configuration.clone_config,
+                config.configuration.to_clones,
+            );
+        }
+    }
+
+    DryRun {
+        downloads,
+        repository_clones,
+    }
 }

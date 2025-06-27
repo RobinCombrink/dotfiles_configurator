@@ -26,10 +26,9 @@ pub trait ExecutorSync {
     fn execute_sync(&self) -> Result<String>;
 }
 
-
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Config {
-    configuration: Configuration,
+    pub configuration: Configuration,
     download_directory: PathBuf,
     home_dir: PathBuf,
 }
