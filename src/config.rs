@@ -1,9 +1,10 @@
 use std::{collections::HashMap, fs, path::PathBuf};
 
-use crate::{github, impls::Config, shell_command, Command, RemoteConfigArguments};
+use crate::{github, impls::Config, Command, RemoteConfigArguments};
 use anyhow::{anyhow, Context, Result};
 use common::configuration::{
-    ApplicationDetails, Configuration, DetailsType, GitClone, GitCloneConfig, ShellCommand,
+    ApplicationDetails, Configuration, DetailsType, GitClone, GitCloneConfig, RepositoryDetails,
+    ShellCommand,
 };
 use futures::future::{join, join_all};
 use log::error;
@@ -167,24 +168,24 @@ pub async fn apply_all(configs: Vec<Config>) -> Vec<Result<()>> {
 
 #[derive(Debug, Serialize)]
 pub struct DryRun {
-    downloads: Vec<ApplicationDetails>,
+    application_downloads: Vec<ApplicationDetails>,
+    github_assets: Vec<RepositoryDetails>,
     repository_clones: HashMap<GitCloneConfig, Vec<GitClone>>,
     dotfiles: HashMap<GitClone, Vec<DetailsType>>,
     shell_commands: Vec<ShellCommand>,
 }
 
 pub fn dry_run_all(configs: Vec<Config>) -> DryRun {
-    let downloads = configs
-        .clone()
-        .into_iter()
-        .flat_map(|config| config.configuration.downloads.applications)
-        .collect();
-
+    let mut application_downloads: Vec<ApplicationDetails> = vec![];
+    let mut github_assets: Vec<RepositoryDetails> = vec![];
     let mut repository_clones: HashMap<GitCloneConfig, Vec<GitClone>> = HashMap::new();
     let mut dotfiles: HashMap<GitClone, Vec<DetailsType>> = HashMap::new();
     let mut shell_commands: Vec<ShellCommand> = vec![];
 
     for config in configs {
+        application_downloads.extend(config.configuration.downloads.applications);
+        github_assets.extend(config.configuration.downloads.github_releases);
+
         if let Some(to_clones) = repository_clones.get(&config.configuration.clone_config) {
             let mut new_to_clones = to_clones.to_owned();
             new_to_clones.extend(config.configuration.to_clones);
@@ -216,7 +217,8 @@ pub fn dry_run_all(configs: Vec<Config>) -> DryRun {
     }
 
     DryRun {
-        downloads,
+        application_downloads,
+        github_assets,
         repository_clones,
         dotfiles,
         shell_commands,
