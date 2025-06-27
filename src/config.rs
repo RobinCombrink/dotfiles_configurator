@@ -1,9 +1,9 @@
 use std::{collections::HashMap, fs, path::PathBuf};
 
-use crate::{github, impls::Config, Command, RemoteConfigArguments};
+use crate::{github, impls::Config, shell_command, Command, RemoteConfigArguments};
 use anyhow::{anyhow, Context, Result};
 use common::configuration::{
-    ApplicationDetails, Configuration, DetailsType, GitClone, GitCloneConfig,
+    ApplicationDetails, Configuration, DetailsType, GitClone, GitCloneConfig, ShellCommand,
 };
 use futures::future::{join, join_all};
 use log::error;
@@ -170,6 +170,7 @@ pub struct DryRun {
     downloads: Vec<ApplicationDetails>,
     repository_clones: HashMap<GitCloneConfig, Vec<GitClone>>,
     dotfiles: HashMap<GitClone, Vec<DetailsType>>,
+    shell_commands: Vec<ShellCommand>,
 }
 
 pub fn dry_run_all(configs: Vec<Config>) -> DryRun {
@@ -181,6 +182,8 @@ pub fn dry_run_all(configs: Vec<Config>) -> DryRun {
 
     let mut repository_clones: HashMap<GitCloneConfig, Vec<GitClone>> = HashMap::new();
     let mut dotfiles: HashMap<GitClone, Vec<DetailsType>> = HashMap::new();
+    let mut shell_commands: Vec<ShellCommand> = vec![];
+
     for config in configs {
         if let Some(to_clones) = repository_clones.get(&config.configuration.clone_config) {
             let mut new_to_clones = to_clones.to_owned();
@@ -206,11 +209,16 @@ pub fn dry_run_all(configs: Vec<Config>) -> DryRun {
                 dotfiles.insert(config.configuration.dotfiles_repository, config_dotfiles);
             }
         }
+
+        if let Some(new_shell_commands) = config.configuration.shell_commands {
+            shell_commands.extend(new_shell_commands);
+        }
     }
 
     DryRun {
         downloads,
         repository_clones,
         dotfiles,
+        shell_commands,
     }
 }
