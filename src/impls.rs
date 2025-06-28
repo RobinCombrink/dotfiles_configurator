@@ -193,7 +193,7 @@ impl Config {
         let token = Some(github::get_github_token());
         let git_clones = self
             .configuration
-            .to_clones
+            .git_clones
             .clone()
             .into_iter()
             .map(|git_clone| {
@@ -204,18 +204,18 @@ impl Config {
         let mut tasks = JoinSet::new();
 
         let coordinator_progress_bar = Self::create_progress_bar(
-            self.configuration.to_clones.len(),
+            self.configuration.git_clones.len(),
             format!(
                 "Cloning {} repositories",
-                self.configuration.to_clones.len()
+                self.configuration.git_clones.len()
             ),
             ProgressFinish::WithMessage(Cow::from(format!(
                 "{} repos downloaded",
-                self.configuration.to_clones.len()
+                self.configuration.git_clones.len()
             ))),
             ProgressStyle::with_template(&format!(
                 "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
-                self.configuration.to_clones.len()
+                self.configuration.git_clones.len()
             ))
             .unwrap()
             .progress_chars("✓▢▢"),

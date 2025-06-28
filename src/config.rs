@@ -199,13 +199,13 @@ pub fn plan_all(configs: Vec<Config>) -> ExecutionPlan {
 
         if let Some(to_clones) = repository_clones.get(&config.configuration.clone_config) {
             let mut new_to_clones = to_clones.to_owned();
-            new_to_clones.extend(config.configuration.to_clones);
+            new_to_clones.extend(config.configuration.git_clones);
 
             repository_clones.insert(config.configuration.clone_config, new_to_clones);
         } else {
             repository_clones.insert(
                 config.configuration.clone_config,
-                config.configuration.to_clones,
+                config.configuration.git_clones,
             );
         }
 
