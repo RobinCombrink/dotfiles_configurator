@@ -167,7 +167,7 @@ pub async fn apply_all(configs: Vec<Config>) -> Vec<Result<()>> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct DryRun {
+pub struct ExecutionPlan {
     application_downloads: Vec<ApplicationDetails>,
     github_assets: Vec<RepositoryDetails>,
     repository_clones: HashMap<GitCloneConfig, Vec<GitClone>>,
@@ -175,7 +175,7 @@ pub struct DryRun {
     shell_commands: Vec<ShellCommand>,
 }
 
-pub fn dry_run_all(configs: Vec<Config>) -> DryRun {
+pub fn plan_all(configs: Vec<Config>) -> ExecutionPlan {
     let mut application_downloads: Vec<ApplicationDetails> = vec![];
     let mut github_assets: Vec<RepositoryDetails> = vec![];
     let mut repository_clones: HashMap<GitCloneConfig, Vec<GitClone>> = HashMap::new();
@@ -216,7 +216,7 @@ pub fn dry_run_all(configs: Vec<Config>) -> DryRun {
         }
     }
 
-    DryRun {
+    ExecutionPlan {
         application_downloads,
         github_assets,
         repository_clones,

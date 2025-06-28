@@ -115,9 +115,9 @@ async fn main() {
     match config_loader.load_all_configurations().await {
         Ok(configs) => {
             if args.dry_run {
-                let dry_run_output = config::dry_run_all(configs);
+                let plan_output = config::plan_all(configs);
 
-                println!("{:#?}", dry_run_output);
+                println!("{:#?}", plan_output);
             } else {
                 config::apply_all(configs)
                     .await
