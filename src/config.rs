@@ -169,7 +169,7 @@ pub async fn apply_all(configs: Vec<Config>) -> Vec<Result<()>> {
 #[derive(Debug, Serialize)]
 pub struct ExecutionPlan {
     application_downloads: Vec<ApplicationDetails>,
-    github_assets: Vec<RepositoryDetails>,
+    github_assets: HashMap<GitCloneConfig, Vec<RepositoryDetails>>,
     repository_clones: HashMap<GitCloneConfig, Vec<GitClone>>,
     dotfiles: HashMap<GitClone, Vec<DetailsType>>,
     shell_commands: Vec<ShellCommand>,
@@ -177,14 +177,25 @@ pub struct ExecutionPlan {
 
 pub fn plan_all(configs: Vec<Config>) -> ExecutionPlan {
     let mut application_downloads: Vec<ApplicationDetails> = vec![];
-    let mut github_assets: Vec<RepositoryDetails> = vec![];
+    let mut github_assets: HashMap<GitCloneConfig, Vec<RepositoryDetails>> = HashMap::new();
     let mut repository_clones: HashMap<GitCloneConfig, Vec<GitClone>> = HashMap::new();
     let mut dotfiles: HashMap<GitClone, Vec<DetailsType>> = HashMap::new();
     let mut shell_commands: Vec<ShellCommand> = vec![];
 
     for config in configs {
         application_downloads.extend(config.configuration.downloads.applications);
-        github_assets.extend(config.configuration.downloads.github_releases);
+
+        if let Some(assets) = github_assets.get(&config.configuration.clone_config) {
+            let mut new_assets = assets.to_owned();
+            new_assets.extend(config.configuration.downloads.github_releases);
+
+            github_assets.insert(config.configuration.clone_config.clone(), new_assets);
+        } else {
+            github_assets.insert(
+                config.configuration.clone_config.clone(),
+                config.configuration.downloads.github_releases,
+            );
+        }
 
         if let Some(to_clones) = repository_clones.get(&config.configuration.clone_config) {
             let mut new_to_clones = to_clones.to_owned();
