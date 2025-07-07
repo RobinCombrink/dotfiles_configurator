@@ -1,8 +1,11 @@
 use anyhow::Result;
 use clap::{Args, Parser};
 use config::ConfigurationLoader;
+use dirs::download_dir;
 use env_logger;
 use log::{error, trace, LevelFilter};
+use reqwest::Client;
+use std::env::home_dir;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::exit;
@@ -13,6 +16,7 @@ mod dotfiles;
 mod download;
 mod github;
 pub mod impls;
+mod progress_bar;
 mod shell_command;
 
 const DEFAULT_DIRECTORY_PATH: &str = "config";
@@ -113,18 +117,18 @@ async fn main() {
 
     let config_loader = ConfigurationLoader::new(args.command);
     match config_loader.load_all_configurations().await {
-        Ok(configs) => {
+        Ok(execution_plan) => {
             if args.dry_run {
-                let plan_output = config::plan_all(configs);
-
-                println!("{:#?}", plan_output);
+                println!("{:#?}", execution_plan);
             } else {
-                config::apply_all(configs)
+                let client = Client::default();
+                execution_plan
+                    .execute(client)
                     .await
                     .into_iter()
                     .for_each(|applied_config| {
                         if let Err(err) = applied_config {
-                            error!("Could not apply configuration: {:?}", err)
+                            error!("Could not apply configuration item: {:?}", err)
                         }
                     });
             }

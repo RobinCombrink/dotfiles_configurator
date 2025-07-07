@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use crate::impls::Executor;
 
+#[derive(Debug, Clone)]
 pub struct DotfilesDetails {
     details: DetailsType,
     home_dir: PathBuf,

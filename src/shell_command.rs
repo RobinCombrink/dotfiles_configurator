@@ -57,7 +57,7 @@ fn get_shell_command(shell_command: &ShellCommand) -> (Vec<String>, &str, bool) 
 }
 
 impl Executor for ShellCommand {
-    fn execute(&self) -> impl Future<Output = Result<()>> + Send {
+    fn execute(&self) -> impl Future<Output = Result<(), anyhow::Error>> {
         let (args, shell_program, interactive) = get_shell_command(self);
         info!("In {shell_program}, executing {}", args.join(" "));
 

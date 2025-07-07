@@ -1,9 +1,15 @@
+use crate::config::{DownloadType, ExecutionPlan, ExecutionPlanItem};
 use crate::dotfiles::DotfilesDetails;
+use crate::progress_bar::{
+    create_download_application_progress_bar, create_download_asset_progress_bar,
+    create_progress_bar,
+};
 use crate::shell_command;
 use crate::{download::Downloader, github};
 use anyhow::{anyhow, Context, Result};
 use common::configuration::{
-    ApplicationDetails, AssetFind, Configuration, GitClone, RepositoryDetails,
+    ApplicationDetails, AssetFind, Configuration, ConfigurationItem, Download, GitClone,
+    GitCloneConfig, RepositoryDetails,
 };
 use futures::future::join_all;
 use git2::build::RepoBuilder;
@@ -13,13 +19,45 @@ use reqwest::Client;
 use secrecy::SecretString;
 use serde::Serialize;
 use std::borrow::Cow;
-use std::future::Future;
 use std::time::Duration;
 use std::{fs, path::PathBuf};
 use tokio::task::JoinSet;
 
 pub trait Executor {
-    fn execute(&self) -> impl Future<Output = Result<()>> + Send;
+    async fn execute(&self) -> Result<()>;
+}
+
+pub trait AssetDownloaderExecutor {}
+
+pub trait FileDownloaderExecutor {}
+
+pub trait DotfileExecutor {}
+
+pub trait CloneExecutor {}
+
+pub trait ShellCommandExecutor {}
+
+pub trait ItemProgress {
+    fn create_progress_bar(&self, path: PathBuf) -> ProgressBar;
+}
+
+impl ItemProgress for DownloadType {
+    fn create_progress_bar(&self, path: PathBuf) -> ProgressBar {
+        match self {
+            DownloadType::Application(_) => create_download_application_progress_bar(),
+            DownloadType::GitHubAsset(repository_details) => create_download_asset_progress_bar(
+                &repository_details.owner,
+                &repository_details.repo,
+                path,
+            ),
+        }
+    }
+}
+
+impl ItemProgress for GitClone {
+    fn create_progress_bar(&self, path: PathBuf) -> ProgressBar {
+        create_download_asset_progress_bar(&self.owner, &self.repo, path.join(&self.repo))
+    }
 }
 
 pub trait ExecutorSync {
@@ -34,256 +72,24 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_configuration(
-        configuration: Configuration,
-        download_directory: PathBuf,
-        home_dir: PathBuf,
-    ) -> Self {
-        Config {
-            configuration,
-            download_directory,
-            home_dir,
-        }
-    }
     pub async fn execute(self) -> Result<()> {
         let repositories_path = self
             .configuration
             .clone_config
             .repositories_directory_path
             .clone();
-        let name = &self.configuration.dotfiles_repository.repo;
-        let dotfiles_repo_result = GitCloneArgs::from_gitclone(
-            self.configuration.dotfiles_repository.clone(),
-            repositories_path.clone(),
-            None,
-        )
-        .git_clone(Self::create_download_asset_progress_bar(
-            &self.configuration.dotfiles_repository.owner,
-            name,
-            repositories_path.clone(),
-        ))
-        .await;
+        let repo = self.configuration.clone_config.dotfiles_repository;
+        let name = &repo.repo;
+        // let dotfiles_repo_result =
+        //     GitCloneArgs::from_gitclone(repo.clone(), repositories_path.clone(), None)
+        //         .git_clone(Self::create_download_asset_progress_bar(
+        //             &repo.owner,
+        //             name,
+        //             repositories_path.clone(),
+        //         ))
+        //         .await;
 
-        if let Err(e) = dotfiles_repo_result {
-            error!("Something went wrong cloning the dotfiles repo: {e}")
-        }
-
-        println!("\n");
-
-        self.download_and_install_all(&self.download_directory)
-            .await;
-
-        for result in self.clone_repos(repositories_path).await {
-            if let Err(err) = result {
-                error!("Could not clone or fetch repo: {:?}", err);
-            }
-        }
-        let _ = shell_command::execute_all(&self.configuration.shell_commands);
         Ok(())
-    }
-}
-
-impl Config {
-    async fn download_and_install_all(&self, download_directory: &PathBuf) {
-        let client = Client::default();
-        join_all(
-            self.configuration
-                .downloads
-                .github_releases
-                .iter()
-                .map(|details| {
-                    details.download_self(
-                        client.clone(),
-                        download_directory.to_path_buf(),
-                        Self::create_download_asset_progress_bar(
-                            &details.owner,
-                            &details.repo,
-                            download_directory.join(&details.repo),
-                        ),
-                    )
-                }),
-        )
-        .await;
-
-        self.download_applications(client, download_directory).await;
-
-        let github_releases_dotfiles_details = self
-            .configuration
-            .downloads
-            .github_releases
-            .clone()
-            .into_iter()
-            .filter_map(|release| release.dotfiles)
-            .flatten()
-            .map(|details| {
-                DotfilesDetails::from_details(
-                    details,
-                    self.configuration
-                        .clone_config
-                        .repositories_directory_path
-                        .join(self.configuration.dotfiles_repository.repo.clone()),
-                    self.home_dir.clone(),
-                )
-            });
-
-        let github_releases_commands = self
-            .configuration
-            .downloads
-            .github_releases
-            .clone()
-            .into_iter()
-            .filter_map(|release| release.shell_commands)
-            .flatten();
-
-        for details in github_releases_dotfiles_details {
-            let _ = details.execute().await;
-        }
-
-        for command in github_releases_commands {
-            let _ = command.execute();
-        }
-    }
-
-    async fn download_applications(&self, client: Client, download_directory: &PathBuf) {
-        let multi_progress = MultiProgress::new();
-
-        let to_download = self.configuration.downloads.applications.len();
-        let coordinator_progress_bar = multi_progress.add(Self::create_progress_bar(
-            to_download,
-            format!("Downloading applications"),
-            ProgressFinish::WithMessage(Cow::from(format!("{} downloaded", to_download))),
-            ProgressStyle::with_template(&format!(
-                "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
-                to_download
-            ))
-            .unwrap()
-            .progress_chars("✓▢▢"),
-        ));
-        coordinator_progress_bar.set_position(0);
-        let mut tasks = JoinSet::new();
-
-        let applications = self
-            .configuration
-            .downloads
-            .applications
-            .clone()
-            .into_iter();
-
-        for details in applications {
-            let progress_bar = multi_progress.add(Self::create_download_application_progress_bar());
-            let download_directory = download_directory.clone();
-            let client = client.clone();
-            tasks.spawn(async move {
-                let _ = details
-                    .download_self(client, download_directory, progress_bar)
-                    .await;
-            });
-        }
-        let mut results: Vec<Result<()>> = Vec::new();
-        while let Some(res) = tasks.join_next().await {
-            match res {
-                Ok(_) => results.push(Ok(())),
-                Err(err) => results.push(Err(err.into())),
-            }
-            coordinator_progress_bar.set_position(results.len().try_into().unwrap());
-        }
-    }
-
-    async fn clone_repos(&self, directory_path: PathBuf) -> Vec<Result<()>> {
-        let token = Some(github::get_github_token());
-        let git_clones = self
-            .configuration
-            .git_clones
-            .clone()
-            .into_iter()
-            .map(|git_clone| {
-                GitCloneArgs::from_gitclone(git_clone, directory_path.clone(), token.clone())
-            });
-
-        let multi_progress = MultiProgress::new();
-        let mut tasks = JoinSet::new();
-
-        let coordinator_progress_bar = Self::create_progress_bar(
-            self.configuration.git_clones.len(),
-            format!(
-                "Cloning {} repositories",
-                self.configuration.git_clones.len()
-            ),
-            ProgressFinish::WithMessage(Cow::from(format!(
-                "{} repos downloaded",
-                self.configuration.git_clones.len()
-            ))),
-            ProgressStyle::with_template(&format!(
-                "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
-                self.configuration.git_clones.len()
-            ))
-            .unwrap()
-            .progress_chars("✓▢▢"),
-        );
-
-        let coordinator_progress_bar = multi_progress.add(coordinator_progress_bar);
-        coordinator_progress_bar.set_position(0);
-        print!("\n");
-
-        for repo_details in git_clones {
-            let progress_bar = multi_progress.add(Self::create_download_asset_progress_bar(
-                &repo_details.git_clone.owner,
-                &repo_details.git_clone.repo,
-                directory_path.join(&repo_details.git_clone.repo),
-            ));
-            tasks.spawn(async move { repo_details.clone_and_execute(progress_bar).await });
-        }
-        let mut results = Vec::new();
-        while let Some(res) = tasks.join_next().await {
-            match res {
-                Ok(a) => results.push(a),
-                Err(err) => results.push(Err(err.into())),
-            }
-            coordinator_progress_bar.set_position(results.len().try_into().unwrap());
-        }
-        results
-    }
-
-    fn create_progress_bar(
-        length: usize,
-        message: impl Into<Cow<'static, str>>,
-        finish: ProgressFinish,
-        style: ProgressStyle,
-    ) -> ProgressBar {
-        ProgressBar::new(length.try_into().unwrap())
-            .with_finish(finish)
-            .with_message(message)
-            .with_style(style)
-            .with_elapsed(Duration::new(0, 0))
-            .with_position(0)
-    }
-
-    fn create_download_application_progress_bar() -> ProgressBar {
-        ProgressBar::new(0).with_style(ProgressStyle::default_bar()
-                 .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}")
-                 .unwrap()
-                 .progress_chars("#>-"))
-    }
-
-    fn create_download_asset_progress_bar(
-        owner: &String,
-        repo: &String,
-        repository_path: PathBuf,
-    ) -> ProgressBar {
-        let finish = indicatif::ProgressFinish::WithMessage(Cow::from(format!(
-            "Cloned {owner}/{repo} into {:#?}",
-            repository_path
-        )));
-
-        let message = format!("Cloning {owner}/{repo} into {:#?}", repository_path);
-
-        let style = ProgressStyle::with_template(
-            "[{elapsed_precise}] {bar:100.cyan/blue} {pos:>7}/{len:7} {msg}",
-        )
-        .unwrap()
-        .progress_chars("##-");
-
-        Self::create_progress_bar(100, message, finish, style)
     }
 }
 
