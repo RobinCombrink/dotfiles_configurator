@@ -189,6 +189,9 @@ pub struct ExecutionPlan {
 }
 
 impl ExecutionPlan {
+    pub(crate) async fn execute_no_install(self, client: Client) -> Vec<Result<()>> {
+        vec![]
+    }
     pub(crate) async fn execute(self, client: Client) -> Vec<Result<()>> {
         let multi_progress = MultiProgress::new();
         let mut application_download_tasks = JoinSet::new();
@@ -197,34 +200,29 @@ impl ExecutionPlan {
 
         let token = Some(github::get_github_token());
 
-        self.items
-            .into_iter()
-            .for_each(|(config, execution_items)| {
-                let mut applications_to_download: Vec<ExecutionPlanItem> = vec![];
-                let mut dotfiles_to_setup: Vec<ExecutionPlanItem> = vec![];
-                let mut repositories_to_clone: Vec<ExecutionPlanItem> = vec![];
-                let mut dotfiles_to_setup: Vec<ExecutionPlanItem> = vec![];
-                let mut shell_commands_to_execute: Vec<ExecutionPlanItem> = vec![];
+        for (config, execution_items) in self.items.into_iter() {
+            let mut applications_to_download: Vec<ExecutionPlanItem> = vec![];
+            let mut dotfiles_to_setup: Vec<ExecutionPlanItem> = vec![];
+            let mut repositories_to_clone: Vec<ExecutionPlanItem> = vec![];
+            let mut shell_commands_to_execute: Vec<ExecutionPlanItem> = vec![];
 
-                for execution_item in execution_items.clone() {
-                    match execution_item {
-                        ExecutionPlanItem::Download(ref download) => match download {
-                            DownloadType::Application(_) => {
-                                applications_to_download.push(execution_item)
-                            }
-                            DownloadType::GitHubAsset(_) => {
-                                applications_to_download.push(execution_item)
-                            }
-                        },
-                        ExecutionPlanItem::Dotfile(_) => dotfiles_to_setup.push(execution_item),
-                        ExecutionPlanItem::GitClone(_) => {
-                            repositories_to_clone.push(execution_item)
+            for execution_item in execution_items.clone() {
+                match execution_item {
+                    ExecutionPlanItem::Download(ref download) => match download {
+                        DownloadType::Application(_) => {
+                            applications_to_download.push(execution_item)
                         }
-                        ExecutionPlanItem::ShellCommand(_) => {
-                            shell_commands_to_execute.push(execution_item)
+                        DownloadType::GitHubAsset(_) => {
+                            applications_to_download.push(execution_item)
                         }
+                    },
+                    ExecutionPlanItem::Dotfile(_) => dotfiles_to_setup.push(execution_item),
+                    ExecutionPlanItem::GitClone(_) => repositories_to_clone.push(execution_item),
+                    ExecutionPlanItem::ShellCommand(_) => {
+                        shell_commands_to_execute.push(execution_item)
                     }
                 }
+            }
 
                 let applications_to_download_count = applications_to_download.len();
                 let application_download_coordinator_progress_bar =

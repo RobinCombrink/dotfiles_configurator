@@ -90,6 +90,13 @@ enum Command {
     All(AllConfigArguments),
 }
 
+#[derive(Parser, Debug, Clone, ValueEnum)]
+enum ExecutionType {
+    Execute,
+    DryRun,
+    NoInstall,
+}
+
 #[derive(Parser, Debug)]
 #[clap(name = "Dotfiles")]
 #[command(version, about, long_about = None)]
@@ -98,17 +105,20 @@ struct Arguments {
     command: Command,
     #[arg(
         global = true,
-        long("dry-run"),
-        help = "Display an execution plan instead of executing on the plan"
+        help = "The type of execution to run",
+        value_enum,
+        default_value_t = ExecutionType::Execute,
     )]
-    dry_run: bool,
+    execution_type: ExecutionType,
+    #[arg(global = true, help = "Enable debug logging")]
+    debug: bool,
 }
 
 #[tokio::main]
 async fn main() {
     let args = Arguments::parse();
 
-    match args.dry_run {
+    match args.debug {
         true => setup_logging(LevelFilter::Error),
         false => setup_logging(LevelFilter::Info),
     }
@@ -117,10 +127,11 @@ async fn main() {
 
     let config_loader = ConfigurationLoader::new(args.command);
     match config_loader.load_all_configurations().await {
-        Ok(execution_plan) => {
-            if args.dry_run {
+        Ok(execution_plan) => match args.execution_type {
+            ExecutionType::DryRun => {
                 println!("{:#?}", execution_plan);
-            } else {
+            }
+            ExecutionType::Execute => {
                 let client = Client::default();
                 execution_plan
                     .execute(client)
@@ -132,7 +143,22 @@ async fn main() {
                         }
                     });
             }
-        }
+            ExecutionType::NoInstall => {
+                let client = Client::default();
+                execution_plan
+                    .execute_no_install(client)
+                    .await
+                    .into_iter()
+                    .for_each(|applied_config| {
+                        if let Err(err) = applied_config {
+                            error!(
+                                "Could not prepare the configuration item for download: {:?}",
+                                err
+                            )
+                        }
+                    });
+            }
+        },
         Err(err) => {
             println!("There was an error loading a configuration: {:?}", err);
             exit(1);
