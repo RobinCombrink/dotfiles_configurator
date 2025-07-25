@@ -108,7 +108,12 @@ struct Arguments {
         default_value_t = ExecutionType::Execute,
     )]
     execution_type: ExecutionType,
-    #[arg(global = true, help = "Enable debug logging")]
+    #[arg(
+        global = true,
+        long="debug",
+        num_args = 0,
+        help = "Enable debug logging"
+    )]
     debug: bool,
 }
 
