@@ -15,7 +15,7 @@ use std::future::Future;
 use std::{fs, path::PathBuf};
 
 pub trait Executor {
-    async fn execute(&self) -> Result<()>;
+    fn execute(&self) -> impl Future<Output = Result<()>> + Send;
 }
 
 pub trait AssetDownloaderExecutor {}
