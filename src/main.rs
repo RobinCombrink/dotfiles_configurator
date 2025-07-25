@@ -122,8 +122,8 @@ async fn main() {
     let args = Arguments::parse();
 
     match args.debug {
-        true => setup_logging(LevelFilter::Error),
-        false => setup_logging(LevelFilter::Info),
+        true => setup_logging(LevelFilter::Info),
+        false => setup_logging(LevelFilter::Error),
     }
 
     trace!("Logging setup successful");
