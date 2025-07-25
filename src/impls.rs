@@ -1,27 +1,18 @@
-use crate::config::{DownloadType, ExecutionPlan, ExecutionPlanItem};
-use crate::dotfiles::DotfilesDetails;
+use crate::config::DownloadType;
 use crate::progress_bar::{
     create_download_application_progress_bar, create_download_asset_progress_bar,
-    create_progress_bar,
 };
 use crate::shell_command;
 use crate::{download::Downloader, github};
 use anyhow::{anyhow, Context, Result};
-use common::configuration::{
-    ApplicationDetails, AssetFind, Configuration, ConfigurationItem, Download, GitClone,
-    GitCloneConfig, RepositoryDetails,
-};
-use futures::future::join_all;
+use common::configuration::{ApplicationDetails, AssetFind, GitClone, RepositoryDetails};
 use git2::build::RepoBuilder;
-use indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle};
-use log::{error, trace};
+use indicatif::ProgressBar;
+use log::trace;
 use reqwest::Client;
 use secrecy::SecretString;
-use serde::Serialize;
-use std::borrow::Cow;
-use std::time::Duration;
+use std::future::Future;
 use std::{fs, path::PathBuf};
-use tokio::task::JoinSet;
 
 pub trait Executor {
     async fn execute(&self) -> Result<()>;
@@ -62,35 +53,6 @@ impl ItemProgress for GitClone {
 
 pub trait ExecutorSync {
     fn execute_sync(&self) -> Result<String>;
-}
-
-#[derive(Serialize, Clone)]
-pub struct Config {
-    pub configuration: Configuration,
-    download_directory: PathBuf,
-    home_dir: PathBuf,
-}
-
-impl Config {
-    pub async fn execute(self) -> Result<()> {
-        let repositories_path = self
-            .configuration
-            .clone_config
-            .repositories_directory_path
-            .clone();
-        let repo = self.configuration.clone_config.dotfiles_repository;
-        let name = &repo.repo;
-        // let dotfiles_repo_result =
-        //     GitCloneArgs::from_gitclone(repo.clone(), repositories_path.clone(), None)
-        //         .git_clone(Self::create_download_asset_progress_bar(
-        //             &repo.owner,
-        //             name,
-        //             repositories_path.clone(),
-        //         ))
-        //         .await;
-
-        Ok(())
-    }
 }
 
 impl Downloader for ApplicationDetails {

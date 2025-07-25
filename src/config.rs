@@ -1,13 +1,12 @@
-use std::{borrow::Cow, collections::HashMap, env::home_dir, fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use crate::{
     dotfiles::DotfilesDetails,
     download::Downloader,
     github,
-    impls::{Config, Executor, ExecutorSync, GitCloneArgs, ItemProgress},
+    impls::{Executor, GitCloneArgs, ItemProgress},
     progress_bar::{
-        create_application_download_coordinator_progress_bar, create_download_asset_progress_bar,
-        create_progress_bar, create_repositories_clone_coordinator_progress_bar,
+        create_application_download_coordinator_progress_bar, create_repositories_clone_coordinator_progress_bar,
     },
     Command, RemoteConfigArguments,
 };
@@ -16,12 +15,10 @@ use common::configuration::{
     ApplicationDetails, Configuration, ConfigurationItem, DetailsType, Download, GitClone,
     GitCloneConfig, RepositoryDetails, ShellCommand,
 };
-use dirs::download_dir;
 use futures::future::{join, join_all};
-use indicatif::{MultiProgress, ProgressFinish, ProgressStyle};
+use indicatif::MultiProgress;
 use log::error;
 use reqwest::Client;
-use serde::Serialize;
 use tokio::task::JoinSet;
 
 pub struct ConfigurationLoader {
@@ -48,7 +45,12 @@ impl ConfigurationLoader {
                 &mut self
                     .load_local_configurations(&args.directory_path)
                     .await
-                    .with_context(|| format!("Could not load local configuration. Path:{:#?}", &args.directory_path))?,
+                    .with_context(|| {
+                        format!(
+                            "Could not load local configuration. Path:{:#?}",
+                            &args.directory_path
+                        )
+                    })?,
             ),
             Command::Remote(remote) => configs.append(
                 &mut self
