@@ -1,11 +1,9 @@
 use anyhow::Result;
-use clap::{Args, Parser};
+use clap::{Args, Parser, ValueEnum};
 use config::ConfigurationLoader;
-use dirs::download_dir;
 use env_logger;
 use log::{error, trace, LevelFilter};
 use reqwest::Client;
-use std::env::home_dir;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::exit;
