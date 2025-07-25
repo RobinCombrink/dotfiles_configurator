@@ -226,92 +226,97 @@ impl ExecutionPlan {
                 }
             }
 
-                let applications_to_download_count = applications_to_download.len();
-                let application_download_coordinator_progress_bar =
-                    create_application_download_coordinator_progress_bar(
-                        &multi_progress,
-                        applications_to_download_count,
-                    );
+            let applications_to_download_count = applications_to_download.len();
+            let application_download_coordinator_progress_bar =
+                create_application_download_coordinator_progress_bar(
+                    &multi_progress,
+                    applications_to_download_count,
+                );
+            let repositories_clone_coordinator_progress_bar =
+                create_repositories_clone_coordinator_progress_bar(repositories_to_clone.len());
 
-                execution_items.into_iter().for_each(|item| {
-                    let client = client.clone();
-                    let download_directory = self.download_directory.clone();
-                    match item {
-                        ExecutionPlanItem::Download(download) => {
-                            let progress_bar =
-                                download.create_progress_bar(self.download_directory.clone());
-                            match download {
-                                DownloadType::Application(application_details) => {
-                                    application_download_tasks.spawn(async move {
-                                        application_details
-                                            .to_owned()
-                                            .download_self(client, download_directory, progress_bar)
-                                            .await
-                                    })
-                                }
-                                DownloadType::GitHubAsset(repository_details) => {
-                                    application_download_tasks.spawn(async move {
-                                        repository_details
-                                            .download_self(client, download_directory, progress_bar)
-                                            .await
-                                    })
-                                }
-                            };
-                            ()
-                        }
-                        ExecutionPlanItem::GitClone(ref git_clone) => {
-                            let repositories_clone_coordinator_progress_bar =
-                                create_repositories_clone_coordinator_progress_bar(
-                                    repositories_to_clone.len(),
-                                );
+            let repositories_clone_coordinator_progress_bar =
+                multi_progress.add(repositories_clone_coordinator_progress_bar);
+            repositories_clone_coordinator_progress_bar.set_position(0);
 
-                            let repositories_clone_coordinator_progress_bar =
-                                multi_progress.add(repositories_clone_coordinator_progress_bar);
-                            repositories_clone_coordinator_progress_bar.set_position(0);
-                            print!("\n");
-
-                            let directory_path = config
-                                .repositories_directory_path
-                                .join(git_clone.repo.clone());
-                            let progress_bar = git_clone.create_progress_bar(directory_path);
-                            let progress_bar = multi_progress.add(progress_bar);
-                            let git_clone_args = GitCloneArgs::from_gitclone(
-                                git_clone.to_owned(),
-                                config.repositories_directory_path.clone(),
-                                token.clone(),
-                            );
-                            repository_clone_tasks.spawn(async move {
-                                git_clone_args.clone_and_execute(progress_bar).await
-                            });
-                        }
-                        ExecutionPlanItem::Dotfile(details_type) => {
-                            let dotfiles_repository_path = config
-                                .repositories_directory_path
-                                .join(&config.dotfiles_repository.repo);
-                            let dotfiles_details = DotfilesDetails::from_details(
-                                details_type,
-                                dotfiles_repository_path,
-                                self.home_directory.clone(),
-                            );
-                            dotfiles_tasks.spawn(async move {
-                                dotfiles_details.execute().await;
-                            });
-                            ()
-                        }
-                        ExecutionPlanItem::ShellCommand(shell_command) => {
-                            shell_command.execute_sync();
-                        }
+            for item in execution_items.into_iter() {
+                let client = client.clone();
+                let download_directory = self.download_directory.clone();
+                match item {
+                    ExecutionPlanItem::Download(download) => {
+                        let progress_bar =
+                            download.create_progress_bar(self.download_directory.clone());
+                        match download {
+                            DownloadType::Application(application_details) => {
+                                application_download_tasks.spawn(async move {
+                                    application_details
+                                        .to_owned()
+                                        .download_self(client, download_directory, progress_bar)
+                                        .await
+                                })
+                            }
+                            DownloadType::GitHubAsset(repository_details) => {
+                                application_download_tasks.spawn(async move {
+                                    repository_details
+                                        .download_self(client, download_directory, progress_bar)
+                                        .await
+                                })
+                            }
+                        };
                     }
-                })
-            });
-        // while let Some(res) = tasks.join_next().await {
-        //     match res {
-        //         Ok(_) => results.push(Ok(())),
-        //         Err(err) => results.push(Err(err.into())),
-        //     }
-        //     coordinator_progress_bar.set_position(results.len().try_into().unwrap());
-        // }
-        //
+                    ExecutionPlanItem::GitClone(ref git_clone) => {
+                        let directory_path = config
+                            .repositories_directory_path
+                            .join(git_clone.repo.clone());
+                        let progress_bar = git_clone.create_progress_bar(directory_path);
+                        let progress_bar = multi_progress.add(progress_bar);
+                        let git_clone_args = GitCloneArgs::from_gitclone(
+                            git_clone.to_owned(),
+                            config.repositories_directory_path.clone(),
+                            token.clone(),
+                        );
+                        repository_clone_tasks.spawn(async move {
+                            git_clone_args.clone_and_execute(progress_bar).await
+                        });
+                    }
+                    ExecutionPlanItem::Dotfile(details_type) => {
+                        let dotfiles_repository_path = config
+                            .repositories_directory_path
+                            .join(&config.dotfiles_repository.repo);
+                        let dotfiles_details = DotfilesDetails::from_details(
+                            details_type,
+                            dotfiles_repository_path,
+                            self.home_directory.clone(),
+                        );
+                        dotfiles_tasks.spawn(async move {
+                            dotfiles_details.execute().await;
+                        });
+                    }
+                    ExecutionPlanItem::ShellCommand(shell_command) => {
+                        shell_command.execute().await;
+                    }
+                }
+            }
+            let mut results: Vec<Result<()>> = Vec::new();
+            while let Some(res) = repository_clone_tasks.join_next().await {
+                match res {
+                    Ok(_) => results.push(Ok(())),
+                    Err(err) => results.push(Err(err.into())),
+                }
+                repositories_clone_coordinator_progress_bar
+                    .set_position(results.len().try_into().unwrap());
+            }
+            let mut results = Vec::new();
+            while let Some(res) = application_download_tasks.join_next().await {
+                match res {
+                    Ok(a) => results.push(a),
+                    Err(err) => results.push(Err(err.into())),
+                }
+                application_download_coordinator_progress_bar
+                    .set_position(results.len().try_into().unwrap());
+            }
+            // results
+        }
 
         // let mut results = Vec::new();
         // while let Some(res) = repository_clone_tasks.join_next().await {
