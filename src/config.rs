@@ -1,15 +1,16 @@
 use std::{fs, path::PathBuf};
 
-use crate::{
-    execution_plan::{ExecutionPlan, ExecutionPlanEntry, ExecutionPlanEntryConverter},
-    github::{self},
-    Command, RemoteConfigArguments,
+use {
+    crate::{
+        execution_plan::{ExecutionPlan, ExecutionPlanEntry, ExecutionPlanEntryConverter},
+        github::{self},
+        Command, RemoteConfigArguments,
+    },
+    anyhow::{anyhow, Context, Result},
+    common::configuration::Configuration,
+    futures::future::{join, join_all},
+    log::error,
 };
-use anyhow::{anyhow, Context, Result};
-use common::configuration::Configuration;
-use dirs::download_dir;
-use futures::future::{join, join_all};
-use log::error;
 
 pub struct ConfigurationLoader {
     args: Command,

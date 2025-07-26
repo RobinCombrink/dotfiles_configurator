@@ -1,11 +1,11 @@
-use std::{future::Future, process::Command};
-
-use anyhow::{anyhow, Context, Result};
-use common::configuration::ShellCommand;
-use futures::future::join_all;
-use log::info;
-
-use crate::impls::{Executor, ExecutorSync};
+use {
+    crate::impls::{Executor, ExecutorSync},
+    anyhow::{anyhow, Context, Result},
+    common::configuration::ShellCommand,
+    futures::future::join_all,
+    log::info,
+    std::{future::Future, process::Command},
+};
 
 pub async fn execute_all(cli_commands: &Option<Vec<ShellCommand>>) -> Option<Vec<Result<()>>> {
     match cli_commands {

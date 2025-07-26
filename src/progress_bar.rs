@@ -1,9 +1,9 @@
-use std::{borrow::Cow, path::PathBuf, time::Duration};
-
-use common::configuration::GitCloneConfig;
-use indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle};
-
-use crate::execution_plan::ExecutionPlanItem;
+use {
+    crate::execution_plan::ExecutionPlanItem,
+    common::configuration::GitCloneConfig,
+    indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle},
+    std::{borrow::Cow, path::PathBuf, time::Duration},
+};
 
 pub(crate) fn create_progress_bar(
     length: usize,

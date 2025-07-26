@@ -1,14 +1,16 @@
-use anyhow::{anyhow, Result};
-use futures::StreamExt;
-use indicatif::ProgressBar;
-use reqwest::{header, Client};
-use std::{
-    borrow::Cow,
-    fs::{self},
-    path::PathBuf,
-    process::Command,
+use {
+    anyhow::{anyhow, Result},
+    futures::StreamExt,
+    indicatif::ProgressBar,
+    reqwest::{header, Client},
+    std::{
+        borrow::Cow,
+        fs::{self},
+        path::PathBuf,
+        process::Command,
+    },
+    url::Url,
 };
-use url::Url;
 
 pub trait Downloader {
     async fn download_self(

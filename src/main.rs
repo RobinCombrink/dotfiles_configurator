@@ -1,13 +1,15 @@
-use anyhow::Result;
-use clap::{Args, Parser, ValueEnum};
-use config::ConfigurationLoader;
-use env_logger;
-use log::{error, trace, LevelFilter};
-use reqwest::Client;
-use std::io::Write;
-use std::path::PathBuf;
-use std::process::exit;
-use std::str::FromStr;
+use {
+    anyhow::Result,
+    clap::{Args, Parser, ValueEnum},
+    config::ConfigurationLoader,
+    env_logger,
+    log::{error, trace, LevelFilter},
+    reqwest::Client,
+    std::io::Write,
+    std::path::PathBuf,
+    std::process::exit,
+    std::str::FromStr,
+};
 
 mod config;
 mod dotfiles;

@@ -1,18 +1,22 @@
-use crate::execution_plan::DownloadType;
-use crate::progress_bar::{
-    create_download_application_progress_bar, create_download_asset_progress_bar,
+use {
+    crate::shell_command,
+    crate::{download::Downloader, github},
+    crate::{
+        execution_plan::DownloadType,
+        progress_bar::{
+            create_download_application_progress_bar, create_download_asset_progress_bar,
+        },
+    },
+    anyhow::{anyhow, Context, Result},
+    common::configuration::{ApplicationDetails, AssetFind, GitClone, RepositoryDetails},
+    git2::build::RepoBuilder,
+    indicatif::ProgressBar,
+    log::trace,
+    reqwest::Client,
+    secrecy::SecretString,
+    std::future::Future,
+    std::{fs, path::PathBuf},
 };
-use crate::shell_command;
-use crate::{download::Downloader, github};
-use anyhow::{anyhow, Context, Result};
-use common::configuration::{ApplicationDetails, AssetFind, GitClone, RepositoryDetails};
-use git2::build::RepoBuilder;
-use indicatif::ProgressBar;
-use log::trace;
-use reqwest::Client;
-use secrecy::SecretString;
-use std::future::Future;
-use std::{fs, path::PathBuf};
 
 pub trait Executor {
     fn execute(&self) -> impl Future<Output = Result<()>> + Send;

@@ -1,17 +1,18 @@
-use anyhow::{anyhow, Context, Error, Result};
-use common::configuration::{Configuration, ShellCommand};
-use git2::{Cred, FetchOptions, RemoteCallbacks};
-use indicatif::ProgressBar;
-use log::{error, info, trace};
-use octocrab::Octocrab;
-use secrecy::{ExposeSecret, SecretString};
-use std::{
-    io,
-    process::{exit, Command},
-    sync::LazyLock,
+use {
+    crate::impls::ExecutorSync,
+    anyhow::{anyhow, Context, Error, Result},
+    common::configuration::{Configuration, ShellCommand},
+    git2::{Cred, FetchOptions, RemoteCallbacks},
+    indicatif::ProgressBar,
+    log::{error, info, trace},
+    octocrab::Octocrab,
+    secrecy::{ExposeSecret, SecretString},
+    std::{
+        io,
+        process::{exit, Command},
+        sync::LazyLock,
+    },
 };
-
-use crate::impls::ExecutorSync;
 
 static GITHUB_CLI_PRESENT: LazyLock<bool> =
     LazyLock::new(|| is_github_cli_on_path().unwrap_or_else(|_| false));

@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 common = { path = "../common" }
+github_authentication = { path = "../../githubauthentication" }
 clap = { version = "4.5.41", features = ["derive", "string"] }
 oauth2 = "5.0.0"
 octocrab = "0.44.1"
