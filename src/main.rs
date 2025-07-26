@@ -110,7 +110,7 @@ struct Arguments {
     execution_type: ExecutionType,
     #[arg(
         global = true,
-        long="debug",
+        long = "debug",
         num_args = 0,
         help = "Enable debug logging"
     )]
