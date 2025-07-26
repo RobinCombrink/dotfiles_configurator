@@ -92,7 +92,6 @@ enum Command {
 enum ExecutionType {
     Execute,
     DryRun,
-    NoInstall,
 }
 
 #[derive(Parser, Debug)]
@@ -137,27 +136,12 @@ async fn main() {
             ExecutionType::Execute => {
                 let client = Client::default();
                 execution_plan
-                    .execute(client)
+                    .execute_new(client)
                     .await
                     .into_iter()
                     .for_each(|applied_config| {
                         if let Err(err) = applied_config {
                             error!("Could not apply configuration item: {:?}", err)
-                        }
-                    });
-            }
-            ExecutionType::NoInstall => {
-                let client = Client::default();
-                execution_plan
-                    .execute_no_install(client)
-                    .await
-                    .into_iter()
-                    .for_each(|applied_config| {
-                        if let Err(err) = applied_config {
-                            error!(
-                                "Could not prepare the configuration item for download: {:?}",
-                                err
-                            )
                         }
                     });
             }
