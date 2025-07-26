@@ -1,5 +1,3 @@
-use std::{fs, path::PathBuf};
-
 use {
     crate::{
         execution_plan::{ExecutionPlan, ExecutionPlanEntry, ExecutionPlanEntryConverter},
@@ -10,6 +8,7 @@ use {
     common::configuration::Configuration,
     futures::future::{join, join_all},
     log::error,
+    std::{fs, path::PathBuf},
 };
 
 pub struct ConfigurationLoader {

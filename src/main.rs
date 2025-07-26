@@ -1,7 +1,7 @@
 use {
     anyhow::Result,
     clap::{Args, Parser, ValueEnum},
-    config::ConfigurationLoader,
+    configuration_loader::ConfigurationLoader,
     env_logger,
     log::{error, trace, LevelFilter},
     reqwest::Client,
@@ -11,7 +11,7 @@ use {
     std::str::FromStr,
 };
 
-mod config;
+mod configuration_loader;
 mod dotfiles;
 mod download;
 mod execution_plan;
