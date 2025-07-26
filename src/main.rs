@@ -12,6 +12,7 @@ use std::str::FromStr;
 mod config;
 mod dotfiles;
 mod download;
+mod execution_plan;
 mod github;
 pub mod impls;
 mod progress_bar;

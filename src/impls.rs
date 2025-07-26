@@ -1,4 +1,4 @@
-use crate::config::DownloadType;
+use crate::execution_plan::DownloadType;
 use crate::progress_bar::{
     create_download_application_progress_bar, create_download_asset_progress_bar,
 };
@@ -28,7 +28,7 @@ pub trait CloneExecutor {}
 
 pub trait ShellCommandExecutor {}
 
-pub trait ItemProgress {
+pub(crate) trait ItemProgress {
     fn create_progress_bar(&self, path: PathBuf) -> ProgressBar;
 }
 

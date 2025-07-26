@@ -1,6 +1,9 @@
 use std::{borrow::Cow, path::PathBuf, time::Duration};
 
+use common::configuration::GitCloneConfig;
 use indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle};
+
+use crate::execution_plan::ExecutionPlanItem;
 
 pub(crate) fn create_progress_bar(
     length: usize,
@@ -82,4 +85,30 @@ pub(crate) fn create_repositories_clone_coordinator_progress_bar(
         .unwrap()
         .progress_chars("✓▢▢"),
     )
+}
+
+pub(crate) struct ExecutionProgress<'a> {
+    coordinator: &'a MultiProgress,
+    download_summary: ProgressBar,
+    // git_clone_coordinator: ProgressBar,
+    // dotfile_coordinator: ProgressBar,
+    // shell_command_coordinator: ProgressBar,
+}
+
+impl<'a> ExecutionProgress<'a> {
+    pub(crate) fn intialize(
+        coordinator: &'a MultiProgress,
+        config: GitCloneConfig,
+        execution_plan_items: Vec<ExecutionPlanItem>,
+    ) -> Self {
+        let download_summary = create_application_download_coordinator_progress_bar(
+            &coordinator,
+            execution_plan_items.len(),
+        );
+
+        ExecutionProgress {
+            coordinator,
+            download_summary,
+        }
+    }
 }

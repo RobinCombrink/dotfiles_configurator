@@ -70,7 +70,12 @@ fn switch_github_cli_user(user: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn get_github_token() -> secrecy::SecretBox<str> {
+pub(crate) fn get_github_token_for_user(username: &str) -> Result<SecretString> {
+    switch_github_cli_user(username)?;
+    Ok(get_github_token())
+}
+
+pub(crate) fn get_github_token() -> SecretString {
     let command = ShellCommand::new(
         vec!["gh".to_string(), "auth".to_string(), "token".to_string()],
         true,
