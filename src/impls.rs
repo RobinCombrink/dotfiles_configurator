@@ -3,20 +3,17 @@ use {
         download::Downloader,
         execution_plan::DownloadType,
         github,
-        progress_bar::{
-            create_download_application_progress_bar, create_download_asset_progress_bar,
-        },
+        progress_bar::{create_download_application_progress_bar, create_git_clone_progress_bar},
         shell_command,
     },
     anyhow::{anyhow, Context, Result},
     common::configuration::{ApplicationDetails, AssetFind, GitClone, RepositoryDetails},
     git2::build::RepoBuilder,
-    github_authentication::authentication::{self, Authentication},
+    github_authentication::authentication::Authentication,
     indicatif::ProgressBar,
-    log::trace,
+    log::{info, trace},
     octocrab::Octocrab,
     reqwest::Client,
-    secrecy::SecretString,
     std::{fs, future::Future, path::PathBuf, sync::Arc},
 };
 
@@ -42,18 +39,14 @@ impl ItemProgress for DownloadType {
     fn create_progress_bar(&self, path: PathBuf) -> ProgressBar {
         match self {
             DownloadType::Application(_) => create_download_application_progress_bar(),
-            DownloadType::GitHubAsset(repository_details) => create_download_asset_progress_bar(
-                &repository_details.owner,
-                &repository_details.repo,
-                path,
-            ),
+            DownloadType::GitHubAsset(_) => create_download_application_progress_bar(),
         }
     }
 }
 
 impl ItemProgress for GitClone {
     fn create_progress_bar(&self, path: PathBuf) -> ProgressBar {
-        create_download_asset_progress_bar(&self.owner, &self.repo, path.join(&self.repo))
+        create_git_clone_progress_bar(&self.owner, &self.repo, path.join(&self.repo))
     }
 }
 
@@ -158,6 +151,7 @@ impl<T: Authentication> GitCloneArgs<T> {
         Ok(())
     }
     async fn git_clone(&self, progress_bar: ProgressBar) -> Result<()> {
+        progress_bar.set_position(0);
         let token = self.authentication.get_token();
         let repo = self
             .octocrab
@@ -166,7 +160,7 @@ impl<T: Authentication> GitCloneArgs<T> {
             .await
             .expect("Invalid repo");
 
-        println!("clone dir: {:#?}", &self.directory_path);
+        info!("clone dir: {:#?}", &self.directory_path);
         fs::create_dir_all(&self.directory_path)
             .with_context(|| format!("Could not create directory: {:#?}", &self.directory_path))?;
 

@@ -1,5 +1,4 @@
 use {
-    crate::execution_plan::ExecutionPlanItem,
     common::configuration::GitCloneConfig,
     indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle},
     std::{borrow::Cow, path::PathBuf, time::Duration},
@@ -26,7 +25,7 @@ pub(crate) fn create_download_application_progress_bar() -> ProgressBar {
                  .progress_chars("#>-"))
 }
 
-pub(crate) fn create_download_asset_progress_bar(
+pub(crate) fn create_git_clone_progress_bar(
     owner: &String,
     repo: &String,
     repository_path: PathBuf,
@@ -39,12 +38,36 @@ pub(crate) fn create_download_asset_progress_bar(
     let message = format!("Cloning {owner}/{repo} into {:#?}", repository_path);
 
     let style = ProgressStyle::with_template(
-        "[{elapsed_precise}] {bar:100.cyan/blue} {pos:>7}/{len:7} {msg}",
+        "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({eta}) {msg}",
     )
     .unwrap()
     .progress_chars("##-");
 
-    create_progress_bar(100, message, finish, style)
+    create_progress_bar(40, message, finish, style)
+}
+
+pub(crate) fn create_execution_item_coordinator_progress_bar(
+    multi_progress: &MultiProgress,
+    execution_items_count: usize,
+) -> ProgressBar {
+    let progress_bar = create_progress_bar(
+        execution_items_count,
+        format!("Executing Plan"),
+        ProgressFinish::WithMessage(Cow::from(format!(
+            "{} executed",
+            execution_items_count
+        ))),
+        ProgressStyle::with_template(&format!(
+            "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
+            execution_items_count
+        ))
+        .unwrap()
+        .progress_chars("✓▢▢"),
+    );
+    let progress_bar = multi_progress.add(progress_bar);
+
+    progress_bar.set_position(0);
+    progress_bar
 }
 
 pub(crate) fn create_application_download_coordinator_progress_bar(
@@ -101,10 +124,11 @@ impl<'a> ExecutionProgress<'a> {
         config: GitCloneConfig,
         execution_plan_items_lenth: usize,
     ) -> Self {
-        let download_summary = create_application_download_coordinator_progress_bar(
-            &coordinator,
-            execution_plan_items_lenth,
-        );
+        let download_summary =
+            coordinator.add(create_application_download_coordinator_progress_bar(
+                &coordinator,
+                execution_plan_items_lenth,
+            ));
 
         ExecutionProgress {
             coordinator,

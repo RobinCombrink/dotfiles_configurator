@@ -1,12 +1,11 @@
 use {
     crate::{
-        dotfiles::DotfilesDetails,
         download::Downloader,
-        github::{self, get_github_token_for_user},
-        impls::{Executor, GitCloneArgs, ItemProgress},
-        progress_bar::{create_application_download_coordinator_progress_bar, ExecutionProgress},
+        github::{self},
+        impls::{GitCloneArgs, ItemProgress},
+        progress_bar::create_execution_item_coordinator_progress_bar,
     },
-    anyhow::{Context, Result},
+    anyhow::Result,
     common::configuration::{
         ApplicationDetails, Configuration, ConfigurationItem, DetailsType, Download, GitClone,
         GitCloneConfig, RepositoryDetails, ShellCommand,
@@ -15,7 +14,6 @@ use {
     indicatif::MultiProgress,
     octocrab::Octocrab,
     reqwest::Client,
-    secrecy::SecretString,
     std::{collections::HashMap, path::PathBuf, sync::Arc},
     tokio::task::JoinSet,
 };
@@ -55,15 +53,12 @@ impl ExecutionPlan {
 
         let multi_progress = MultiProgress::new();
         let execution_items_coordinator_progress_bar =
-            create_application_download_coordinator_progress_bar(&multi_progress, self.items.len());
-        let coordinator = MultiProgress::new();
+            multi_progress.add(create_execution_item_coordinator_progress_bar(
+                &multi_progress,
+                self.items.values().flatten().collect::<Vec<_>>().len(),
+            ));
 
         for (execution_config, execution_items) in self.items.into_iter() {
-            let execution_progress = ExecutionProgress::intialize(
-                &coordinator,
-                execution_config.clone(),
-                execution_items.len(),
-            );
             let mut tasks = JoinSet::new();
 
             for plan_item in execution_items.into_iter() {
@@ -71,8 +66,8 @@ impl ExecutionPlan {
                 let download_directory = self.download_directory.clone();
                 match plan_item.item {
                     ExecutionItem::Download(download) => {
-                        let progress_bar =
-                            download.create_progress_bar(self.download_directory.clone());
+                        let progress_bar = multi_progress
+                            .add(download.create_progress_bar(self.download_directory.clone()));
                         match download {
                             DownloadType::Application(application_details) => {
                                 tasks.spawn(async move {
@@ -100,7 +95,8 @@ impl ExecutionPlan {
                             plan_item.authentication,
                             plan_item.octocrab,
                         );
-                        let progress_bar = git_clone.create_progress_bar(directory_path);
+                        let progress_bar =
+                            multi_progress.add(git_clone.create_progress_bar(directory_path));
                         tasks.spawn(
                             async move { git_clone_args.clone_and_execute(progress_bar).await },
                         );
