@@ -38,7 +38,7 @@ pub(crate) fn create_git_clone_progress_bar(
     let message = format!("Cloning {owner}/{repo} into {:#?}", repository_path);
 
     let style = ProgressStyle::with_template(
-        "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({eta}) {msg}",
+        "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} ({eta}) {msg}",
     )
     .unwrap()
     .progress_chars("##-");
@@ -53,10 +53,7 @@ pub(crate) fn create_execution_item_coordinator_progress_bar(
     let progress_bar = create_progress_bar(
         execution_items_count,
         format!("Executing Plan"),
-        ProgressFinish::WithMessage(Cow::from(format!(
-            "{} executed",
-            execution_items_count
-        ))),
+        ProgressFinish::WithMessage(Cow::from(format!("{} executed", execution_items_count))),
         ProgressStyle::with_template(&format!(
             "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
             execution_items_count

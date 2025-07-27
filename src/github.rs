@@ -97,18 +97,16 @@ pub(crate) fn create_repository_fetch_options<'token>(
 ) -> FetchOptions<'token> {
     let mut callbacks = RemoteCallbacks::new();
 
-    let mut last_logged_progress = 0;
     callbacks.transfer_progress(move |progress| {
         let progress_percent =
             ((progress.received_objects() as f64 / progress.total_objects() as f64) * 100 as f64)
                 .ceil() as u64;
-        let should_update_position = progress_percent != last_logged_progress
-            && (progress_percent == 0 || progress_percent % 5 == 0);
 
-        if should_update_position {
-            progress_bar.set_position(progress_percent);
-            last_logged_progress = progress_percent;
-        }
+        let progress_position = (progress_percent as f64 / 100 as f64)
+            * progress_bar.length().unwrap_or_else(|| 100) as f64;
+        let progress_position = progress_position.floor() as u64;
+
+        progress_bar.set_position(progress_position);
         if progress_percent >= 100 {
             progress_bar.finish_using_style();
         }
