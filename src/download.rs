@@ -1,11 +1,11 @@
 use {
-    anyhow::{anyhow, Result},
+    anyhow::{anyhow, Context, Result},
     futures::StreamExt,
     indicatif::ProgressBar,
     reqwest::{header, Client},
     std::{
         borrow::Cow,
-        fs::{self},
+        fs::{self, create_dir_all},
         path::PathBuf,
         process::Command,
     },
@@ -33,7 +33,8 @@ pub trait Downloader {
 
         if let Ok(exists) = file_path.try_exists() {
             if exists {
-                fs::remove_file(file_path)?;
+                fs::remove_file(file_path)
+                    .with_context(|| format!("Could not remove file: {:#?}", file_path))?;
             }
         }
 
@@ -65,12 +66,20 @@ pub trait Downloader {
             progress_bar.inc(size);
         }
 
-        let mut source = request.send().await?.bytes_stream();
+        let mut source = request
+            .send()
+            .await
+            .with_context(|| format!("Something went wrong beginning file download: {}", url))?
+            .bytes_stream();
 
+        if let Some(parent_directory_path) = file_path.parent() {
+            create_dir_all(parent_directory_path)?;
+        }
         let destination_file = fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(file_path)?;
+            .open(file_path)
+            .with_context(|| format!("Could not open file: {:#?}", file_path))?;
 
         let mut tmp_file = progress_bar
             .wrap_async_write(tokio::fs::File::from(destination_file))
