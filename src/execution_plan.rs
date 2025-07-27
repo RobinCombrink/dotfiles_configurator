@@ -26,7 +26,7 @@ impl ExecutionPlanEntryConverter for Configuration {
     fn try_into_entry(self) -> Result<ExecutionPlanEntry> {
         let authentication =
             GitHubCliAuthentication::new(self.clone_config.github_username.clone())?;
-        let octocrab = github::initialise_octocrab(authentication.token.clone())?;
+        let octocrab = github::create_octocrab(authentication.token.clone())?;
 
         let items = self
             .items

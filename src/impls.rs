@@ -154,9 +154,9 @@ impl<T: Authentication> GitCloneArgs<T> {
     async fn git_clone(&self, progress_bar: ProgressBar) -> Result<()> {
         progress_bar.set_position(0);
         let token = self.authentication.get_token();
+
         let repo = self
             .octocrab
-            .user_access_token(token.clone())?
             .repos(&self.git_clone.owner, &self.git_clone.repo)
             .get()
             .await

@@ -1,12 +1,11 @@
 use {
     crate::{
-        execution_plan::{ExecutionPlan, ExecutionPlanEntry, ExecutionPlanEntryConverter},
-        github, Command, RemoteConfigArguments,
+        execution_plan::{ExecutionPlan, ExecutionPlanEntry, ExecutionPlanEntryConverter}, github, Command, RemoteConfigArguments
     },
     anyhow::{anyhow, Context, Result},
     common::configuration::Configuration,
     futures::future::{join, join_all},
-    github_authentication::authentication::GitHubCliAuthentication,
+    github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     log::error,
     std::{fs, path::PathBuf},
 };
@@ -135,7 +134,7 @@ impl ConfigurationLoader {
 
         let authentication = GitHubCliAuthentication::new(remote.owner.clone())?;
 
-        let octocrab = github::initialise_octocrab(authentication.token)?;
+        let octocrab = github::create_octocrab(authentication.get_token())?;
         let mut external_configs: Vec<Result<ExecutionPlanEntry>> = vec![];
 
         for path in file_paths {
