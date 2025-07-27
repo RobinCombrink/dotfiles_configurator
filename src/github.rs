@@ -1,7 +1,6 @@
 use {
-    crate::impls::ExecutorSync,
-    anyhow::{anyhow, Context, Error, Result},
-    common::configuration::{Configuration, ShellCommand},
+    anyhow::{Context, Error, Result, anyhow},
+    common::configuration::Configuration,
     git2::{Cred, FetchOptions, RemoteCallbacks},
     indicatif::ProgressBar,
     log::{error, info, trace},
@@ -9,7 +8,7 @@ use {
     secrecy::{ExposeSecret, SecretString},
     std::{
         io,
-        process::{exit, Command},
+        process::Command,
         sync::{Arc, LazyLock},
     },
 };
@@ -50,44 +49,6 @@ pub fn initialise_octocrab(token: SecretString) -> Result<Arc<Octocrab>> {
     info!("Octocrab initialized");
 
     Ok(octocrab)
-}
-
-fn switch_github_cli_user(user: &str) -> Result<()> {
-    let command = ShellCommand::new(
-        vec![
-            "gh".into(),
-            "auth".into(),
-            "switch".into(),
-            "--user".into(),
-            format!("{user}"),
-        ],
-        false,
-        false,
-    );
-    command.execute_sync()?;
-    Ok(())
-}
-
-pub(crate) fn get_github_token_for_user(username: &str) -> Result<SecretString> {
-    switch_github_cli_user(username)?;
-    Ok(get_github_token())
-}
-
-pub(crate) fn get_github_token() -> SecretString {
-    let command = ShellCommand::new(
-        vec!["gh".to_string(), "auth".to_string(), "token".to_string()],
-        true,
-        false,
-    );
-
-    let token = match command.execute_sync() {
-        Ok(token) => token.trim().to_owned().into(),
-        Err(err) => {
-            eprintln!("Could not get token: {:#?}", err);
-            exit(1)
-        }
-    };
-    token
 }
 
 pub(crate) fn create_repository_fetch_options<'token>(

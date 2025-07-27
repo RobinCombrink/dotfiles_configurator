@@ -6,7 +6,7 @@ use {
         impls::{Executor, GitCloneArgs, ItemProgress},
         progress_bar::create_execution_item_coordinator_progress_bar,
     },
-    anyhow::Result,
+    anyhow::{Context, Result},
     common::configuration::{
         ApplicationDetails, Configuration, ConfigurationItem, DetailsType, Download, GitClone,
         GitCloneConfig, RepositoryDetails, ShellCommand,
@@ -31,13 +31,15 @@ impl ExecutionPlanEntryConverter for Configuration {
         let items = self
             .items
             .into_iter()
-            .map(|configuration_item| ExecutionPlanItem {
-                item: configuration_item.into(),
-                authentication: authentication.clone(),
-                octocrab: octocrab.clone(),
-            })
+            .map(|configuration_item| configuration_item.into())
             .collect();
-        Ok((self.clone_config, items))
+
+        let item_pairs = ExecutionPlanItems {
+            items,
+            authentication,
+            octocrab,
+        };
+        Ok((self.clone_config, item_pairs))
     }
 }
 
@@ -45,7 +47,7 @@ impl ExecutionPlanEntryConverter for Configuration {
 pub struct ExecutionPlan {
     pub download_directory: PathBuf,
     pub home_directory: PathBuf,
-    pub items: HashMap<GitCloneConfig, Vec<ExecutionPlanItem<GitHubCliAuthentication>>>,
+    pub items: HashMap<GitCloneConfig, ExecutionPlanItems<GitHubCliAuthentication>>,
 }
 
 impl ExecutionPlan {
@@ -53,19 +55,48 @@ impl ExecutionPlan {
         let mut results: Vec<Result<()>> = Vec::new();
 
         let multi_progress = MultiProgress::new();
-        let execution_items_coordinator_progress_bar =
-            multi_progress.add(create_execution_item_coordinator_progress_bar(
-                &multi_progress,
-                self.items.values().flatten().collect::<Vec<_>>().len(),
-            ));
 
-        for (execution_config, execution_items) in self.items.into_iter() {
+        let execution_items_count =
+            self.items.values().flat_map(|item| &item.items).count() + self.items.keys().count();
+
+        let execution_items_coordinator_progress_bar = multi_progress.add(
+            create_execution_item_coordinator_progress_bar(&multi_progress, execution_items_count),
+        );
+
+        for (execution_config, execution_items_pair) in self.items.into_iter() {
             let mut tasks = JoinSet::new();
 
-            for plan_item in execution_items.into_iter() {
+            let dotfiles_repository = execution_config.dotfiles_repository.clone();
+            let directory_path = execution_config
+                .repositories_directory_path
+                .join(&dotfiles_repository.repo);
+
+            let git_clone_args = GitCloneArgs::from_gitclone(
+                dotfiles_repository.to_owned(),
+                execution_config.repositories_directory_path.clone(),
+                execution_items_pair.authentication.clone(),
+                execution_items_pair.octocrab.clone(),
+            );
+            let progress_bar =
+                multi_progress.add(dotfiles_repository.create_progress_bar(directory_path));
+            match git_clone_args.clone_and_execute(progress_bar).await {
+                Ok(ok) => results.push(Ok(ok)),
+                Err(err) => {
+                    results.push(Err(err).with_context(|| {
+                        format!(
+                            "Could not clone dotfiles repository: {}/{} as user: {}",
+                            dotfiles_repository.owner,
+                            dotfiles_repository.repo,
+                            execution_items_pair.authentication.get_username(),
+                        )
+                    }));
+                    continue;
+                }
+            };
+            for plan_item in execution_items_pair.items.into_iter() {
                 let client = client.clone();
                 let download_directory = self.download_directory.clone();
-                match plan_item.item {
+                match plan_item {
                     ExecutionItem::Download(download) => {
                         let progress_bar = multi_progress
                             .add(download.create_progress_bar(self.download_directory.clone()));
@@ -89,12 +120,12 @@ impl ExecutionPlan {
                     ExecutionItem::GitClone(ref git_clone) => {
                         let directory_path = execution_config
                             .repositories_directory_path
-                            .join(git_clone.repo.clone());
+                            .join(&git_clone.repo);
                         let git_clone_args = GitCloneArgs::from_gitclone(
                             git_clone.to_owned(),
                             execution_config.repositories_directory_path.clone(),
-                            plan_item.authentication,
-                            plan_item.octocrab,
+                            execution_items_pair.authentication.clone(),
+                            execution_items_pair.octocrab.clone(),
                         );
                         let progress_bar =
                             multi_progress.add(git_clone.create_progress_bar(directory_path));
@@ -270,14 +301,11 @@ impl ExecutionPlan {
     // }
 }
 
-pub(crate) type ExecutionPlanEntry = (
-    GitCloneConfig,
-    Vec<ExecutionPlanItem<GitHubCliAuthentication>>,
-);
+pub(crate) type ExecutionPlanEntry = (GitCloneConfig, ExecutionPlanItems<GitHubCliAuthentication>);
 
 #[derive(Debug, Clone)]
-pub struct ExecutionPlanItem<T: Authentication> {
-    pub(crate) item: ExecutionItem,
+pub(crate) struct ExecutionPlanItems<T: Authentication> {
+    pub(crate) items: Vec<ExecutionItem>,
     pub(crate) authentication: T,
     pub(crate) octocrab: Arc<Octocrab>,
 }

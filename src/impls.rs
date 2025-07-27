@@ -6,7 +6,7 @@ use {
         progress_bar::{create_download_application_progress_bar, create_git_clone_progress_bar},
         shell_command,
     },
-    anyhow::{anyhow, Context, Result},
+    anyhow::{Context, Result, anyhow},
     common::configuration::{ApplicationDetails, AssetFind, GitClone, RepositoryDetails},
     git2::build::RepoBuilder,
     github_authentication::authentication::Authentication,
@@ -14,7 +14,7 @@ use {
     log::{info, trace},
     octocrab::Octocrab,
     reqwest::Client,
-    std::{fs, future::Future, path::PathBuf, sync::Arc},
+    std::{fmt::Display, fs, future::Future, path::PathBuf, sync::Arc},
 };
 
 pub trait Executor {
@@ -46,7 +46,7 @@ impl ItemProgress for DownloadType {
 
 impl ItemProgress for GitClone {
     fn create_progress_bar(&self, path: PathBuf) -> ProgressBar {
-        create_git_clone_progress_bar(&self.owner, &self.repo, path.join(&self.repo))
+        create_git_clone_progress_bar(&self.owner, &self.repo, path)
     }
 }
 
@@ -131,6 +131,17 @@ pub struct GitCloneArgs<T: Authentication> {
     octocrab: Arc<Octocrab>,
 }
 
+impl<T: Authentication> Display for GitCloneArgs<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "Repository: {owner}/{repo}, Directory: {directory}",
+            owner = self.git_clone.owner,
+            repo = self.git_clone.repo,
+            directory = self.directory_path.to_string_lossy()
+        ))
+    }
+}
+
 impl<T: Authentication> GitCloneArgs<T> {
     pub fn from_gitclone(
         git_clone: GitClone,
@@ -155,10 +166,11 @@ impl<T: Authentication> GitCloneArgs<T> {
         let token = self.authentication.get_token();
         let repo = self
             .octocrab
+            .user_access_token(self.authentication.get_token())?
             .repos(&self.git_clone.owner, &self.git_clone.repo)
             .get()
             .await
-            .expect("Invalid repo");
+            .with_context(|| format!("Could not get repository details: {}", self))?;
 
         info!("clone dir: {:#?}", &self.directory_path);
         fs::create_dir_all(&self.directory_path)
