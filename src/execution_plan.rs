@@ -1,8 +1,9 @@
 use {
     crate::{
+        dotfiles::DotfilesDetails,
         download::Downloader,
         github::{self},
-        impls::{GitCloneArgs, ItemProgress},
+        impls::{Executor, GitCloneArgs, ItemProgress},
         progress_bar::create_execution_item_coordinator_progress_bar,
     },
     anyhow::Result,
@@ -102,15 +103,15 @@ impl ExecutionPlan {
                         );
                     }
                     ExecutionItem::Dotfile(details_type) => {
-                        // let dotfiles_repository_path = execution_config
-                        //     .repositories_directory_path
-                        //     .join(&execution_config.dotfiles_repository.repo);
-                        // let dotfiles_details = DotfilesDetails::from_details(
-                        //     details_type,
-                        //     dotfiles_repository_path,
-                        //     self.home_directory.clone(),
-                        // );
-                        // tasks.spawn(async move { dotfiles_details.execute().await });
+                        let dotfiles_repository_path = execution_config
+                            .repositories_directory_path
+                            .join(&execution_config.dotfiles_repository.repo);
+                        let dotfiles_details = DotfilesDetails::from_details(
+                            details_type,
+                            dotfiles_repository_path,
+                            self.home_directory.clone(),
+                        );
+                        tasks.spawn(async move { dotfiles_details.execute().await });
                     }
                     ExecutionItem::ShellCommand(shell_command) => {
                         // shell_command.execute().await;

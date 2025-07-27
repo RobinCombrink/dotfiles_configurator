@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Context, Result};
 use common::configuration::DetailsType;
 use log::info;
 use std::path::PathBuf;
@@ -26,10 +26,9 @@ impl DotfilesDetails {
     }
 }
 
-//TODO: Add Unix directory link
 impl Executor for DotfilesDetails {
     async fn execute(&self) -> Result<()> {
-        let symlink_result = match &self.details {
+        match &self.details {
             DetailsType::File(details) => {
                 let link_path = match &details.link_path {
                     Some(path) => path,
@@ -40,46 +39,46 @@ impl Executor for DotfilesDetails {
                     .join(&details.original_path.join(&details.file_name));
                 let link_path = self.home_dir.join(link_path).join(&details.file_name);
 
-                symlink_file(original_path, link_path)
+                symlink_file(&original_path, &link_path).with_context(|| {
+                    format!(
+                        "Could not create file symlink\nLink path: {:#?}\nOriginal Path: {:#?} ",
+                        link_path, original_path
+                    )
+                })
             }
             DetailsType::Directory(details) => {
                 let original_path = self.dotfiles_repository_path.join(&details.original_path);
                 let link_path = self.home_dir.join(&details.link_path);
 
-                symlink_directory(original_path, link_path)
+                symlink_directory(&original_path, &link_path).with_context(||format!("Could not create directory symlink\nLink path: {:#?}\nOriginal Path: {:#?} ", link_path, original_path ))
             }
-        };
-
-        match symlink_result {
-            Ok(ok) => Ok(ok),
-            Err(e) => Err(anyhow!(format!("Could not create symlink: {e}"))),
         }
     }
 }
 
 #[cfg(target_family = "windows")]
-fn symlink_file(original_path: PathBuf, link_path: PathBuf) -> Result<()> {
+fn symlink_file(original_path: &PathBuf, link_path: &PathBuf) -> Result<()> {
     log_symlink(&original_path, &link_path);
 
     std::os::windows::fs::symlink_file(original_path, link_path).map_err(|err| err.into())
 }
 
 #[cfg(target_family = "unix")]
-fn symlink_file(original_path: PathBuf, link_path: PathBuf) -> Result<()> {
+fn symlink_file(original_path: &PathBuf, link_path: &PathBuf) -> Result<()> {
     log_symlink(&original_path, &link_path);
 
     std::os::unix::fs::symlink(original_path, link_path).map_err(|err| err.into())
 }
 
 #[cfg(target_family = "windows")]
-fn symlink_directory(original_path: PathBuf, link_path: PathBuf) -> Result<()> {
+fn symlink_directory(original_path: &PathBuf, link_path: &PathBuf) -> Result<()> {
     log_symlink(&original_path, &link_path);
 
     std::os::windows::fs::symlink_dir(original_path, link_path).map_err(|err| err.into())
 }
 
 #[cfg(target_family = "unix")]
-fn symlink_directory(original_path: PathBuf, link_path: PathBuf) -> Result<()> {
+fn symlink_directory(original_path: &PathBuf, link_path: &PathBuf) -> Result<()> {
     log_symlink(&original_path, &link_path);
 
     std::os::unix::fs::symlink(original_path, link_path).map_err(|err| err.into())
