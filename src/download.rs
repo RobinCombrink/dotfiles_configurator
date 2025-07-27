@@ -48,9 +48,10 @@ pub trait Downloader {
                     .unwrap_or(0)
             } else {
                 return Err(anyhow!(format!(
-                    "Couldn't download URL: {}. Error: {:?}",
+                    "Couldn't download URL: {}.\nResponse: {:?}\nBody: {}",
                     url,
                     resp.status(),
+                    resp.text().await.with_context(||"Couldn't get response body text after error status code")?,
                 ))
                 .into());
             }
