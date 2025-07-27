@@ -10,7 +10,7 @@ use {
     std::{
         io,
         process::{exit, Command},
-        sync::LazyLock,
+        sync::{Arc, LazyLock},
     },
 };
 
@@ -34,25 +34,22 @@ fn is_github_cli_on_path() -> Result<bool> {
     }
 }
 
-pub fn initialise_octocrab(user: &str) -> Result<()> {
+pub fn initialise_octocrab(token: SecretString) -> Result<Arc<Octocrab>> {
     if let false = *GITHUB_CLI_PRESENT {
         return Err(anyhow!(
             "`gh` was not found! Install github cli and/or add it to your path"
         ));
     };
 
-    switch_github_cli_user(user)?;
-    let token = get_github_token();
     let instance = Octocrab::builder()
-        .personal_token(token.clone())
+        .personal_token(token)
         .build()
         .expect("Invalid token");
 
-    octocrab::initialise(instance);
-
+    let octocrab = octocrab::initialise(instance);
     info!("Octocrab initialized");
 
-    Ok(())
+    Ok(octocrab)
 }
 
 fn switch_github_cli_user(user: &str) -> Result<()> {
@@ -136,8 +133,8 @@ pub async fn get_configs_from_github(
     owner: &str,
     repo: &str,
     file_path: impl Into<String>,
+    octocrab: &Arc<Octocrab>,
 ) -> Result<Vec<Result<Configuration, Error>>> {
-    let octocrab = octocrab::instance();
     let file_path: String = file_path.into();
     let config_file_info = octocrab
         .repos(owner.to_owned(), repo.to_owned())

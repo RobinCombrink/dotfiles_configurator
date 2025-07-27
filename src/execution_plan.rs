@@ -1,8 +1,9 @@
 use {
     crate::{
+        dotfiles::DotfilesDetails,
         download::Downloader,
-        github::get_github_token_for_user,
-        impls::ItemProgress,
+        github::{self, get_github_token_for_user},
+        impls::{Executor, GitCloneArgs, ItemProgress},
         progress_bar::{create_application_download_coordinator_progress_bar, ExecutionProgress},
     },
     anyhow::{Context, Result},
@@ -10,10 +11,12 @@ use {
         ApplicationDetails, Configuration, ConfigurationItem, DetailsType, Download, GitClone,
         GitCloneConfig, RepositoryDetails, ShellCommand,
     },
+    github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     indicatif::MultiProgress,
+    octocrab::Octocrab,
     reqwest::Client,
     secrecy::SecretString,
-    std::{collections::HashMap, path::PathBuf},
+    std::{collections::HashMap, path::PathBuf, sync::Arc},
     tokio::task::JoinSet,
 };
 pub(crate) trait ExecutionPlanEntryConverter {
@@ -22,20 +25,17 @@ pub(crate) trait ExecutionPlanEntryConverter {
 
 impl ExecutionPlanEntryConverter for Configuration {
     fn try_into_entry(self) -> Result<ExecutionPlanEntry> {
-        let token =
-            get_github_token_for_user(&self.clone_config.github_username).with_context(|| {
-                format!(
-                    "Could not get token for github username: {}",
-                    self.clone_config.github_username
-                )
-            })?;
+        let authentication =
+            GitHubCliAuthentication::new(self.clone_config.github_username.clone())?;
+        let octocrab = github::initialise_octocrab(authentication.token.clone())?;
 
         let items = self
             .items
             .into_iter()
             .map(|configuration_item| ExecutionPlanItem {
                 item: configuration_item.into(),
-                token: token.clone(),
+                authentication: authentication.clone(),
+                octocrab: octocrab.clone(),
             })
             .collect();
         Ok((self.clone_config, items))
@@ -46,7 +46,7 @@ impl ExecutionPlanEntryConverter for Configuration {
 pub struct ExecutionPlan {
     pub download_directory: PathBuf,
     pub home_directory: PathBuf,
-    pub items: HashMap<GitCloneConfig, Vec<ExecutionPlanItem>>,
+    pub items: HashMap<GitCloneConfig, Vec<ExecutionPlanItem<GitHubCliAuthentication>>>,
 }
 
 impl ExecutionPlan {
@@ -62,7 +62,7 @@ impl ExecutionPlan {
             let execution_progress = ExecutionProgress::intialize(
                 &coordinator,
                 execution_config.clone(),
-                execution_items.clone(),
+                execution_items.len(),
             );
             let mut tasks = JoinSet::new();
 
@@ -91,23 +91,24 @@ impl ExecutionPlan {
                         };
                     }
                     ExecutionItem::GitClone(ref git_clone) => {
-                        // let directory_path = config
-                        //     .repositories_directory_path
-                        //     .join(git_clone.repo.clone());
-                        // let git_clone_args = GitCloneArgs::from_gitclone(
-                        //     git_clone.to_owned(),
-                        //     config.repositories_directory_path.clone(),
-                        //     token.clone(),
-                        // );
-                        // let progress_bar = git_clone.create_progress_bar(directory_path);
-                        // tasks.spawn(
-                        //     async move { git_clone_args.clone_and_execute(progress_bar).await },
-                        // );
+                        let directory_path = execution_config
+                            .repositories_directory_path
+                            .join(git_clone.repo.clone());
+                        let git_clone_args = GitCloneArgs::from_gitclone(
+                            git_clone.to_owned(),
+                            execution_config.repositories_directory_path.clone(),
+                            plan_item.authentication,
+                            plan_item.octocrab,
+                        );
+                        let progress_bar = git_clone.create_progress_bar(directory_path);
+                        tasks.spawn(
+                            async move { git_clone_args.clone_and_execute(progress_bar).await },
+                        );
                     }
                     ExecutionItem::Dotfile(details_type) => {
-                        // let dotfiles_repository_path = config
+                        // let dotfiles_repository_path = execution_config
                         //     .repositories_directory_path
-                        //     .join(&config.dotfiles_repository.repo);
+                        //     .join(&execution_config.dotfiles_repository.repo);
                         // let dotfiles_details = DotfilesDetails::from_details(
                         //     details_type,
                         //     dotfiles_repository_path,
@@ -272,12 +273,16 @@ impl ExecutionPlan {
     // }
 }
 
-pub(crate) type ExecutionPlanEntry = (GitCloneConfig, Vec<ExecutionPlanItem>);
+pub(crate) type ExecutionPlanEntry = (
+    GitCloneConfig,
+    Vec<ExecutionPlanItem<GitHubCliAuthentication>>,
+);
 
 #[derive(Debug, Clone)]
-pub struct ExecutionPlanItem {
-    item: ExecutionItem,
-    token: SecretString,
+pub struct ExecutionPlanItem<T: Authentication> {
+    pub(crate) item: ExecutionItem,
+    pub(crate) authentication: T,
+    pub(crate) octocrab: Arc<Octocrab>,
 }
 
 #[derive(Debug, Clone)]

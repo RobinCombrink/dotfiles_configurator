@@ -1,21 +1,23 @@
 use {
-    crate::shell_command,
-    crate::{download::Downloader, github},
     crate::{
+        download::Downloader,
         execution_plan::DownloadType,
+        github,
         progress_bar::{
             create_download_application_progress_bar, create_download_asset_progress_bar,
         },
+        shell_command,
     },
     anyhow::{anyhow, Context, Result},
     common::configuration::{ApplicationDetails, AssetFind, GitClone, RepositoryDetails},
     git2::build::RepoBuilder,
+    github_authentication::authentication::{self, Authentication},
     indicatif::ProgressBar,
     log::trace,
+    octocrab::Octocrab,
     reqwest::Client,
     secrecy::SecretString,
-    std::future::Future,
-    std::{fs, path::PathBuf},
+    std::{fs, future::Future, path::PathBuf, sync::Arc},
 };
 
 pub trait Executor {
@@ -129,22 +131,25 @@ impl Downloader for RepositoryDetails {
     }
 }
 
-pub struct GitCloneArgs {
+pub struct GitCloneArgs<T: Authentication> {
     git_clone: GitClone,
     directory_path: PathBuf,
-    token: Option<secrecy::SecretBox<str>>,
+    authentication: T,
+    octocrab: Arc<Octocrab>,
 }
 
-impl GitCloneArgs {
+impl<T: Authentication> GitCloneArgs<T> {
     pub fn from_gitclone(
         git_clone: GitClone,
         directory_path: PathBuf,
-        token: Option<SecretString>,
-    ) -> GitCloneArgs {
+        authentication: T,
+        octocrab: Arc<Octocrab>,
+    ) -> GitCloneArgs<T> {
         GitCloneArgs {
             git_clone,
             directory_path,
-            token,
+            authentication,
+            octocrab,
         }
     }
     pub async fn clone_and_execute(&self, progress_bar: ProgressBar) -> Result<()> {
@@ -153,15 +158,9 @@ impl GitCloneArgs {
         Ok(())
     }
     async fn git_clone(&self, progress_bar: ProgressBar) -> Result<()> {
-        let token = match &self.token {
-            Some(token) => token,
-            None => {
-                github::initialise_octocrab(&self.git_clone.owner)?;
-                &github::get_github_token()
-            }
-        };
-
-        let repo = octocrab::instance()
+        let token = self.authentication.get_token();
+        let repo = self
+            .octocrab
             .repos(&self.git_clone.owner, &self.git_clone.repo)
             .get()
             .await

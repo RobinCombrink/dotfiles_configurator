@@ -1,12 +1,12 @@
 use {
     crate::{
         execution_plan::{ExecutionPlan, ExecutionPlanEntry, ExecutionPlanEntryConverter},
-        github::{self},
-        Command, RemoteConfigArguments,
+        github, Command, RemoteConfigArguments,
     },
     anyhow::{anyhow, Context, Result},
     common::configuration::Configuration,
     futures::future::{join, join_all},
+    github_authentication::authentication::GitHubCliAuthentication,
     log::error,
     std::{fs, path::PathBuf},
 };
@@ -133,11 +133,14 @@ impl ConfigurationLoader {
         let repo = &remote.repo;
         let file_paths = &remote.config_file_paths;
 
-        github::initialise_octocrab(owner)?;
+        let authentication = GitHubCliAuthentication::new(remote.owner.clone())?;
+
+        let octocrab = github::initialise_octocrab(authentication.token)?;
         let mut external_configs: Vec<Result<ExecutionPlanEntry>> = vec![];
 
         for path in file_paths {
-            let configurations = github::get_configs_from_github(owner, repo, path).await?;
+            let configurations =
+                github::get_configs_from_github(owner, repo, path, &octocrab).await?;
             let mut configs: Vec<Result<ExecutionPlanEntry>> = configurations
                 .into_iter()
                 .map(|config| match config {

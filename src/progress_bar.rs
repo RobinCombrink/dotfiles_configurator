@@ -99,11 +99,11 @@ impl<'a> ExecutionProgress<'a> {
     pub(crate) fn intialize(
         coordinator: &'a MultiProgress,
         config: GitCloneConfig,
-        execution_plan_items: Vec<ExecutionPlanItem>,
+        execution_plan_items_lenth: usize,
     ) -> Self {
         let download_summary = create_application_download_coordinator_progress_bar(
             &coordinator,
-            execution_plan_items.len(),
+            execution_plan_items_lenth,
         );
 
         ExecutionProgress {
