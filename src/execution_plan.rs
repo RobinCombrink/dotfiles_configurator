@@ -78,18 +78,19 @@ impl ExecutionPlan {
                 execution_items_pair.octocrab.clone(),
             );
             let progress_bar =
-                multi_progress.add(dotfiles_repository.create_progress_bar(directory_path));
+                multi_progress.add(dotfiles_repository.create_progress_bar(directory_path.clone()));
             match git_clone_args.clone_and_execute(progress_bar).await {
                 Ok(ok) => results.push(Ok(ok)),
                 Err(err) => {
-                    results.push(Err(err).with_context(|| {
+                    results.push(Err(err).with_context(|| 
                         format!(
-                            "Could not clone dotfiles repository: {}/{} as user: {}",
+                            "Could not clone dotfiles repository: {}/{} as user: {} to directory: {:#?}",
                             dotfiles_repository.owner,
                             dotfiles_repository.repo,
                             execution_items_pair.authentication.get_username(),
+                            directory_path,
                         )
-                    }));
+                    ));
                     continue;
                 }
             };
@@ -129,9 +130,17 @@ impl ExecutionPlan {
                         );
                         let progress_bar =
                             multi_progress.add(git_clone.create_progress_bar(directory_path));
-                        tasks.spawn(
-                            async move { git_clone_args.clone_and_execute(progress_bar).await },
-                        );
+                        tasks.spawn({
+                            let execution_config = execution_config.clone();
+                            async move {
+                                git_clone_args
+                                    .clone_and_execute(progress_bar)
+                                    .await
+                                    .with_context(|| {
+                                        format!("Execution Plan: {:#?}", execution_config)
+                                    })
+                            }
+                        });
                     }
                     ExecutionItem::Dotfile(details_type) => {
                         let dotfiles_repository_path = execution_config
