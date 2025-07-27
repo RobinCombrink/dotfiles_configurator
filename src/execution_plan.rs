@@ -123,7 +123,7 @@ impl ExecutionPlan {
             }
             while let Some(res) = tasks.join_next().await {
                 match res {
-                    Ok(_) => results.push(Ok(())),
+                    Ok(execution_result) => results.push(execution_result),
                     Err(err) => results.push(Err(err.into())),
                 }
                 execution_items_coordinator_progress_bar
@@ -131,7 +131,7 @@ impl ExecutionPlan {
             }
         }
 
-        vec![]
+        results
     }
     // pub(crate) async fn execute(self, client: Client) -> Vec<Result<()>> {
     //     let multi_progress = MultiProgress::new();
