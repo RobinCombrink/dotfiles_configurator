@@ -21,22 +21,12 @@ pub trait Executor {
     fn execute(&self) -> impl Future<Output = Result<()>> + Send;
 }
 
-pub trait AssetDownloaderExecutor {}
-
-pub trait FileDownloaderExecutor {}
-
-pub trait DotfileExecutor {}
-
-pub trait CloneExecutor {}
-
-pub trait ShellCommandExecutor {}
-
 pub(crate) trait ItemProgress {
     fn create_progress_bar(&self, path: PathBuf) -> ProgressBar;
 }
 
 impl ItemProgress for DownloadType {
-    fn create_progress_bar(&self, path: PathBuf) -> ProgressBar {
+    fn create_progress_bar(&self, _path: PathBuf) -> ProgressBar {
         match self {
             DownloadType::Application(_) => create_download_application_progress_bar(),
             DownloadType::GitHubAsset(_) => create_download_application_progress_bar(),
