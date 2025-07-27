@@ -168,15 +168,23 @@ impl<T: Authentication> GitCloneArgs<T> {
 
         let directory_path = self.directory_path.join(self.git_clone.repo.clone());
 
+        let branch = repo.default_branch.ok_or_else(|| {
+            anyhow!(
+                "Repository: {}/{} does not have a default branch",
+                self.git_clone.owner,
+                self.git_clone.repo
+            )
+        })?;
+
         let local_repo = git2::Repository::open(&directory_path);
         match local_repo {
             Ok(local_repo) => local_repo
                 .find_remote("origin")
                 .expect("Imagine not using origin as your remote name")
-                .fetch(&["main"], None, None)
+                .fetch(&[branch], None, None)
                 .with_context(|| {
                     format!(
-                        "Could not fetch origin main for local repository: {}",
+                        "Could not fetch origin/main for local repository: {}",
                         repo.name
                     )
                 }),
