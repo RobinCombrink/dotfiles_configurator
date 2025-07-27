@@ -8,12 +8,13 @@ use {
     },
     anyhow::{Context, Result, anyhow},
     common::configuration::{ApplicationDetails, AssetFind, GitClone, RepositoryDetails},
-    git2::build::RepoBuilder,
+    git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder},
     github_authentication::authentication::Authentication,
     indicatif::ProgressBar,
     log::{info, trace},
     octocrab::Octocrab,
     reqwest::Client,
+    secrecy::{ExposeSecret, SecretString},
     std::{fmt::Display, fs, future::Future, path::PathBuf, sync::Arc},
 };
 
@@ -194,11 +195,7 @@ impl<T: Authentication> GitCloneArgs<T> {
                     repo.full_name.unwrap_or_else(|| repo.name.clone())
                 ))?;
 
-                let fetch_options = github::create_repository_fetch_options(
-                    &token,
-                    &self.git_clone.owner,
-                    progress_bar,
-                );
+                let fetch_options = self.create_repository_fetch_options(&token, progress_bar);
 
                 match RepoBuilder::new()
                     .fetch_options(fetch_options)
@@ -214,5 +211,68 @@ impl<T: Authentication> GitCloneArgs<T> {
                 }
             }
         }
+    }
+    fn create_repository_fetch_options<'token>(
+        &'token self,
+        token: &'token SecretString,
+        progress_bar: ProgressBar,
+    ) -> FetchOptions<'token> {
+        let mut callbacks = RemoteCallbacks::new();
+
+        callbacks.transfer_progress(move |progress| {
+            let objects_progress_percent = ((progress.received_objects() as f64
+                / progress.total_objects() as f64)
+                * 100 as f64)
+                .floor() as u64;
+
+            let deltas_progress_percent =
+                (progress.indexed_deltas() as f64 / progress.total_deltas() as f64 * 100 as f64)
+                    .floor() as u64;
+
+            if progress.received_objects() == progress.total_objects() {
+                progress_bar.set_message(format!(
+                    "Resolving deltas {}/{} ({}%) for {}",
+                    progress.indexed_deltas(),
+                    progress.total_deltas(),
+                    deltas_progress_percent,
+                    self.git_clone
+                ));
+            } else if progress.total_objects() > 0 {
+                progress_bar.set_message(format!(
+                    "Received {}/{} ({}%) objects ({}) in {} bytes for {}",
+                    progress.received_objects(),
+                    progress.total_objects(),
+                    objects_progress_percent,
+                    progress.indexed_objects(),
+                    progress.received_bytes(),
+                    self.git_clone,
+                ));
+            }
+
+            let progress_position = (((objects_progress_percent as f64 / 100 as f64)
+                + (deltas_progress_percent as f64 / 100 as f64)
+                    * progress_bar.length().unwrap_or_else(|| 100) as f64)
+                .floor()
+                / (2 as f64)) as u64;
+
+            progress_bar.set_position(progress_position);
+            if objects_progress_percent >= 100 && deltas_progress_percent >= 100 {
+                progress_bar.finish_using_style();
+            }
+            true
+        });
+
+        callbacks.credentials(move |_url, username_from_url, _allowed_types| {
+            Cred::userpass_plaintext(
+                username_from_url.unwrap_or_else(|| &self.git_clone.owner),
+                token.expose_secret(),
+            )
+        });
+
+        let mut fetch_options = FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
+        fetch_options.depth(1);
+
+        return fetch_options;
     }
 }

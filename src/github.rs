@@ -51,43 +51,6 @@ pub fn initialise_octocrab(token: SecretString) -> Result<Arc<Octocrab>> {
     Ok(octocrab)
 }
 
-pub(crate) fn create_repository_fetch_options<'token>(
-    token: &'token SecretString,
-    default_username: &'token str,
-    progress_bar: ProgressBar,
-) -> FetchOptions<'token> {
-    let mut callbacks = RemoteCallbacks::new();
-
-    callbacks.transfer_progress(move |progress| {
-        let progress_percent =
-            ((progress.received_objects() as f64 / progress.total_objects() as f64) * 100 as f64)
-                .ceil() as u64;
-
-        let progress_position = (progress_percent as f64 / 100 as f64)
-            * progress_bar.length().unwrap_or_else(|| 100) as f64;
-        let progress_position = progress_position.floor() as u64;
-
-        progress_bar.set_position(progress_position);
-        if progress_percent >= 100 {
-            progress_bar.finish_using_style();
-        }
-        true
-    });
-
-    callbacks.credentials(move |_url, username_from_url, _allowed_types| {
-        Cred::userpass_plaintext(
-            username_from_url.unwrap_or_else(|| &default_username),
-            token.expose_secret(),
-        )
-    });
-
-    let mut fetch_options = FetchOptions::new();
-    fetch_options.remote_callbacks(callbacks);
-    fetch_options.depth(1);
-
-    return fetch_options;
-}
-
 pub async fn get_configs_from_github(
     owner: &str,
     repo: &str,
