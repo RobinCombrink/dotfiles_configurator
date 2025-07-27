@@ -2,7 +2,6 @@ use {
     crate::{
         download::Downloader,
         execution_plan::DownloadType,
-        github,
         progress_bar::{create_download_application_progress_bar, create_git_clone_progress_bar},
         shell_command,
     },
@@ -157,7 +156,7 @@ impl<T: Authentication> GitCloneArgs<T> {
         let token = self.authentication.get_token();
         let repo = self
             .octocrab
-            .user_access_token(self.authentication.get_token())?
+            .user_access_token(token.clone())?
             .repos(&self.git_clone.owner, &self.git_clone.repo)
             .get()
             .await
@@ -178,15 +177,16 @@ impl<T: Authentication> GitCloneArgs<T> {
         })?;
 
         let local_repo = git2::Repository::open(&directory_path);
+        let mut fetch_options = self.create_repository_fetch_options(&token, progress_bar);
         match local_repo {
             Ok(local_repo) => local_repo
                 .find_remote("origin")
                 .expect("Imagine not using origin as your remote name")
-                .fetch(&[branch], None, None)
+                .fetch(&[branch], Some(&mut fetch_options), None)
                 .with_context(|| {
                     format!(
                         "Could not fetch origin/main for local repository: {}",
-                        repo.name
+                        repo.full_name.unwrap_or_else(|| repo.name.clone())
                     )
                 }),
             Err(_) => {
@@ -194,8 +194,6 @@ impl<T: Authentication> GitCloneArgs<T> {
                     "{} does not have an html url",
                     repo.full_name.unwrap_or_else(|| repo.name.clone())
                 ))?;
-
-                let fetch_options = self.create_repository_fetch_options(&token, progress_bar);
 
                 match RepoBuilder::new()
                     .fetch_options(fetch_options)
