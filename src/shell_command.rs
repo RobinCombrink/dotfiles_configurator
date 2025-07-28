@@ -1,6 +1,6 @@
 use {
     crate::impls::{Executor, ExecutorSync},
-    anyhow::{anyhow, Context, Result},
+    anyhow::{Context, Error, Result, anyhow},
     common::configuration::ShellCommand,
     futures::future::join_all,
     log::info,
@@ -57,33 +57,42 @@ fn get_shell_command(shell_command: &ShellCommand) -> (Vec<String>, &str, bool) 
 }
 
 impl Executor for ShellCommand {
-    fn execute(&self) -> impl Future<Output = Result<(), anyhow::Error>> {
+    fn execute(&self) -> impl Future<Output = Result<(), Error>> {
         let (args, shell_program, interactive) = get_shell_command(self);
-        info!("In {shell_program}, executing {}", args.join(" "));
+        let command_str = format!("{} {}", shell_program, args.join(" "));
+        info!("Executing: {command_str}");
 
-        let result = Command::new(shell_program).args(args).spawn();
+        let result = Command::new(shell_program).args(&args).spawn();
         async move {
-            match result {
+            let res = match result {
                 Ok(child) => {
-                    if !interactive.clone() {
+                    if !interactive {
                         match child.wait_with_output() {
-                            Ok(output) => match output.status.success() {
-                                true => Ok(()),
-                                false => {
-                                    Err(anyhow!("Something went wrong executing the command",))
+                            Ok(output) => {
+                                let stdout = String::from_utf8_lossy(&output.stdout);
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                if output.status.success() {
+                                    Ok(())
+                                } else {
+                                    let err_msg = format!(
+                                        "Non success output status\nstatus: {:?}\nstdout: {}\nstderr: {}",
+                                        output.status.code(),
+                                        stdout,
+                                        stderr
+                                    );
+                                    Err(anyhow!(err_msg))
                                 }
-                            },
-                            Err(e) => Err(anyhow!("Something went wrong executing the command"))
-                                .with_context(|| e),
+                            }
+                            Err(e) => Err(Into::<Error>::into(e))
+                                .with_context(|| "Failed to wait on child process"),
                         }
                     } else {
                         Ok(())
                     }
                 }
-                Err(e) => {
-                    Err(anyhow!("Something went wrong executing the command")).with_context(|| e)
-                }
-            }
+                Err(e) => Err(e).with_context(|| format!("Failed to spawn process")),
+            };
+            res.with_context(|| format!("Error executing asynchronously: {command_str}"))
         }
     }
 }
@@ -91,33 +100,31 @@ impl Executor for ShellCommand {
 impl ExecutorSync for ShellCommand {
     fn execute_sync(&self) -> Result<String> {
         let (args, shell_program, _) = get_shell_command(self);
-        info!("In {shell_program}, executing {}", args.join(" "));
+        let command_str = format!("{} {}", shell_program, args.join(" "));
+        info!("Executing: {command_str}");
 
         let result = Command::new(shell_program)
             .args(&args)
             .output()
-            .with_context(|| {
-                format!(
-                    "Something went wrong executing the command: {:#?} in the program {}",
-                    args, shell_program
-                )
-            });
+            .with_context(|| format!("Error executing synchronously: {command_str}"));
 
         match result {
-            Ok(output) => match output.status.success() {
-                true => Ok(String::from_utf8(output.stdout).expect("Uf8 only for standard out")),
-                false => {
-                    Err(anyhow!("Command exited with non zero exit status")).with_context(|| {
-                        format!(
-                            "status: {:#?}\nstdout: {}\nstderr: {},",
-                            output.status.code(),
-                            String::from_utf8(output.stdout).expect("Uf8 only for standard out"),
-                            String::from_utf8(output.stderr).expect("Uf8 only for standard err"),
-                        )
-                    })
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                if output.status.success() {
+                    Ok(stdout)
+                } else {
+                    let err_msg = format!(
+                        "Non success output status\nstatus: {:?}\nstdout: {}\nstderr: {}",
+                        output.status.code(),
+                        stdout,
+                        stderr
+                    );
+                    Err(anyhow!(err_msg))
                 }
-            },
-            Err(e) => Err(anyhow!("Something went wrong executing the command")).with_context(|| e),
+            }
+            Err(e) => Err(e),
         }
     }
 }
