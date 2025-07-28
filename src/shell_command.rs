@@ -4,7 +4,10 @@ use {
     common::configuration::ShellCommand,
     futures::future::join_all,
     log::info,
-    std::{future::Future, process::Command},
+    std::{
+        future::Future,
+        process::{Command, Stdio},
+    },
 };
 
 pub async fn execute_all(cli_commands: &Option<Vec<ShellCommand>>) -> Option<Vec<Result<()>>> {
@@ -62,7 +65,12 @@ impl Executor for ShellCommand {
         let command_str = format!("{} {}", shell_program, args.join(" "));
         info!("Executing: {command_str}");
 
-        let result = Command::new(shell_program).args(&args).spawn();
+        let result = Command::new(shell_program)
+            .args(&args)
+            .stderr(Stdio::null())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .spawn();
         async move {
             let res = match result {
                 Ok(child) => {

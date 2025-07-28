@@ -154,7 +154,8 @@ impl ExecutionPlan {
                         tasks.spawn(async move { dotfiles_details.execute().await });
                     }
                     ExecutionItem::ShellCommand(shell_command) => {
-                        // shell_command.execute().await;
+                        results.push(shell_command.execute().await);
+                        execution_items_coordinator_progress_bar.set_position(results.len().try_into().unwrap());
                     }
                 }
             }
