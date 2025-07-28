@@ -175,11 +175,22 @@ impl ExecutionPlan {
 
 pub(crate) type ExecutionPlanEntry = (GitCloneConfig, ExecutionPlanItems<GitHubCliAuthentication>);
 
+pub trait Merge {
+    fn merge(&mut self, other: Self);
+        
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ExecutionPlanItems<T: Authentication> {
     pub(crate) items: Vec<ExecutionItem>,
     pub(crate) authentication: T,
     pub(crate) octocrab: Arc<Octocrab>,
+}
+
+impl <T: Authentication> Merge for  ExecutionPlanItems<T> {
+    fn merge(&mut self, other: Self) {
+        self.items.extend(other.items);
+    }
 }
 
 #[derive(Debug, Clone)]

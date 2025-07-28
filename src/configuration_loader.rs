@@ -1,7 +1,10 @@
 use {
     crate::{
         Arguments, Command, RemoteConfigArguments,
-        execution_plan::{ExecutionPlan, ExecutionPlanEntry, ExecutionPlanEntryConverter},
+        execution_plan::{
+            ExecutionPlan, ExecutionPlanEntry, ExecutionPlanEntryConverter, ExecutionPlanItems,
+            Merge,
+        },
         github,
     },
     anyhow::{Context, Result, anyhow},
@@ -9,7 +12,7 @@ use {
     futures::future::{join, join_all},
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     log::error,
-    std::{env::home_dir, fs, path::PathBuf},
+    std::{collections::HashMap, env::home_dir, fs, path::PathBuf},
 };
 
 pub struct ConfigurationLoader {
@@ -84,10 +87,23 @@ impl ConfigurationLoader {
                 configs.append(&mut external_configs?);
             }
         };
+
+        let mut items: HashMap<_, ExecutionPlanItems<GitHubCliAuthentication>, _> = HashMap::new();
+
+        for (key, value) in configs.into_iter() {
+            let execution_plan_item = if let Some(mut execution_plan_item) = items.remove(&key) {
+                execution_plan_item.merge(value);
+                execution_plan_item
+            } else {
+                value
+            };
+            items.insert(key, execution_plan_item);
+        }
+
         Ok(ExecutionPlan {
             download_directory: self.download_directory,
             home_directory: self.home_directory,
-            items: configs.into_iter().collect(),
+            items,
         })
     }
 
