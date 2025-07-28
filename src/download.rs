@@ -1,13 +1,14 @@
 use {
-    anyhow::{anyhow, Context, Result},
+    crate::impls::Executor,
+    anyhow::{Context, Error, Result, anyhow},
+    common::configuration::ShellCommand,
     futures::StreamExt,
     indicatif::ProgressBar,
-    reqwest::{header, Client},
+    reqwest::{Client, header},
     std::{
         borrow::Cow,
         fs::{self, create_dir_all},
         path::PathBuf,
-        process::Command,
     },
     url::Url,
 };
@@ -55,7 +56,9 @@ pub trait Downloader {
                     "Couldn't download URL: {}.\nResponse: {:?}\nBody: {}",
                     url,
                     resp.status(),
-                    resp.text().await.with_context(||"Couldn't get response body text after error status code")?,
+                    resp.text().await.with_context(
+                        || "Couldn't get response body text after error status code"
+                    )?,
                 ))
                 .into());
             }
@@ -96,19 +99,18 @@ pub trait Downloader {
         while let Some(item) = source.next().await {
             tokio::io::copy(&mut item?.as_ref(), &mut tmp_file).await?;
         }
-        Self::run(file_path)
+        Self::run(file_path).await
     }
 
-    fn run(to_run_path: &PathBuf) -> Result<()> {
-        match Command::new("cmd")
-            .args(&["/C", to_run_path.to_str().unwrap()])
-            .spawn()
-        {
-            Ok(_) => Ok(()),
-            Err(err) => Err(anyhow!(
-                "There was a problem installing the downloaded application at {:#?}\n{err}",
-                to_run_path
-            )),
-        }
+    async fn run(to_run_path: &PathBuf) -> Result<()> {
+        let to_run_path = to_run_path
+            .to_str()
+            .with_context(|| format!("Could not convert {:#?} to a utf-8 string", to_run_path))?;
+        let command = ShellCommand::new(vec![to_run_path.to_string()], false, true);
+        (match command.execute().await {
+            Ok(ok) => Ok(ok),
+            Err(err) => Err(Into::<Error>::into(err)),
+        })
+        .with_context(|| format!("Could not run downloaded application at {:#?}", to_run_path))
     }
 }
