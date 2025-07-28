@@ -26,15 +26,19 @@ pub trait Downloader {
         file_path: &PathBuf,
         progress_bar: ProgressBar,
     ) -> Result<()> {
+        let debug = false;
+
         let name = match file_path.file_name() {
             Some(name) => name.to_owned(),
             None => "temp_download".to_owned().into(),
         };
 
-        if let Ok(exists) = file_path.try_exists() {
-            if exists {
-                fs::remove_file(file_path)
-                    .with_context(|| format!("Could not remove file: {:#?}", file_path))?;
+        if debug {
+            if let Ok(exists) = file_path.try_exists() {
+                if exists {
+                    fs::remove_file(file_path)
+                        .with_context(|| format!("Could not remove file: {:#?}", file_path))?;
+                }
             }
         }
 
