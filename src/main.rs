@@ -3,7 +3,7 @@ use {
     clap::{Args, Parser, ValueEnum},
     configuration_loader::ConfigurationLoader,
     env_logger,
-    log::{error, trace, LevelFilter},
+    log::{LevelFilter, error, trace},
     reqwest::Client,
     std::io::Write,
     std::path::PathBuf,
@@ -130,9 +130,10 @@ async fn main() {
 
     trace!("Logging setup successful");
 
-    let config_loader = ConfigurationLoader::new(args.command);
+    let execution_type = args.execution_type.clone();
+    let config_loader = ConfigurationLoader::new(args);
     match config_loader.load_all_configurations().await {
-        Ok(execution_plan) => match args.execution_type {
+        Ok(execution_plan) => match execution_type {
             ExecutionType::DryRun => {
                 println!("{:#?}", execution_plan);
             }

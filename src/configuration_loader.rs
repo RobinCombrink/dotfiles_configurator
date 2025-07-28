@@ -1,13 +1,15 @@
 use {
     crate::{
-        execution_plan::{ExecutionPlan, ExecutionPlanEntry, ExecutionPlanEntryConverter}, github, Command, RemoteConfigArguments
+        Arguments, Command, RemoteConfigArguments,
+        execution_plan::{ExecutionPlan, ExecutionPlanEntry, ExecutionPlanEntryConverter},
+        github,
     },
-    anyhow::{anyhow, Context, Result},
+    anyhow::{Context, Result, anyhow},
     common::configuration::Configuration,
     futures::future::{join, join_all},
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     log::error,
-    std::{fs, path::PathBuf},
+    std::{env::home_dir, fs, path::PathBuf},
 };
 
 pub struct ConfigurationLoader {
@@ -17,13 +19,20 @@ pub struct ConfigurationLoader {
 }
 
 impl ConfigurationLoader {
-    pub fn new(args: Command) -> Self {
-        // let download_directory = dirs::download_dir().expect("Failed to find download directory");
-        // let home_directory: PathBuf = dirs::home_dir().expect("Failed to find home directory");
-        let download_directory = PathBuf::from("C:\\Test\\Download");
-        let home_directory: PathBuf = PathBuf::from("C:\\Test\\Home");
+    pub fn new(args: Arguments) -> Self {
+        let (download_directory, home_directory) = if args.debug {
+            (
+                PathBuf::from("C:\\Test\\Download"),
+                PathBuf::from("C:\\Test\\Home"),
+            )
+        } else {
+            (
+                dirs::download_dir().expect("Failed to find download directory"),
+                home_dir().expect("Failed to find home directory"),
+            )
+        };
         Self {
-            args,
+            args: args.command,
             download_directory,
             home_directory,
         }
