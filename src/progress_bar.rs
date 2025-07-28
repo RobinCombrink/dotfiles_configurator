@@ -1,5 +1,4 @@
 use {
-    common::configuration::GitCloneConfig,
     indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle},
     std::{borrow::Cow, path::PathBuf, time::Duration},
 };
