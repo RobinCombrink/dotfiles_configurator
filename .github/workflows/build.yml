@@ -11,6 +11,8 @@ env:
   RUST_BACKTRACE: 1
 jobs:
   test:
+    permissions: 
+      contents: write
     name: ${{ matrix.platform.os_name }} with rust ${{ matrix.toolchain }}
     runs-on: ${{ matrix.platform.os }}
     strategy:
@@ -94,9 +96,7 @@ jobs:
           fi
           cd -
         if: |
-          matrix.toolchain == 'stable' &&
-          ( startsWith( github.ref, 'refs/tags/v' ) ||
-            github.ref == 'refs/tags/test-release' )
+          matrix.toolchain == 'stable' && startsWith( github.ref, 'refs/tags/' )
       - name: Publish release artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -108,13 +108,13 @@ jobs:
         if: |
           matrix.toolchain == 'stable' &&
           matrix.platform.os == 'macOS-latest' &&
-          ( startsWith( github.ref, 'refs/tags/v' ) ||
+          ( startsWith( github.ref, 'refs/tags/' ) ||
             github.ref == 'refs/tags/test-release' )
       - name: Publish GitHub release
         if: matrix.toolchain == 'stable' && startsWith( github.ref, 'refs/tags/' )
         uses: softprops/action-gh-release@v1
         with:
           draft: false
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           files: "target/${{ matrix.platform.target }}/release/dotfiles*\nschema/configuration_schema.json"
           generate_release_notes: true
