@@ -6,8 +6,8 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-common = { path = "../common" }
-github_authentication = { path = "../../githubauthentication" }
+common = { git = "https://github.com/DotfilesConfigurator/common" }
+github_authentication  = { git = "https://github.com/RobinCombrink/GithubAuthentication" }
 clap = { version = "4.5.41", features = ["derive", "string"] }
 oauth2 = "5.0.0"
 octocrab = "0.44.1"
