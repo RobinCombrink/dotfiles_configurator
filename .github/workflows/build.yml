@@ -56,8 +56,8 @@ jobs:
           repositories: GithubAuthentication
       - name: Setup Git
         run: |
-          git config --global url."https://x-access-token:${{ steps.get-dotfiles-github-app-token.outputs.token }}@github.com".insteadOf https://github.com/DotfilesConfigurator
-          git config --global url."https://x-access-token:${{ steps.get-other-github-app-token.outputs.token }}@github.com".insteadOf https://github.com/RobinCombrink
+          git config --global url."https://x-access-token:${{ steps.get-dotfiles-github-app-token.outputs.token }}@github.com/DotfilesConfigurator".insteadOf https://github.com/DotfilesConfigurator
+          git config --global url."https://x-access-token:${{ steps.get-other-github-app-token.outputs.token }}@github.com/RobinCombrink".insteadOf https://github.com/RobinCombrink
       - name: Cache cargo & target directories
         uses: Swatinem/rust-cache@v2
         with:
