@@ -37,14 +37,20 @@ jobs:
         #   - nightly
     steps:
       - uses: actions/checkout@v4
+        with: 
+          persist-credentials: false
+      - uses: actions/create-github-app-token@v2
+        id: get-github-app-token
+        with:
+          app-id: ${{ vars.AUTHENTICATION_APP_ID }}
+          private-key: ${{ secrets.AUTHENTICATION_PRIVATE_KEY }}
+      - name: Setup Git
+        run: |
+          git config --global url."https://x-access-token:${{ steps.get-github-app-token.outputs.token }}@github.com".insteadOf https://github.com
       - name: Cache cargo & target directories
         uses: Swatinem/rust-cache@v2
         with:
           key: "v2"
-      - name: Configure Git
-        run: |
-          git config --global user.email "jdoe@example.com"
-          git config --global user.name "J. Doe"
       - name: Install musl-tools on Linux
         if: contains(matrix.platform.name, 'musl')
         run: sudo apt-get update --yes && sudo apt-get install --yes musl-tools
