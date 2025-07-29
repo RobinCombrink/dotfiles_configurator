@@ -16,7 +16,7 @@ use {
 };
 
 pub struct ConfigurationLoader {
-    args: Command,
+    config_source: Command,
     download_directory: PathBuf,
     home_directory: PathBuf,
 }
@@ -35,7 +35,7 @@ impl ConfigurationLoader {
             )
         };
         Self {
-            args: args.command,
+            config_source: args.command,
             download_directory,
             home_directory,
         }
@@ -43,7 +43,7 @@ impl ConfigurationLoader {
     pub async fn load_all_configurations(self) -> Result<ExecutionPlan> {
         let mut configs = vec![];
 
-        match &self.args {
+        match &self.config_source {
             Command::Local(args) => configs.append(
                 &mut self
                     .load_local_configurations(&args.directory_path)
