@@ -42,14 +42,22 @@ jobs:
         with: 
           persist-credentials: false
       - uses: actions/create-github-app-token@v2
-        id: get-github-app-token
+        id: get-dotfiles-github-app-token
         with:
           app-id: ${{ vars.AUTHENTICATION_APP_ID }}
           private-key: ${{ secrets.AUTHENTICATION_PRIVATE_KEY }}
           repositories: common
+      - uses: actions/create-github-app-token@v2
+        id: get-other-github-app-token
+        with:
+          app-id: ${{ vars.AUTHENTICATION_APP_ID }}
+          private-key: ${{ secrets.AUTHENTICATION_PRIVATE_KEY }}
+          owner: RobinCombrink
+          repositories: GithubAuthentication
       - name: Setup Git
         run: |
-          git config --global url."https://x-access-token:${{ steps.get-github-app-token.outputs.token }}@github.com".insteadOf https://github.com
+          git config --global url."https://x-access-token:${{ steps.get-dotfiles-github-app-token.outputs.token }}@github.com".insteadOf https://github.com/DotfilesConfigurator
+          git config --global url."https://x-access-token:${{ steps.get-other-github-app-token.outputs.token }}@github.com".insteadOf https://github.com/RobinCombrink
       - name: Cache cargo & target directories
         uses: Swatinem/rust-cache@v2
         with:
