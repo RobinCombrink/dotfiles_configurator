@@ -8,14 +8,14 @@ use {
     },
     anyhow::{Context, Result},
     common::configuration::{
-        ApplicationDetails, Configuration, ConfigurationItem, DetailsType, Download, GitClone,
-        GitCloneConfig, RepositoryDetails, ShellCommand,
+        ApplicationDetails, AssetFind, Configuration, ConfigurationItem, DetailsType, Download,
+        GitClone, GitCloneConfig, RepositoryDetails, ShellCommand,
     },
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     indicatif::MultiProgress,
     octocrab::Octocrab,
     reqwest::Client,
-    std::{collections::HashMap, path::PathBuf, sync::Arc},
+    std::{collections::HashMap, path::PathBuf, process::exit, sync::Arc},
     tokio::task::JoinSet,
 };
 pub(crate) trait ExecutionPlanEntryConverter {
@@ -52,6 +52,8 @@ pub struct ExecutionPlan {
 
 impl ExecutionPlan {
     pub(crate) async fn execute_new(self, client: Client) -> Vec<Result<()>> {
+        self.ensure_github_cli_is_installed(client.clone()).await;
+
         let mut results: Vec<Result<()>> = Vec::new();
 
         let multi_progress = MultiProgress::new();
@@ -82,7 +84,7 @@ impl ExecutionPlan {
             match git_clone_args.clone_and_execute(progress_bar).await {
                 Ok(ok) => results.push(Ok(ok)),
                 Err(err) => {
-                    results.push(Err(err).with_context(|| 
+                    results.push(Err(err).with_context(||
                         format!(
                             "Could not clone dotfiles repository: {}/{} as user: {} to directory: {:#?}",
                             dotfiles_repository.owner,
@@ -155,7 +157,8 @@ impl ExecutionPlan {
                     }
                     ExecutionItem::ShellCommand(shell_command) => {
                         results.push(shell_command.execute().await);
-                        execution_items_coordinator_progress_bar.set_position(results.len().try_into().unwrap());
+                        execution_items_coordinator_progress_bar
+                            .set_position(results.len().try_into().unwrap());
                     }
                 }
             }
@@ -171,13 +174,46 @@ impl ExecutionPlan {
 
         results
     }
+
+    async fn ensure_github_cli_is_installed(&self, client: Client) {
+        let gh_exists = GitHubCliAuthentication::is_github_cli_on_path().is_ok();
+        if !gh_exists {
+            let github_asset_ends_with = "windows_amd64.msi".to_owned();
+
+            let gh_repository_details = RepositoryDetails {
+                owner: "cli".to_owned(),
+                repo: "cli".to_owned(),
+                asset_find: Some(AssetFind::AssetEndsWith {
+                    asset_ends_with: github_asset_ends_with,
+                }),
+                shell_commands: None,
+                dotfiles: None,
+            };
+            let download_type = DownloadType::GitHubAsset(gh_repository_details.clone());
+            let progress_bar = download_type.create_progress_bar(self.download_directory.clone());
+            let downloaded_gh_cli = gh_repository_details
+                .download_self(client, self.download_directory.clone(), progress_bar)
+                .await;
+
+            match downloaded_gh_cli {
+                Ok(_) => {
+                    println!(
+                        "Successfully downloaded the gh cli.\nRerun this application once you have installed it and logged in"
+                    );
+                    exit(0)
+                }
+                Err(e) => println!(
+                    "Something went wrong installing the github CLI automatically (only supported on Windows):\n{e}\nInstall it manually from https://github.com/cli/cli and add it to your path"
+                ),
+            }
+        }
+    }
 }
 
 pub(crate) type ExecutionPlanEntry = (GitCloneConfig, ExecutionPlanItems<GitHubCliAuthentication>);
 
 pub trait Merge {
     fn merge(&mut self, other: Self);
-        
 }
 
 #[derive(Debug, Clone)]
@@ -187,7 +223,7 @@ pub(crate) struct ExecutionPlanItems<T: Authentication> {
     pub(crate) octocrab: Arc<Octocrab>,
 }
 
-impl <T: Authentication> Merge for  ExecutionPlanItems<T> {
+impl<T: Authentication> Merge for ExecutionPlanItems<T> {
     fn merge(&mut self, other: Self) {
         self.items.extend(other.items);
     }
