@@ -1,20 +1,18 @@
 use {
     crate::{
-        download::Downloader,
-        execution_plan::DownloadType,
-        progress_bar::{create_download_application_progress_bar, create_git_clone_progress_bar},
+        download::Downloader, execution_plan::DownloadType, progress_bar::create_progress_bar,
         shell_command,
     },
     anyhow::{Context, Result, anyhow},
     common::configuration::{ApplicationDetails, AssetFind, GitClone, RepositoryDetails},
     git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder},
     github_authentication::authentication::Authentication,
-    indicatif::ProgressBar,
+    indicatif::{ProgressBar, ProgressFinish, ProgressStyle},
     log::{info, trace},
     octocrab::Octocrab,
     reqwest::Client,
     secrecy::{ExposeSecret, SecretString},
-    std::{fmt::Display, fs, future::Future, path::PathBuf, sync::Arc},
+    std::{borrow::Cow, fmt::Display, fs, future::Future, path::PathBuf, sync::Arc},
 };
 
 pub trait Executor {
@@ -27,16 +25,30 @@ pub(crate) trait ItemProgress {
 
 impl ItemProgress for DownloadType {
     fn create_progress_bar(&self, _path: PathBuf) -> ProgressBar {
+        let progress_bar = ProgressBar::new(0).with_style(ProgressStyle::default_bar()
+                 .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}")
+                 .unwrap()
+                 .progress_chars("#>-"));
         match self {
-            DownloadType::Application(_) => create_download_application_progress_bar(),
-            DownloadType::GitHubAsset(_) => create_download_application_progress_bar(),
+            DownloadType::Application(_) => progress_bar,
+            DownloadType::GitHubAsset(_) => progress_bar,
         }
     }
 }
 
 impl ItemProgress for GitClone {
     fn create_progress_bar(&self, path: PathBuf) -> ProgressBar {
-        create_git_clone_progress_bar(&self.owner, &self.repo, path)
+        let message = format!("Cloning {}/{} into {:#?}", &self.owner, &self.repo, path,);
+
+        let finish = ProgressFinish::WithMessage(Cow::from(format!(
+            "Cloned {}/{} into {:#?}",
+            &self.owner, &self.repo, path,
+        )));
+
+        let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} ({eta}) {msg}")
+            .unwrap()
+            .progress_chars("##-");
+        create_progress_bar(40, message, finish, style)
     }
 }
 

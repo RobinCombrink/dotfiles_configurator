@@ -17,19 +17,12 @@ pub(crate) fn create_progress_bar(
         .with_position(0)
 }
 
-pub(crate) fn create_download_application_progress_bar() -> ProgressBar {
-    ProgressBar::new(0).with_style(ProgressStyle::default_bar()
-                 .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}")
-                 .unwrap()
-                 .progress_chars("#>-"))
-}
-
-pub(crate) fn create_git_clone_progress_bar(
+pub(crate) fn create_dotfiles_progress_bar(
     owner: &String,
     repo: &String,
     repository_path: PathBuf,
 ) -> ProgressBar {
-    let finish = indicatif::ProgressFinish::WithMessage(Cow::from(format!(
+    let finish = ProgressFinish::WithMessage(Cow::from(format!(
         "Cloned {owner}/{repo} into {:#?}",
         repository_path
     )));
