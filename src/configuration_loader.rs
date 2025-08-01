@@ -41,41 +41,32 @@ impl ConfigurationLoader {
         }
     }
     pub async fn load_all_configurations(self) -> Result<ExecutionPlan> {
-        let mut configs = vec![];
-
-        match &self.config_source {
-            Command::Local(args) => configs.append(
-                &mut self
-                    .load_local_configurations(&args.directory_path)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Could not load local configuration. Path:{:#?}",
-                            &args.directory_path
-                        )
-                    })?,
-            ),
-            Command::Remote(remote) => configs.append(
-                &mut self
-                    .load_external_configurations(&remote)
-                    .await
-                    .with_context(|| {
-                        format!("could not load remote configuration: {:#?}", remote)
-                    })?,
-            ),
+        let configs = match &self.config_source {
+            Command::Local(args) => self
+                .load_local_configurations(&args.directory_path)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Could not load local configuration. Path:{:#?}",
+                        &args.directory_path
+                    )
+                })?,
+            Command::Remote(remote) => self
+                .load_external_configurations(&remote)
+                .await
+                .with_context(|| format!("could not load remote configuration: {:#?}", remote))?,
             Command::Remotes(args) => {
                 let loaded_external_configurations = args
                     .remotes
                     .iter()
                     .map(|remote| self.load_external_configurations(remote));
-                let remotes = join_all(loaded_external_configurations)
+                join_all(loaded_external_configurations)
                     .await
                     .into_iter()
                     .collect::<Result<Vec<_>>>()?
                     .into_iter()
-                    .flatten();
-
-                configs.extend(remotes);
+                    .flatten()
+                    .collect()
             }
             Command::All(args) => {
                 let (local_configs, external_configs) = join(
@@ -83,12 +74,14 @@ impl ConfigurationLoader {
                     self.load_external_configurations(&args.remote),
                 )
                 .await;
-                configs.append(&mut local_configs?);
-                configs.append(&mut external_configs?);
+                local_configs?
+                    .into_iter()
+                    .chain(external_configs?)
+                    .collect()
             }
         };
 
-        let mut items: HashMap<_, ExecutionPlanItems<GitHubCliAuthentication>, _> = HashMap::new();
+        let mut items: HashMap<_, ExecutionPlanItems<GitHubCliAuthentication>> = HashMap::new();
 
         for (key, value) in configs.into_iter() {
             let execution_plan_item = if let Some(mut execution_plan_item) = items.remove(&key) {
