@@ -169,7 +169,14 @@ impl ExecutionPlan {
                             dotfiles_repository_path,
                             self.home_directory.clone(),
                         );
-                        tasks.spawn(async move { dotfiles_details.execute().await });
+                        let progress_bar =
+                            multi_progress.add(dotfiles_details.create_progress_bar("/".into()));
+                        tasks.spawn(async move {
+                            let result = dotfiles_details.execute().await;
+
+                            progress_bar.finish_using_style();
+                            result
+                        });
                     }
                     ExecutionItem::ShellCommand(shell_command) => {
                         let progress_bar =

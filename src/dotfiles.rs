@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use common::configuration::DetailsType;
+use common::configuration::{DetailsType, DirectoryDetails, FileDetails};
 use log::info;
 use std::path::PathBuf;
 
@@ -7,9 +7,9 @@ use crate::impls::Executor;
 
 #[derive(Debug, Clone)]
 pub struct DotfilesDetails {
-    details: DetailsType,
-    home_dir: PathBuf,
-    dotfiles_repository_path: PathBuf,
+    pub(crate) details: DetailsType,
+    pub(crate) home_dir: PathBuf,
+    pub(crate) dotfiles_repository_path: PathBuf,
 }
 
 impl DotfilesDetails {
@@ -26,18 +26,41 @@ impl DotfilesDetails {
     }
 }
 
+pub(crate) trait PathFinder {
+    fn original_path(&self, dotfiles_repository_path: &PathBuf) -> PathBuf;
+    fn link_path(&self, home_dir: &PathBuf) -> PathBuf;
+}
+
+impl PathFinder for FileDetails {
+    fn original_path(&self, dotfiles_repository_path: &PathBuf) -> PathBuf {
+        dotfiles_repository_path.join(&self.original_path.join(&self.file_name))
+    }
+
+    fn link_path(&self, home_dir: &PathBuf) -> PathBuf {
+        let link_path = match &self.link_path {
+            Some(path) => path,
+            None => &home_dir,
+        };
+        home_dir.join(link_path).join(&self.file_name)
+    }
+}
+
+impl PathFinder for DirectoryDetails {
+    fn original_path(&self, dotfiles_repository_path: &PathBuf) -> PathBuf {
+        dotfiles_repository_path.join(&self.original_path)
+    }
+
+    fn link_path(&self, home_dir: &PathBuf) -> PathBuf {
+        home_dir.join(&self.link_path)
+    }
+}
+
 impl Executor for DotfilesDetails {
     async fn execute(&self) -> Result<()> {
         match &self.details {
             DetailsType::File(details) => {
-                let link_path = match &details.link_path {
-                    Some(path) => path,
-                    None => &self.home_dir,
-                };
-                let original_path = self
-                    .dotfiles_repository_path
-                    .join(&details.original_path.join(&details.file_name));
-                let link_path = self.home_dir.join(link_path).join(&details.file_name);
+                let original_path = details.original_path(&self.dotfiles_repository_path);
+                let link_path = details.link_path(&self.home_dir);
 
                 symlink_file(&original_path, &link_path).with_context(|| {
                     format!(
@@ -47,9 +70,8 @@ impl Executor for DotfilesDetails {
                 })
             }
             DetailsType::Directory(details) => {
-                let original_path = self.dotfiles_repository_path.join(&details.original_path);
-                let link_path = self.home_dir.join(&details.link_path);
-
+                let original_path = details.original_path(&self.dotfiles_repository_path);
+                let link_path = details.link_path(&self.home_dir);
                 symlink_directory(&original_path, &link_path).with_context(||format!("Could not create directory symlink\nLink path: {:#?}\nOriginal Path: {:#?} ", link_path, original_path ))
             }
         }

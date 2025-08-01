@@ -1,5 +1,6 @@
 use {
     crate::{
+        dotfiles::{DotfilesDetails, PathFinder},
         download::Downloader,
         execution_plan::DownloadType,
         progress_bar::create_progress_bar,
@@ -7,7 +8,7 @@ use {
     },
     anyhow::{Context, Result, anyhow},
     common::configuration::{
-        ApplicationDetails, AssetFind, GitClone, RepositoryDetails, ShellCommand,
+        ApplicationDetails, AssetFind, DetailsType, GitClone, RepositoryDetails, ShellCommand,
     },
     git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder},
     github_authentication::authentication::Authentication,
@@ -63,6 +64,37 @@ impl ItemProgress for ShellCommand {
         let message = format!("Executing:  {command}");
 
         let finish = ProgressFinish::WithMessage(Cow::from(format!("Executed: {command}")));
+
+        let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}")
+            .unwrap()
+            .progress_chars("##-");
+        create_progress_bar(40, message, finish, style)
+    }
+}
+
+impl ItemProgress for DotfilesDetails {
+    fn create_progress_bar(&self, _path: PathBuf) -> ProgressBar {
+        let (dotfiles_type, original_path, link_path) = match &self.details {
+            DetailsType::File(file_details) => (
+                "file",
+                file_details.original_path(&self.dotfiles_repository_path),
+                file_details.link_path(&self.home_dir),
+            ),
+            DetailsType::Directory(directory_details) => (
+                "directory",
+                directory_details.original_path(&self.dotfiles_repository_path),
+                directory_details.link_path(&self.home_dir),
+            ),
+        };
+        let message = format!(
+            "Setting up {} dotfile symlink: {:#?} -> {:#?}",
+            dotfiles_type, original_path, link_path
+        );
+
+        let finish = ProgressFinish::WithMessage(Cow::from(format!(
+            "Set up {} dotfile symlink: {:#?} -> {:#?}",
+            dotfiles_type, original_path, link_path
+        )));
 
         let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}")
             .unwrap()
