@@ -88,8 +88,10 @@ impl ExecutionPlan {
                 execution_config.repositories_directory_path.clone(),
                 execution_items_pair.authentication.clone(),
             );
-            let progress_bar =
-                multi_progress.add(dotfiles_repository.create_progress_bar(directory_path.clone()));
+            let progress_bar = multi_progress.insert_after(
+                &execution_items_coordinator_progress_bar,
+                dotfiles_repository.create_progress_bar(directory_path.clone()),
+            );
             match git_clone_args
                 .clone_and_execute(octocrab.clone(), progress_bar)
                 .await
@@ -141,8 +143,10 @@ impl ExecutionPlan {
                             execution_config.repositories_directory_path.clone(),
                             execution_items_pair.authentication.clone(),
                         );
-                        let progress_bar =
-                            multi_progress.add(git_clone.create_progress_bar(directory_path));
+                        let progress_bar = multi_progress.insert_after(
+                            &execution_items_coordinator_progress_bar,
+                            git_clone.create_progress_bar(directory_path),
+                        );
                         tasks.spawn({
                             let execution_config = execution_config.clone();
                             let octocrab = octocrab.clone();
