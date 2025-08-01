@@ -54,7 +54,7 @@ pub(crate) fn create_execution_item_coordinator_progress_bar(
         format!("Executing Plan"),
         ProgressFinish::WithMessage(Cow::from(format!("{} executed", execution_items_count))),
         ProgressStyle::with_template(&format!(
-            "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
+            "{{spinner:.green}} [{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
             execution_items_count
         ))
         .unwrap()
