@@ -10,6 +10,10 @@ use {
     },
 };
 
+pub trait CommandGetter {
+    fn get_shell_command(&self) -> (Vec<String>, &str, bool);
+}
+
 pub async fn execute_all(cli_commands: &Option<Vec<ShellCommand>>) -> Option<Vec<Result<()>>> {
     match cli_commands {
         Some(cli_commands) => {
@@ -19,51 +23,53 @@ pub async fn execute_all(cli_commands: &Option<Vec<ShellCommand>>) -> Option<Vec
     }
 }
 
-fn get_shell_command(shell_command: &ShellCommand) -> (Vec<String>, &str, bool) {
-    match shell_command {
-        ShellCommand::Bash(cli_command) => {
-            (cli_command.args.clone(), "bash", cli_command.interactive)
-        }
-        ShellCommand::CommandPrompt(cli_command) => {
-            let mut args = vec![];
-            if cli_command.require_output {
-                args.extend(vec!["/C".into()]);
-            } else if cli_command.interactive {
-                args.extend(vec!["/C".into(), "start".into()]);
+impl CommandGetter for ShellCommand {
+    fn get_shell_command(&self) -> (Vec<String>, &str, bool) {
+        match self {
+            ShellCommand::Bash(cli_command) => {
+                (cli_command.args.clone(), "bash", cli_command.interactive)
             }
+            ShellCommand::CommandPrompt(cli_command) => {
+                let mut args = vec![];
+                if cli_command.require_output {
+                    args.extend(vec!["/C".into()]);
+                } else if cli_command.interactive {
+                    args.extend(vec!["/C".into(), "start".into()]);
+                }
 
-            args.extend(cli_command.args.clone());
-            (args, "cmd", cli_command.interactive)
-        }
-        ShellCommand::Powershell(cli_command) => {
-            let mut args = vec![];
-            if cli_command.interactive {
-                args.extend(vec![
-                    "-Command".into(),
-                    format!("\"Start-Process pwsh -ArgumentList").into(),
-                ]);
-                args.push(format!("'{}'\"", cli_command.args.clone().join(" ")));
-            } else {
                 args.extend(cli_command.args.clone());
+                (args, "cmd", cli_command.interactive)
             }
-            (args, "pwsh", cli_command.interactive)
-        }
-        ShellCommand::WSL(cli_command) => {
-            let mut args = vec![];
-            if cli_command.interactive {
-                args.extend(vec!["/C".into(), "start".into(), "wsl".into()]);
+            ShellCommand::Powershell(cli_command) => {
+                let mut args = vec![];
+                if cli_command.interactive {
+                    args.extend(vec![
+                        "-Command".into(),
+                        format!("\"Start-Process pwsh -ArgumentList").into(),
+                    ]);
+                    args.push(format!("'{}'\"", cli_command.args.clone().join(" ")));
+                } else {
+                    args.extend(cli_command.args.clone());
+                }
+                (args, "pwsh", cli_command.interactive)
             }
-            args.extend(cli_command.args.clone());
-            (args, "cmd", cli_command.interactive)
+            ShellCommand::WSL(cli_command) => {
+                let mut args = vec![];
+                if cli_command.interactive {
+                    args.extend(vec!["/C".into(), "start".into(), "wsl".into()]);
+                }
+                args.extend(cli_command.args.clone());
+                (args, "cmd", cli_command.interactive)
+            }
         }
     }
 }
 
 impl Executor for ShellCommand {
     fn execute(&self) -> impl Future<Output = Result<(), Error>> {
-        let (args, shell_program, interactive) = get_shell_command(self);
-        let command_str = format!("{} {}", shell_program, args.join(" "));
-        info!("Executing: {command_str}");
+        let (args, shell_program, interactive) = self.get_shell_command();
+        let command = format!("{} {}", shell_program, args.join(" "));
+        info!("Executing: {command}");
 
         let result = Command::new(shell_program)
             .args(&args)
@@ -100,14 +106,14 @@ impl Executor for ShellCommand {
                 }
                 Err(e) => Err(e).with_context(|| format!("Failed to spawn process")),
             };
-            res.with_context(|| format!("Error executing asynchronously: {command_str}"))
+            res.with_context(|| format!("Error executing asynchronously: {command}"))
         }
     }
 }
 
 impl ExecutorSync for ShellCommand {
     fn execute_sync(&self) -> Result<String> {
-        let (args, shell_program, _) = get_shell_command(self);
+        let (args, shell_program, _) = self.get_shell_command();
         let command_str = format!("{} {}", shell_program, args.join(" "));
         info!("Executing: {command_str}");
 

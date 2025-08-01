@@ -1,10 +1,14 @@
 use {
     crate::{
-        download::Downloader, execution_plan::DownloadType, progress_bar::create_progress_bar,
-        shell_command,
+        download::Downloader,
+        execution_plan::DownloadType,
+        progress_bar::create_progress_bar,
+        shell_command::{self, CommandGetter},
     },
     anyhow::{Context, Result, anyhow},
-    common::configuration::{ApplicationDetails, AssetFind, GitClone, RepositoryDetails},
+    common::configuration::{
+        ApplicationDetails, AssetFind, GitClone, RepositoryDetails, ShellCommand,
+    },
     git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder},
     github_authentication::authentication::Authentication,
     indicatif::{ProgressBar, ProgressFinish, ProgressStyle},
@@ -46,6 +50,21 @@ impl ItemProgress for GitClone {
         )));
 
         let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} ({eta}) {msg}")
+            .unwrap()
+            .progress_chars("##-");
+        create_progress_bar(40, message, finish, style)
+    }
+}
+
+impl ItemProgress for ShellCommand {
+    fn create_progress_bar(&self, _path: PathBuf) -> ProgressBar {
+        let (arguments, shell, _) = self.get_shell_command();
+        let command = format!("{shell} {}", arguments.join(" "));
+        let message = format!("Executing:  {command}");
+
+        let finish = ProgressFinish::WithMessage(Cow::from(format!("Executed: {command}")));
+
+        let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}")
             .unwrap()
             .progress_chars("##-");
         create_progress_bar(40, message, finish, style)

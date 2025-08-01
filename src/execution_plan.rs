@@ -172,7 +172,10 @@ impl ExecutionPlan {
                         tasks.spawn(async move { dotfiles_details.execute().await });
                     }
                     ExecutionItem::ShellCommand(shell_command) => {
+                        let progress_bar =
+                            multi_progress.add(shell_command.create_progress_bar("/".into()));
                         results.push(shell_command.execute().await);
+                        progress_bar.finish_using_style();
                         execution_items_coordinator_progress_bar
                             .set_position(results.len().try_into().unwrap());
                     }
