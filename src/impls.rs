@@ -118,7 +118,6 @@ pub struct GitCloneArgs<T: Authentication> {
     git_clone: GitClone,
     directory_path: PathBuf,
     authentication: T,
-    octocrab: Arc<Octocrab>,
 }
 
 impl<T: Authentication> Display for GitCloneArgs<T> {
@@ -137,26 +136,27 @@ impl<T: Authentication> GitCloneArgs<T> {
         git_clone: GitClone,
         directory_path: PathBuf,
         authentication: T,
-        octocrab: Arc<Octocrab>,
     ) -> GitCloneArgs<T> {
         GitCloneArgs {
             git_clone,
             directory_path,
             authentication,
-            octocrab,
         }
     }
-    pub async fn clone_and_execute(&self, progress_bar: ProgressBar) -> Result<()> {
-        self.git_clone(progress_bar).await?;
+    pub async fn clone_and_execute(
+        &self,
+        octocrab: Arc<Octocrab>,
+        progress_bar: ProgressBar,
+    ) -> Result<()> {
+        self.git_clone(octocrab, progress_bar).await?;
         shell_command::execute_all(&self.git_clone.shell_commands).await;
         Ok(())
     }
-    async fn git_clone(&self, progress_bar: ProgressBar) -> Result<()> {
+    async fn git_clone(&self, octocrab: Arc<Octocrab>, progress_bar: ProgressBar) -> Result<()> {
         progress_bar.set_position(0);
         let token = self.authentication.get_token();
 
-        let repo = self
-            .octocrab
+        let repo = octocrab
             .repos(&self.git_clone.owner, &self.git_clone.repo)
             .get()
             .await

@@ -13,9 +13,8 @@ use {
     },
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     indicatif::MultiProgress,
-    octocrab::Octocrab,
     reqwest::Client,
-    std::{collections::HashMap, path::PathBuf, process::exit, sync::Arc},
+    std::{collections::HashMap, path::PathBuf, process::exit},
     tokio::task::JoinSet,
 };
 pub(crate) trait ExecutionPlanEntryConverter {
@@ -26,7 +25,6 @@ impl ExecutionPlanEntryConverter for Configuration {
     fn try_into_entry(self) -> Result<ExecutionPlanEntry> {
         let authentication =
             GitHubCliAuthentication::new(self.clone_config.github_username.clone())?;
-        let octocrab = github::create_octocrab(authentication.token.clone())?;
 
         let items = self
             .items
@@ -37,7 +35,6 @@ impl ExecutionPlanEntryConverter for Configuration {
         let item_pairs = ExecutionPlanItems {
             items,
             authentication,
-            octocrab,
         };
         Ok((self.clone_config, item_pairs))
     }
@@ -66,6 +63,19 @@ impl ExecutionPlan {
         );
 
         for (execution_config, execution_items_pair) in self.items.into_iter() {
+            let octocrab =
+                match github::create_octocrab(execution_items_pair.authentication.get_token()) {
+                    Ok(octocrab) => octocrab,
+                    Err(err) => {
+                        results.push(Err(err).with_context(|| {
+                            format!(
+                                "Could not initialize octocrab instance for {}",
+                                execution_config.dotfiles_repository
+                            )
+                        }));
+                        continue;
+                    }
+                };
             let mut tasks = JoinSet::new();
 
             let dotfiles_repository = execution_config.dotfiles_repository.clone();
@@ -77,11 +87,13 @@ impl ExecutionPlan {
                 dotfiles_repository.to_owned(),
                 execution_config.repositories_directory_path.clone(),
                 execution_items_pair.authentication.clone(),
-                execution_items_pair.octocrab.clone(),
             );
             let progress_bar =
                 multi_progress.add(dotfiles_repository.create_progress_bar(directory_path.clone()));
-            match git_clone_args.clone_and_execute(progress_bar).await {
+            match git_clone_args
+                .clone_and_execute(octocrab.clone(), progress_bar)
+                .await
+            {
                 Ok(ok) => results.push(Ok(ok)),
                 Err(err) => {
                     results.push(Err(err).with_context(||
@@ -128,15 +140,15 @@ impl ExecutionPlan {
                             git_clone.to_owned(),
                             execution_config.repositories_directory_path.clone(),
                             execution_items_pair.authentication.clone(),
-                            execution_items_pair.octocrab.clone(),
                         );
                         let progress_bar =
                             multi_progress.add(git_clone.create_progress_bar(directory_path));
                         tasks.spawn({
                             let execution_config = execution_config.clone();
+                            let octocrab = octocrab.clone();
                             async move {
                                 git_clone_args
-                                    .clone_and_execute(progress_bar)
+                                    .clone_and_execute(octocrab, progress_bar)
                                     .await
                                     .with_context(|| {
                                         format!("Execution Plan: {:#?}", execution_config)
@@ -220,7 +232,6 @@ pub trait Merge {
 pub(crate) struct ExecutionPlanItems<T: Authentication> {
     pub(crate) items: Vec<ExecutionItem>,
     pub(crate) authentication: T,
-    pub(crate) octocrab: Arc<Octocrab>,
 }
 
 impl<T: Authentication> Merge for ExecutionPlanItems<T> {
