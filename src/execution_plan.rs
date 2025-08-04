@@ -3,7 +3,7 @@ use {
         dotfiles::DotfilesDetails,
         download::Downloader,
         github::{self},
-        impls::{Executor, GitCloneArgs, ItemProgress},
+        impls::{DotfilesPaths, Executor, GitCloneArgs, ItemProgress},
         progress_bar::create_execution_item_coordinator_progress_bar,
     },
     anyhow::{Context, Result},
@@ -11,10 +11,11 @@ use {
         ApplicationDetails, AssetFind, Configuration, ConfigurationItem, DetailsType, Download,
         GitClone, GitCloneConfig, RepositoryDetails, ShellCommand,
     },
+    futures::future::join_all,
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     indicatif::MultiProgress,
     reqwest::Client,
-    std::{collections::HashMap, path::PathBuf, process::exit},
+    std::{collections::HashMap, io, path::PathBuf, process::exit},
     tokio::task::JoinSet,
 };
 pub(crate) trait ExecutionPlanEntryConverter {
@@ -52,6 +53,9 @@ impl ExecutionPlan {
         self.ensure_github_cli_is_installed(client.clone()).await;
 
         let mut results: Vec<Result<()>> = Vec::new();
+
+        let mut application_shell_commands = vec![];
+        let mut application_dotfiles = vec![];
 
         let multi_progress = MultiProgress::new();
 
@@ -93,7 +97,7 @@ impl ExecutionPlan {
                 dotfiles_repository.create_progress_bar(directory_path.clone()),
             );
             match git_clone_args
-                .clone_and_execute(octocrab.clone(), progress_bar)
+                .git_clone(octocrab.clone(), progress_bar)
                 .await
             {
                 Ok(ok) => results.push(Ok(ok)),
@@ -119,6 +123,13 @@ impl ExecutionPlan {
                             .add(download.create_progress_bar(self.download_directory.clone()));
                         match download {
                             DownloadType::Application(application_details) => {
+                                if let Some(dotfiles) = &application_details.dotfiles {
+                                    application_dotfiles.push(Self::create_dotfiles_details(
+                                        self.home_directory.clone(),
+                                        &execution_config,
+                                        dotfiles,
+                                    ));
+                                }
                                 tasks.spawn(async move {
                                     application_details
                                         .download_self(client, download_directory, progress_bar)
@@ -126,6 +137,13 @@ impl ExecutionPlan {
                                 })
                             }
                             DownloadType::GitHubAsset(repository_details) => {
+                                if let Some(dotfiles) = &repository_details.dotfiles {
+                                    application_dotfiles.push(Self::create_dotfiles_details(
+                                        self.home_directory.clone(),
+                                        &execution_config,
+                                        dotfiles,
+                                    ));
+                                }
                                 tasks.spawn(async move {
                                     repository_details
                                         .download_self(client, download_directory, progress_bar)
@@ -147,12 +165,17 @@ impl ExecutionPlan {
                             &execution_items_coordinator_progress_bar,
                             git_clone.create_progress_bar(directory_path),
                         );
+
+                        if let Some(shell_commands) = git_clone.to_owned().shell_commands {
+                            application_shell_commands.push(shell_commands);
+                        }
+
                         tasks.spawn({
                             let execution_config = execution_config.clone();
                             let octocrab = octocrab.clone();
                             async move {
                                 git_clone_args
-                                    .clone_and_execute(octocrab, progress_bar)
+                                    .git_clone(octocrab, progress_bar)
                                     .await
                                     .with_context(|| {
                                         format!("Execution Plan: {:#?}", execution_config)
@@ -161,12 +184,9 @@ impl ExecutionPlan {
                         });
                     }
                     ExecutionItem::Dotfile(details_type) => {
-                        let dotfiles_repository_path = execution_config
-                            .repositories_directory_path
-                            .join(&execution_config.dotfiles_repository.repo);
                         let dotfiles_details = DotfilesDetails::from_details(
                             details_type,
-                            dotfiles_repository_path,
+                            execution_config.dotfiles_repository_path(),
                             self.home_directory.clone(),
                         );
                         let progress_bar =
@@ -197,8 +217,51 @@ impl ExecutionPlan {
                     .set_position(results.len().try_into().unwrap());
             }
         }
+        println!("\nOnce all applications and repositories have finished downloading, press any key to continue\n");
+        let mut continue_response = String::new();
+        io::stdin()
+            .read_line(&mut continue_response)
+            .ok()
+            .expect("Failed to read line");
+
+        let application_shell_commands_results = join_all(
+            application_shell_commands
+                .into_iter()
+                .flatten()
+                .map(|command| async move { command.execute().await }),
+        )
+        .await;
+
+        let application_dotfiles_results = join_all(
+            application_dotfiles
+                .into_iter()
+                .flatten()
+                .map(|dotfiles| async move { dotfiles.execute().await }),
+        )
+        .await;
+
+        results.extend(application_shell_commands_results);
+        results.extend(application_dotfiles_results);
 
         results
+    }
+
+    fn create_dotfiles_details(
+        home_directory: PathBuf,
+        execution_config: &GitCloneConfig,
+        dotfiles_details: &Vec<DetailsType>,
+    ) -> Vec<DotfilesDetails> {
+        let dotfiles_details = dotfiles_details
+            .into_iter()
+            .map(|dotfiles| {
+                DotfilesDetails::from_details(
+                    dotfiles.to_owned(),
+                    execution_config.dotfiles_repository_path(),
+                    home_directory.clone(),
+                )
+            })
+            .collect();
+        dotfiles_details
     }
 
     async fn ensure_github_cli_is_installed(&self, client: Client) {

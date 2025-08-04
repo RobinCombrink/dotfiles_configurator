@@ -4,11 +4,12 @@ use {
         download::Downloader,
         execution_plan::DownloadType,
         progress_bar::create_progress_bar,
-        shell_command::{self, CommandGetter},
+        shell_command::CommandGetter,
     },
     anyhow::{Context, Result, anyhow},
     common::configuration::{
-        ApplicationDetails, AssetFind, DetailsType, GitClone, RepositoryDetails, ShellCommand,
+        ApplicationDetails, AssetFind, DetailsType, GitClone, GitCloneConfig, RepositoryDetails,
+        ShellCommand,
     },
     git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder},
     github_authentication::authentication::Authentication,
@@ -19,6 +20,17 @@ use {
     secrecy::{ExposeSecret, SecretString},
     std::{borrow::Cow, fmt::Display, fs, future::Future, path::PathBuf, sync::Arc},
 };
+
+pub(crate) trait DotfilesPaths {
+    fn dotfiles_repository_path(&self) -> PathBuf;
+}
+
+impl DotfilesPaths for GitCloneConfig {
+    fn dotfiles_repository_path(&self) -> PathBuf {
+        self.repositories_directory_path
+            .join(&self.dotfiles_repository.repo)
+    }
+}
 
 pub trait Executor {
     fn execute(&self) -> impl Future<Output = Result<()>> + Send;
@@ -206,16 +218,11 @@ impl<T: Authentication> GitCloneArgs<T> {
             authentication,
         }
     }
-    pub async fn clone_and_execute(
+    pub async fn git_clone(
         &self,
         octocrab: Arc<Octocrab>,
         progress_bar: ProgressBar,
     ) -> Result<()> {
-        self.git_clone(octocrab, progress_bar).await?;
-        shell_command::execute_all(&self.git_clone.shell_commands).await;
-        Ok(())
-    }
-    async fn git_clone(&self, octocrab: Arc<Octocrab>, progress_bar: ProgressBar) -> Result<()> {
         progress_bar.set_position(0);
         let token = self.authentication.get_token();
 

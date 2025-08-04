@@ -2,7 +2,6 @@ use {
     crate::impls::{Executor, ExecutorSync},
     anyhow::{Context, Error, Result, anyhow},
     common::configuration::ShellCommand,
-    futures::future::join_all,
     log::info,
     std::{
         future::Future,
@@ -12,15 +11,6 @@ use {
 
 pub trait CommandGetter {
     fn get_shell_command(&self) -> (Vec<String>, &str, bool);
-}
-
-pub async fn execute_all(cli_commands: &Option<Vec<ShellCommand>>) -> Option<Vec<Result<()>>> {
-    match cli_commands {
-        Some(cli_commands) => {
-            Some(join_all(cli_commands.into_iter().map(|command| command.execute())).await)
-        }
-        None => None,
-    }
 }
 
 impl CommandGetter for ShellCommand {
