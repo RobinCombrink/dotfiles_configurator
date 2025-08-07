@@ -8,7 +8,7 @@ use {
         github,
     },
     anyhow::{Context, Result, anyhow},
-    common::configuration::Configuration,
+    common::configuration::{Configuration, GitCloneConfig},
     futures::future::{join, join_all},
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     log::error,
@@ -81,17 +81,7 @@ impl ConfigurationLoader {
             }
         };
 
-        let mut items: HashMap<_, ExecutionPlanItems<GitHubCliAuthentication>> = HashMap::new();
-
-        for (key, value) in configs.into_iter() {
-            let execution_plan_item = if let Some(mut execution_plan_item) = items.remove(&key) {
-                execution_plan_item.merge(value);
-                execution_plan_item
-            } else {
-                value
-            };
-            items.insert(key, execution_plan_item);
-        }
+        let items = merge_execution_plan_items(configs);
 
         Ok(ExecutionPlan {
             download_directory: self.download_directory,
@@ -176,5 +166,101 @@ impl ConfigurationLoader {
         }
 
         external_configs.into_iter().collect()
+    }
+}
+
+fn merge_execution_plan_items<T: Authentication>(
+    configs: Vec<(GitCloneConfig, ExecutionPlanItems<T>)>,
+) -> HashMap<GitCloneConfig, ExecutionPlanItems<T>> {
+    let mut items: HashMap<_, ExecutionPlanItems<T>> = HashMap::new();
+    for (key, value) in configs.into_iter() {
+        let execution_plan_item = if let Some(mut execution_plan_item) = items.remove(&key) {
+            execution_plan_item.merge(value);
+            execution_plan_item
+        } else {
+            value
+        };
+        items.insert(key, execution_plan_item);
+    }
+    items
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::execution_plan::ExecutionPlanItems;
+    use common::configuration::{
+        ApplicationDetails, ConfigurationItem, Download, GitClone, GitCloneConfig,
+    };
+    use github_authentication::authentication::Authentication;
+    use url::Url;
+
+    use super::*;
+    use std::{collections::HashMap, str::FromStr};
+
+    type TestExecutionPlanEntry = (GitCloneConfig, ExecutionPlanItems<FakeAuthentication>);
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct FakeAuthentication;
+
+    impl Authentication for FakeAuthentication {
+        fn get_token(&self) -> secrecy::SecretString {
+            "123".into()
+        }
+
+        fn get_username(&self) -> String {
+            "test_username".into()
+        }
+    }
+
+    fn make_execution_plan_entry(
+        gitclone_config: impl Into<GitCloneConfig>,
+    ) -> TestExecutionPlanEntry {
+        let authentication = FakeAuthentication {};
+        let item = make_execution_plan_items(authentication);
+        (gitclone_config.into(), item)
+    }
+
+    fn make_execution_plan_items<T: Authentication>(authentication: T) -> ExecutionPlanItems<T> {
+        let item = ExecutionPlanItems {
+            items: vec![
+                ConfigurationItem::Download(Download::Application(ApplicationDetails {
+                    name: "test_application".into(),
+                    uri: Url::from_str("https://test.exe").unwrap(),
+                    dotfiles: None,
+                }))
+                .into(),
+            ],
+            authentication,
+        };
+        item
+    }
+
+    fn make_git_clone_config(
+        github_username: impl Into<String>,
+        owner: impl Into<String>,
+    ) -> GitCloneConfig {
+        GitCloneConfig {
+            github_username: github_username.into(),
+            repositories_directory_path: "../tests/configuration_loader/repositories".into(),
+            dotfiles_repository: GitClone {
+                owner: owner.into(),
+                repo: "dotfiles_repository".to_owned(),
+                shell_commands: None,
+            },
+        }
+    }
+
+    #[test]
+    fn test_single_item() {
+        let gitclone_config = make_git_clone_config("single_username", "single_owner");
+        let execution_plan_entry = make_execution_plan_entry(gitclone_config.clone());
+        let input = vec![execution_plan_entry.clone()];
+        let result = merge_execution_plan_items(input);
+
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key(&gitclone_config));
+        assert_eq!(result[&gitclone_config].items.len(), 1);
+
+        assert_eq!(result[&gitclone_config], execution_plan_entry.1);
     }
 }

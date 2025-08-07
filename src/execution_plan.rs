@@ -305,7 +305,7 @@ pub trait Merge {
     fn merge(&mut self, other: Self);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExecutionPlanItems<T: Authentication> {
     pub(crate) items: Vec<ExecutionItem>,
     pub(crate) authentication: T,
@@ -317,7 +317,7 @@ impl<T: Authentication> Merge for ExecutionPlanItems<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionItem {
     Download(DownloadType),
     Dotfile(DetailsType),
@@ -338,7 +338,7 @@ impl From<ConfigurationItem> for ExecutionItem {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadType {
     Application(ApplicationDetails),
     GitHubAsset(RepositoryDetails),
