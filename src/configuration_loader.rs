@@ -195,7 +195,7 @@ mod tests {
     use url::Url;
 
     use super::*;
-    use std::{collections::HashMap, str::FromStr};
+    use std::str::FromStr;
 
     type TestExecutionPlanEntry = (GitCloneConfig, ExecutionPlanItems<FakeAuthentication>);
 
@@ -251,16 +251,58 @@ mod tests {
     }
 
     #[test]
-    fn test_single_item() {
+    fn given_a_single_execution_plan_entry_when_merged_is_equal() {
         let gitclone_config = make_git_clone_config("single_username", "single_owner");
         let execution_plan_entry = make_execution_plan_entry(gitclone_config.clone());
         let input = vec![execution_plan_entry.clone()];
+
         let result = merge_execution_plan_items(input);
 
         assert_eq!(result.len(), 1);
         assert!(result.contains_key(&gitclone_config));
         assert_eq!(result[&gitclone_config].items.len(), 1);
-
         assert_eq!(result[&gitclone_config], execution_plan_entry.1);
+    }
+    #[test]
+    fn given_multiple_unique_execution_plan_entries_when_merged_then_all_entries_present() {
+        let gitclone_config_a = make_git_clone_config("user_a", "owner_a");
+        let gitclone_config_b = make_git_clone_config("user_b", "owner_b");
+        let entry_a = make_execution_plan_entry(gitclone_config_a.clone());
+        let entry_b = make_execution_plan_entry(gitclone_config_b.clone());
+        let input = vec![entry_a.clone(), entry_b.clone()];
+
+        let result = merge_execution_plan_items(input);
+
+        assert_eq!(result.len(), 2);
+        assert!(result.contains_key(&gitclone_config_a));
+        assert!(result.contains_key(&gitclone_config_b));
+        assert_eq!(result[&gitclone_config_a], entry_a.1);
+        assert_eq!(result[&gitclone_config_b], entry_b.1);
+    }
+
+    #[test]
+    fn given_duplicate_keys_when_merged_then_items_are_merged_into_a_single_entry() {
+        let gitclone_config = make_git_clone_config("dup_user", "dup_owner");
+        let entry1 = make_execution_plan_entry(gitclone_config.clone());
+        let entry2 = make_execution_plan_entry(gitclone_config.clone());
+        let input = vec![entry1.clone(), entry2.clone()];
+
+        let result = merge_execution_plan_items(input);
+
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key(&gitclone_config));
+        let items = &result[&gitclone_config].items;
+        assert_eq!(items.len(), 2);
+
+        assert!(items.contains(&entry1.1.items[0]));
+        assert!(items.contains(&entry2.1.items[0]));
+    }
+    #[test]
+    fn given_empty_input_when_merged_then_result_is_empty() {
+        let input: Vec<(GitCloneConfig, ExecutionPlanItems<FakeAuthentication>)> = vec![];
+
+        let result = merge_execution_plan_items(input);
+
+        assert!(result.is_empty());
     }
 }
