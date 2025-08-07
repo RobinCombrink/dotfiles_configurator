@@ -1,64 +1,77 @@
 {
     "version": "0.1.0",
     "clone_config": {
-        "repositories_directory_path": "C:\\Repositories\\Personal",
-        "github_username": "RobinCombrink"
+        "repositories_directory_path": "C:\\Test\\Everywhere",
+        "github_username": "RobinCombrink",
+        "dotfiles_repository": {
+            "owner": "RobinCombrink",
+            "repo": "dotfiles"
+        }
     },
-    "dotfiles_repository": {
-        "owner": "RobinCombrink",
-        "repo": "dotfiles"
-    },
-    "downloads": {
-        "github_releases": [],
-        "applications": [
-            {
-                "name": "steam_installer.exe",
-                "uri": "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe"
-            },
-            {
-                "name": "vscode_installer.exe",
-                "uri": "https://code.visualstudio.com/sha/download?build=stable&os=win32-x64-user",
-                "dotfiles": [
-                    {
-                        "file": {
-                            "file_name": "settings.json",
-                            "original_path": "vscode",
-                            "link_path": "AppData/Roaming/Code/User"
-                        }
-                    },
-                    {
-                        "file": {
-                            "file_name": "keybindings.json",
-                            "original_path": "vscode",
-                            "link_path": "AppData/Roaming/Code/User"
-                        }
-                    }
-                ]
-            },
-            {
-                "name": "docker_installer.exe",
-                "uri": "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe"
-            },
-            {
-                "name": "android_studio_installer.exe",
-                "uri": "https://redirector.gvt1.com/edgedl/android/studio/install/2024.1.2.12/android-studio-2024.1.2.12-windows.exe",
-                "dotfiles": [
-                    {
-                        "file": {
-                            "file_name": ".ideavimrc",
-                            "original_path": "ideavim"
-                        }
-                    }
-                ]
-            },
-            {
-                "name": "discord_installer.exe",
-                "uri": "https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x64"
-            },
-            {
-                "name": "rust_installer.exe",
-                "uri": "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+    "items": [
+        {
+            "Download": {
+                "Application": {
+                    "name": "steam_installer.exe",
+                    "uri": "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe"
+                }
             }
-        ]
-    }
+        },
+        {
+            "Download": {
+                "Application": {
+                    "name": "vscode_installer.exe",
+                    "uri": "https://code.visualstudio.com/sha/download?build=stable&os=win32-x64-user",
+                    "dotfiles": [
+                        {
+                            "file": {
+                                "file_name": "settings.json",
+                                "original_path": "vscode",
+                                "link_path": "AppData/Roaming/Code/User"
+                            }
+                        },
+                        {
+                            "file": {
+                                "file_name": "keybindings.json",
+                                "original_path": "vscode",
+                                "link_path": "AppData/Roaming/Code/User"
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "Download": {
+                "Application": {
+                    "name": "docker_installer.exe",
+                    "uri": "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe"
+                }
+            }
+        },
+        {
+            "Download": {
+                "Application": {
+                    "name": "android_studio_installer.exe",
+                    "uri": "https://redirector.gvt1.com/edgedl/android/studio/install/2024.1.2.12/android-studio-2024.1.2.12-windows.exe",
+                    "dotfiles": [
+                        {
+                            "file": {
+                                "file_name": ".ideavimrc",
+                                "original_path": "ideavim"
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "Download": {
+                "Application": {
+                    "name": "rust_installer.exe",
+                    "uri": "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+                }
+            }
+        }
+    ]
 }

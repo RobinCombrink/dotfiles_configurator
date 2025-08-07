@@ -187,7 +187,7 @@ fn merge_execution_plan_items<T: Authentication>(
 
 #[cfg(test)]
 mod tests {
-    use crate::execution_plan::ExecutionPlanItems;
+    use crate::{ExecutionType, LocalConfigArguments, execution_plan::ExecutionPlanItems};
     use common::configuration::{
         ApplicationDetails, ConfigurationItem, Download, GitClone, GitCloneConfig,
     };
@@ -195,7 +195,9 @@ mod tests {
     use url::Url;
 
     use super::*;
-    use std::str::FromStr;
+    use std::{env, io::Write, str::FromStr};
+
+    const TEST_DATA_FILE_DIRECTORY: &str = "./tests/config/";
 
     type TestExecutionPlanEntry = (GitCloneConfig, ExecutionPlanItems<FakeAuthentication>);
 
@@ -210,6 +212,11 @@ mod tests {
         fn get_username(&self) -> String {
             "test_username".into()
         }
+    }
+
+    fn get_test_file<'a>(file_name: impl Into<&'a str>) -> PathBuf {
+        let directory: PathBuf = TEST_DATA_FILE_DIRECTORY.into();
+        directory.join(file_name.into())
     }
 
     fn make_execution_plan_entry(
@@ -250,6 +257,12 @@ mod tests {
         }
     }
 
+    fn make_local_config_args(path: impl Into<PathBuf>) -> LocalConfigArguments {
+        LocalConfigArguments {
+            directory_path: path.into(),
+        }
+    }
+
     #[test]
     fn given_a_single_execution_plan_entry_when_merged_is_equal() {
         let gitclone_config = make_git_clone_config("single_username", "single_owner");
@@ -279,7 +292,6 @@ mod tests {
         assert_eq!(result[&gitclone_config_a], entry_a.1);
         assert_eq!(result[&gitclone_config_b], entry_b.1);
     }
-
     #[test]
     fn given_duplicate_keys_when_merged_then_items_are_merged_into_a_single_entry() {
         let gitclone_config = make_git_clone_config("dup_user", "dup_owner");
@@ -304,5 +316,46 @@ mod tests {
         let result = merge_execution_plan_items(input);
 
         assert!(result.is_empty());
+    }
+    #[tokio::test]
+    async fn given_invalid_local_config_path_when_loading_non_existent_file_then_returns_error() {
+        let args = Arguments {
+            command: Command::Local(make_local_config_args("/invalid/file_path.json")),
+            execution_type: ExecutionType::DryRun,
+            debug: false,
+        };
+        let loader = ConfigurationLoader::new(args);
+        let result = loader.load_all_configurations().await;
+        assert!(result.is_err());
+    }
+    #[tokio::test]
+    async fn given_malformed_local_config_file_when_loading_then_returns_error() {
+        let dir = env::temp_dir();
+        let file_path = dir.join("bad.json");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        writeln!(file, "{{ this is not valid json }}").unwrap();
+        let args = Arguments {
+            command: Command::Local(make_local_config_args(file_path)),
+            execution_type: crate::ExecutionType::DryRun,
+            debug: false,
+        };
+        let loader = ConfigurationLoader::new(args);
+        let result = loader.load_all_configurations().await;
+        assert!(result.is_err());
+    }
+    #[tokio::test]
+    async fn given_valid_local_config_file_when_loading_then_execution_plan_items_are_not_empty() {
+        let file_path = get_test_file("downloads.applications.dotconfig.json");
+        let args = Arguments {
+            command: Command::Local(make_local_config_args(file_path)),
+            execution_type: crate::ExecutionType::DryRun,
+            debug: false,
+        };
+        let loader = ConfigurationLoader::new(args);
+
+        let result = loader.load_all_configurations().await;
+        assert!(result.is_ok());
+        let plan = result.unwrap();
+        assert!(!plan.items.is_empty());
     }
 }
