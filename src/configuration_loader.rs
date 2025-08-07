@@ -195,9 +195,12 @@ mod tests {
     use url::Url;
 
     use super::*;
-    use std::{env, io::Write, str::FromStr};
+    use std::{env, fs::File, io::Write, str::FromStr};
 
-    const TEST_DATA_FILE_DIRECTORY: &str = "./tests/config/";
+    fn get_test_data_directory() -> PathBuf {
+        let directory: PathBuf = PathBuf::from("tests").join("config/");
+        directory
+    }
 
     type TestExecutionPlanEntry = (GitCloneConfig, ExecutionPlanItems<FakeAuthentication>);
 
@@ -214,9 +217,18 @@ mod tests {
         }
     }
 
-    fn get_test_file<'a>(file_name: impl Into<&'a str>) -> PathBuf {
-        let directory: PathBuf = TEST_DATA_FILE_DIRECTORY.into();
-        directory.join(file_name.into())
+    fn get_temp_directory(directory_name: impl Into<PathBuf>) -> PathBuf {
+        let temp_dir = env::temp_dir();
+        let temp_dir = temp_dir
+            .join(get_test_data_directory())
+            .join(directory_name.into());
+        fs::create_dir_all(&temp_dir).unwrap();
+        temp_dir
+    }
+
+    fn get_test_config_directory<'a>(directory_name: impl Into<&'a str>) -> PathBuf {
+        let directory: PathBuf = get_test_data_directory();
+        directory.join(directory_name.into())
     }
 
     fn make_execution_plan_entry(
@@ -330,9 +342,10 @@ mod tests {
     }
     #[tokio::test]
     async fn given_malformed_local_config_file_when_loading_then_returns_error() {
-        let dir = env::temp_dir();
+        let dir = get_temp_directory("dotfiles");
         let file_path = dir.join("bad.json");
-        let mut file = std::fs::File::create(&file_path).unwrap();
+        println!("{:#?}", file_path);
+        let mut file = File::create(&file_path).unwrap();
         writeln!(file, "{{ this is not valid json }}").unwrap();
         let args = Arguments {
             command: Command::Local(make_local_config_args(file_path)),
@@ -345,9 +358,10 @@ mod tests {
     }
     #[tokio::test]
     async fn given_valid_local_config_file_when_loading_then_execution_plan_items_are_not_empty() {
-        let file_path = get_test_file("downloads.applications.dotconfig.json");
+        let file_path = get_test_config_directory("single");
+
         let args = Arguments {
-            command: Command::Local(make_local_config_args(file_path)),
+            command: Command::Local(make_local_config_args(&file_path)),
             execution_type: crate::ExecutionType::DryRun,
             debug: false,
         };
