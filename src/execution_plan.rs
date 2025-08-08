@@ -217,7 +217,9 @@ impl ExecutionPlan {
                     .set_position(results.len().try_into().unwrap());
             }
         }
-        println!("\nOnce all applications and repositories have finished downloading, press any key to continue\n");
+        println!(
+            "\nOnce all applications and repositories have finished downloading, press any key to continue\n"
+        );
         let mut continue_response = String::new();
         io::stdin()
             .read_line(&mut continue_response)
