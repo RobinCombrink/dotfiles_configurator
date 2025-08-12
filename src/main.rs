@@ -13,12 +13,10 @@ use {
 
 mod configuration_loader;
 mod dotfiles;
-mod download;
+mod execution;
 mod execution_plan;
 mod github;
-pub mod impls;
 mod progress_bar;
-mod shell_command;
 
 const DEFAULT_DIRECTORY_PATH: &str = "config";
 

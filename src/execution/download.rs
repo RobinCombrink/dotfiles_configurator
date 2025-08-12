@@ -1,9 +1,10 @@
 use {
-    crate::impls::Executor,
+    crate::execution::Executor,
     anyhow::{Context, Error, Result, anyhow},
-    common::configuration::ShellCommand,
+    common::configuration::{ApplicationDetails, AssetFind, RepositoryDetails, ShellCommand},
     futures::StreamExt,
     indicatif::ProgressBar,
+    log::trace,
     reqwest::{Client, header},
     std::{
         borrow::Cow,
@@ -112,5 +113,75 @@ pub trait Downloader {
             Err(err) => Err(Into::<Error>::into(err)),
         })
         .with_context(|| format!("Could not run downloaded application at {:#?}", to_run_path))
+    }
+}
+
+impl Downloader for ApplicationDetails {
+    async fn download_self(
+        &self,
+        client: Client,
+        download_directory: PathBuf,
+        progress_bar: ProgressBar,
+    ) -> Result<()> {
+        Self::download(
+            client,
+            &self.uri,
+            &download_directory.join(&self.name),
+            progress_bar,
+        )
+        .await
+    }
+}
+
+impl Downloader for RepositoryDetails {
+    async fn download_self(
+        &self,
+        client: Client,
+        download_directory: PathBuf,
+        progress_bar: ProgressBar,
+    ) -> Result<()> {
+        let release = octocrab::instance()
+            .repos(&self.owner, &self.repo)
+            .releases()
+            .get_latest()
+            .await?;
+
+        trace!("RepositoryDetails: {:#?}", self);
+
+        let asset = &release
+            .assets
+            .iter()
+            .find(|asset| {
+                trace!("Asset name: {:#?}", asset.name);
+                if let Some(asset_find) = &self.asset_find {
+                    trace!("{:#?}", asset_find);
+                    match asset_find {
+                        AssetFind::AssetContains { asset_contains } => {
+                            asset.name.contains(asset_contains)
+                        }
+                        AssetFind::AssetExact { asset_exact } => {
+                            asset.name == *asset_exact
+                                || asset
+                                    .label
+                                    .to_owned()
+                                    .is_some_and(|label| label == *asset_exact)
+                        }
+                        AssetFind::AssetEndsWith { asset_ends_with } => {
+                            asset.name.ends_with(asset_ends_with)
+                        }
+                    }
+                } else {
+                    false
+                }
+            })
+            .unwrap();
+
+        Self::download(
+            client,
+            &asset.browser_download_url.to_owned(),
+            &download_directory.join(&asset.name),
+            progress_bar,
+        )
+        .await
     }
 }

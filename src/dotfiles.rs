@@ -3,7 +3,7 @@ use common::configuration::{DetailsType, DirectoryDetails, FileDetails};
 use log::info;
 use std::path::PathBuf;
 
-use crate::impls::Executor;
+use crate::execution::Executor;
 
 #[derive(Debug, Clone)]
 pub struct DotfilesDetails {

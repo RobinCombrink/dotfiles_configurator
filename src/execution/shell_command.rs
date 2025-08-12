@@ -1,5 +1,5 @@
 use {
-    crate::impls::{Executor, ExecutorSync},
+    crate::execution::{Executor, ExecutorSync},
     anyhow::{Context, Error, Result, anyhow},
     common::configuration::ShellCommand,
     log::info,

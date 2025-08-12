@@ -1,9 +1,11 @@
 use {
     crate::{
         dotfiles::DotfilesDetails,
-        download::Downloader,
+        execution::{
+            Executor, dotfiles_paths::DotfilesPaths, download::Downloader,
+            git_clone_args::GitCloneArgs, item_progress::ItemProgress,
+        },
         github::{self},
-        impls::{DotfilesPaths, Executor, GitCloneArgs, ItemProgress},
         progress_bar::create_execution_item_coordinator_progress_bar,
     },
     anyhow::{Context, Result},
