@@ -3,7 +3,6 @@
         "fill-labs.dependi",
         "mhutchie.git-graph",
         "asvetliakov.vscode-neovim",
-        "github.vscode-github-actions",
-        "rust-lang.rust-analyzer"
+        "github.vscode-github-actions"
     ]
 }
