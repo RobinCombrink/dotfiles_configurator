@@ -4,7 +4,7 @@ use secrecy::{ExposeSecret, SecretString};
 use octocrab::Octocrab;
 use indicatif::ProgressBar;
 use git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder};
-use common::configuration::GitClone;
+use crate::configuration::GitClone;
 use github_authentication::authentication::Authentication;
 
 pub struct GitCloneArgs<T: Authentication> {

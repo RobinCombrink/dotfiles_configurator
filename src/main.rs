@@ -11,6 +11,7 @@ use {
     std::str::FromStr,
 };
 
+mod configuration;
 mod configuration_loader;
 mod dotfiles;
 mod execution;

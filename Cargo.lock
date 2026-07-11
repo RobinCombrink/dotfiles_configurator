@@ -259,18 +259,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
-name = "common"
-version = "0.1.0"
-source = "git+https://github.com/DotfilesConfigurator/common#8b091ff48d39e7428ce06ec78e42dc794fc84202"
-dependencies = [
- "schemars",
- "serde",
- "serde_json",
- "strum",
- "url",
-]
-
-[[package]]
 name = "console"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -386,7 +374,6 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
- "common",
  "dirs",
  "env_logger",
  "futures",
@@ -660,7 +647,7 @@ dependencies = [
 [[package]]
 name = "github_authentication"
 version = "0.1.0"
-source = "git+https://github.com/RobinCombrink/GithubAuthentication#bc378d5ae15f033de49cbd48013b17c52c18bcd4"
+source = "git+https://github.com/RobinCombrink/GitHubAuthentication#bc378d5ae15f033de49cbd48013b17c52c18bcd4"
 dependencies = [
  "anyhow",
  "secrecy",

@@ -1,6 +1,6 @@
 use {
     anyhow::{Context, Error, Result},
-    common::configuration::Configuration,
+    crate::configuration::Configuration,
     octocrab::Octocrab,
     secrecy::SecretString,
     std::sync::Arc,

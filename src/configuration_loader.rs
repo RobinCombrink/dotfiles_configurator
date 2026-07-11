@@ -8,7 +8,7 @@ use {
         github,
     },
     anyhow::{Context, Result, anyhow},
-    common::configuration::{Configuration, GitCloneConfig},
+    crate::configuration::{Configuration, GitCloneConfig},
     futures::future::{join, join_all},
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     log::error,
@@ -188,7 +188,7 @@ fn merge_execution_plan_items<T: Authentication>(
 #[cfg(test)]
 mod tests {
     use crate::{ExecutionType, LocalConfigArguments, execution_plan::ExecutionPlanItems};
-    use common::configuration::{
+    use crate::configuration::{
         ApplicationDetails, ConfigurationItem, Download, GitClone, GitCloneConfig,
     };
     use github_authentication::authentication::Authentication;

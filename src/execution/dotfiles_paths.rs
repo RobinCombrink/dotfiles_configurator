@@ -1,4 +1,4 @@
-use {common::configuration::GitCloneConfig, std::path::PathBuf};
+use {crate::configuration::GitCloneConfig, std::path::PathBuf};
 
 pub(crate) trait DotfilesPaths {
     fn dotfiles_repository_path(&self) -> PathBuf;

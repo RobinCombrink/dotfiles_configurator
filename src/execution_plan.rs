@@ -9,7 +9,7 @@ use {
         progress_bar::create_execution_item_coordinator_progress_bar,
     },
     anyhow::{Context, Result},
-    common::configuration::{
+    crate::configuration::{
         ApplicationDetails, AssetFind, Configuration, ConfigurationItem, DetailsType, Download,
         GitClone, GitCloneConfig, RepositoryDetails, ShellCommand,
     },

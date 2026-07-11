@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use common::configuration::{DetailsType, DirectoryDetails, FileDetails};
+use crate::configuration::{DetailsType, DirectoryDetails, FileDetails};
 use log::info;
 use std::path::PathBuf;
 
