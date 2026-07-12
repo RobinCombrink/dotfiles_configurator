@@ -274,7 +274,7 @@ impl ExecutionPlan {
             let gh_repository_details = RepositoryDetails {
                 owner: "cli".to_owned(),
                 repo: "cli".to_owned(),
-                asset_find: Some(AssetFind::AssetEndsWith {
+                asset_find: Some(AssetFind::EndsWith {
                     asset_ends_with: github_asset_ends_with,
                 }),
                 shell_commands: None,

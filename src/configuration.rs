@@ -57,9 +57,9 @@ impl Default for ApplicationDetails {
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(untagged, rename_all = "snake_case")]
 pub enum AssetFind {
-    AssetExact { asset_exact: String },
-    AssetContains { asset_contains: String },
-    AssetEndsWith { asset_ends_with: String },
+    Exact { asset_exact: String },
+    Contains { asset_contains: String },
+    EndsWith { asset_ends_with: String },
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -90,7 +90,8 @@ pub enum ShellCommand {
     Bash(CliCommand),
     CommandPrompt(CliCommand),
     Powershell(CliCommand),
-    WSL(CliCommand),
+    #[serde(rename = "WSL")]
+    Wsl(CliCommand),
 }
 
 impl ShellCommand {

@@ -43,7 +43,7 @@ impl CommandGetter for ShellCommand {
                 }
                 (args, "pwsh", cli_command.interactive)
             }
-            ShellCommand::WSL(cli_command) => {
+            ShellCommand::Wsl(cli_command) => {
                 let mut args = vec![];
                 if cli_command.interactive {
                     args.extend(vec!["/C".into(), "start".into(), "wsl".into()]);

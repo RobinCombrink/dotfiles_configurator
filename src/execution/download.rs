@@ -151,17 +151,17 @@ impl Downloader for RepositoryDetails {
                 if let Some(asset_find) = &self.asset_find {
                     trace!("{:#?}", asset_find);
                     match asset_find {
-                        AssetFind::AssetContains { asset_contains } => {
+                        AssetFind::Contains { asset_contains } => {
                             asset.name.contains(asset_contains)
                         }
-                        AssetFind::AssetExact { asset_exact } => {
+                        AssetFind::Exact { asset_exact } => {
                             asset.name == *asset_exact
                                 || asset
                                     .label
                                     .to_owned()
                                     .is_some_and(|label| label == *asset_exact)
                         }
-                        AssetFind::AssetEndsWith { asset_ends_with } => {
+                        AssetFind::EndsWith { asset_ends_with } => {
                             asset.name.ends_with(asset_ends_with)
                         }
                     }
