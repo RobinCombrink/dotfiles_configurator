@@ -35,7 +35,7 @@ impl CommandGetter for ShellCommand {
                 if cli_command.interactive {
                     args.extend(vec![
                         "-Command".into(),
-                        format!("\"Start-Process pwsh -ArgumentList").into(),
+                        "\"Start-Process pwsh -ArgumentList".to_string(),
                     ]);
                     args.push(format!("'{}'\"", cli_command.args.clone().join(" ")));
                 } else {
@@ -94,7 +94,7 @@ impl Executor for ShellCommand {
                         Ok(())
                     }
                 }
-                Err(e) => Err(e).with_context(|| format!("Failed to spawn process")),
+                Err(e) => Err(e).with_context(|| "Failed to spawn process"),
             };
             res.with_context(|| format!("Error executing asynchronously: {command}"))
         }

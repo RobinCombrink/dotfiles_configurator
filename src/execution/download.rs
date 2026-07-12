@@ -35,13 +35,9 @@ pub trait Downloader {
             None => "temp_download".to_owned().into(),
         };
 
-        if debug {
-            if let Ok(exists) = file_path.try_exists() {
-                if exists {
-                    fs::remove_file(file_path)
-                        .with_context(|| format!("Could not remove file: {:#?}", file_path))?;
-                }
-            }
+        if debug && let Ok(true) = file_path.try_exists() {
+            fs::remove_file(file_path)
+                .with_context(|| format!("Could not remove file: {:#?}", file_path))?;
         }
 
         let total_size = {
@@ -60,8 +56,7 @@ pub trait Downloader {
                     resp.text().await.with_context(
                         || "Couldn't get response body text after error status code"
                     )?,
-                ))
-                .into());
+                )));
             }
         };
 

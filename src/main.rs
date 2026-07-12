@@ -2,7 +2,6 @@ use {
     anyhow::Result,
     clap::{Args, Parser, ValueEnum},
     configuration_loader::ConfigurationLoader,
-    env_logger,
     log::{LevelFilter, error, trace},
     reqwest::Client,
     std::io::Write,

@@ -52,7 +52,7 @@ impl ConfigurationLoader {
                     )
                 })?,
             Command::Remote(remote) => self
-                .load_external_configurations(&remote)
+                .load_external_configurations(remote)
                 .await
                 .with_context(|| format!("could not load remote configuration: {:#?}", remote))?,
             Command::Remotes(args) => {
@@ -106,7 +106,7 @@ impl ConfigurationLoader {
         let config_files = configuration_files.map(|file| {
             let file_path = &file.path();
             let configuration_file = fs::read_to_string(file_path);
-            let file = match configuration_file {
+            match configuration_file {
                 Ok(configuration_file_content) => {
                     match serde_json::from_str::<Configuration>(&configuration_file_content) {
                         Ok(config) => Ok(config),
@@ -120,8 +120,7 @@ impl ConfigurationLoader {
                     }
                 }
                 Err(err) => Err(anyhow!("Could not read configuration file: {err}")),
-            };
-            file
+            }
         });
 
         config_files
@@ -158,7 +157,7 @@ impl ConfigurationLoader {
             external_configs.append(&mut configs)
         }
 
-        if external_configs.len() == 0 {
+        if external_configs.is_empty() {
             println!("No external configs provided");
             return Err(anyhow!(
                 "Zero external configs were loaded from the provided details"
@@ -240,7 +239,7 @@ mod tests {
     }
 
     fn make_execution_plan_items<T: Authentication>(authentication: T) -> ExecutionPlanItems<T> {
-        let item = ExecutionPlanItems {
+        ExecutionPlanItems {
             items: vec![
                 ConfigurationItem::Download(Download::Application(ApplicationDetails {
                     name: "test_application".into(),
@@ -250,8 +249,7 @@ mod tests {
                 .into(),
             ],
             authentication,
-        };
-        item
+        }
     }
 
     fn make_git_clone_config(

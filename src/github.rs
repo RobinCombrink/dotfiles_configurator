@@ -30,8 +30,7 @@ pub async fn get_configs_from_github(
     let configs = config_file_info
         .items
         .iter()
-        .map(|item| item.decoded_content())
-        .filter_map(|content| content)
+        .filter_map(|item| item.decoded_content())
         .map(
             |content| match serde_json::from_str::<Configuration>(content.as_str()) {
                 Ok(config) => Ok(config),

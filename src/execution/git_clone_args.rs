@@ -107,11 +107,11 @@ impl<T: Authentication> GitCloneArgs<T> {
         callbacks.transfer_progress(move |progress| {
             let objects_progress_percent = ((progress.received_objects() as f64
                 / progress.total_objects() as f64)
-                * 100 as f64)
+                * 100_f64)
                 .floor() as u64;
 
             let deltas_progress_percent =
-                (progress.indexed_deltas() as f64 / progress.total_deltas() as f64 * 100 as f64)
+                (progress.indexed_deltas() as f64 / progress.total_deltas() as f64 * 100_f64)
                     .floor() as u64;
 
             if progress.received_objects() == progress.total_objects() {
@@ -134,11 +134,11 @@ impl<T: Authentication> GitCloneArgs<T> {
                 ));
             }
 
-            let progress_position = (((objects_progress_percent as f64 / 100 as f64)
-                + (deltas_progress_percent as f64 / 100 as f64)
-                    * progress_bar.length().unwrap_or_else(|| 100) as f64)
+            let progress_position = (((objects_progress_percent as f64 / 100_f64)
+                + (deltas_progress_percent as f64 / 100_f64)
+                    * progress_bar.length().unwrap_or(100) as f64)
                 .floor()
-                / (2 as f64)) as u64;
+                / 2_f64) as u64;
 
             progress_bar.set_position(progress_position);
             if objects_progress_percent >= 100 && deltas_progress_percent >= 100 {
@@ -158,6 +158,6 @@ impl<T: Authentication> GitCloneArgs<T> {
         fetch_options.remote_callbacks(callbacks);
         fetch_options.depth(1);
 
-        return fetch_options;
+        fetch_options
     }
 }

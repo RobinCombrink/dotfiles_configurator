@@ -35,21 +35,6 @@ pub struct GitCloneConfig {
     pub dotfiles_repository: GitClone,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Downloads {
-    pub applications: Vec<ApplicationDetails>,
-    pub github_releases: Vec<RepositoryDetails>,
-}
-
-impl Default for Downloads {
-    fn default() -> Self {
-        Self {
-            applications: vec![ApplicationDetails::default()],
-            github_releases: vec![RepositoryDetails::default()],
-        }
-    }
-}
-
 #[derive(
     Debug, Serialize, Deserialize, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
@@ -77,7 +62,7 @@ pub enum AssetFind {
     AssetEndsWith { asset_ends_with: String },
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RepositoryDetails {
     pub owner: String,
     pub repo: String,
@@ -85,18 +70,6 @@ pub struct RepositoryDetails {
     pub asset_find: Option<AssetFind>,
     pub shell_commands: Option<Vec<ShellCommand>>,
     pub dotfiles: Option<Vec<DetailsType>>,
-}
-
-impl Default for RepositoryDetails {
-    fn default() -> Self {
-        Self {
-            owner: String::new(),
-            repo: String::new(),
-            asset_find: None,
-            shell_commands: None,
-            dotfiles: None,
-        }
-    }
 }
 
 #[derive(

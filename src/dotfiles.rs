@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use crate::configuration::{DetailsType, DirectoryDetails, FileDetails};
 use log::info;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::execution::Executor;
 
@@ -27,30 +27,29 @@ impl DotfilesDetails {
 }
 
 pub(crate) trait PathFinder {
-    fn original_path(&self, dotfiles_repository_path: &PathBuf) -> PathBuf;
-    fn link_path(&self, home_dir: &PathBuf) -> PathBuf;
+    fn original_path(&self, dotfiles_repository_path: &Path) -> PathBuf;
+    fn link_path(&self, home_dir: &Path) -> PathBuf;
 }
 
 impl PathFinder for FileDetails {
-    fn original_path(&self, dotfiles_repository_path: &PathBuf) -> PathBuf {
-        dotfiles_repository_path.join(&self.original_path.join(&self.file_name))
+    fn original_path(&self, dotfiles_repository_path: &Path) -> PathBuf {
+        dotfiles_repository_path.join(self.original_path.join(&self.file_name))
     }
 
-    fn link_path(&self, home_dir: &PathBuf) -> PathBuf {
-        let link_path = match &self.link_path {
-            Some(path) => path,
-            None => &home_dir,
-        };
-        home_dir.join(link_path).join(&self.file_name)
+    fn link_path(&self, home_dir: &Path) -> PathBuf {
+        match &self.link_path {
+            Some(path) => home_dir.join(path).join(&self.file_name),
+            None => home_dir.join(&self.file_name),
+        }
     }
 }
 
 impl PathFinder for DirectoryDetails {
-    fn original_path(&self, dotfiles_repository_path: &PathBuf) -> PathBuf {
+    fn original_path(&self, dotfiles_repository_path: &Path) -> PathBuf {
         dotfiles_repository_path.join(&self.original_path)
     }
 
-    fn link_path(&self, home_dir: &PathBuf) -> PathBuf {
+    fn link_path(&self, home_dir: &Path) -> PathBuf {
         home_dir.join(&self.link_path)
     }
 }
@@ -80,28 +79,28 @@ impl Executor for DotfilesDetails {
 
 #[cfg(target_family = "windows")]
 fn symlink_file(original_path: &PathBuf, link_path: &PathBuf) -> Result<()> {
-    log_symlink(&original_path, &link_path);
+    log_symlink(original_path, link_path);
 
     std::os::windows::fs::symlink_file(original_path, link_path).map_err(|err| err.into())
 }
 
 #[cfg(target_family = "unix")]
 fn symlink_file(original_path: &PathBuf, link_path: &PathBuf) -> Result<()> {
-    log_symlink(&original_path, &link_path);
+    log_symlink(original_path, link_path);
 
     std::os::unix::fs::symlink(original_path, link_path).map_err(|err| err.into())
 }
 
 #[cfg(target_family = "windows")]
 fn symlink_directory(original_path: &PathBuf, link_path: &PathBuf) -> Result<()> {
-    log_symlink(&original_path, &link_path);
+    log_symlink(original_path, link_path);
 
     std::os::windows::fs::symlink_dir(original_path, link_path).map_err(|err| err.into())
 }
 
 #[cfg(target_family = "unix")]
 fn symlink_directory(original_path: &PathBuf, link_path: &PathBuf) -> Result<()> {
-    log_symlink(&original_path, &link_path);
+    log_symlink(original_path, link_path);
 
     std::os::unix::fs::symlink(original_path, link_path).map_err(|err| err.into())
 }

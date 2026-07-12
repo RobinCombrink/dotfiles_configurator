@@ -225,7 +225,6 @@ impl ExecutionPlan {
         let mut continue_response = String::new();
         io::stdin()
             .read_line(&mut continue_response)
-            .ok()
             .expect("Failed to read line");
 
         let application_shell_commands_results = join_all(
@@ -253,10 +252,10 @@ impl ExecutionPlan {
     fn create_dotfiles_details(
         home_directory: PathBuf,
         execution_config: &GitCloneConfig,
-        dotfiles_details: &Vec<DetailsType>,
+        dotfiles_details: &[DetailsType],
     ) -> Vec<DotfilesDetails> {
-        let dotfiles_details = dotfiles_details
-            .into_iter()
+        dotfiles_details
+            .iter()
             .map(|dotfiles| {
                 DotfilesDetails::from_details(
                     dotfiles.to_owned(),
@@ -264,8 +263,7 @@ impl ExecutionPlan {
                     home_directory.clone(),
                 )
             })
-            .collect();
-        dotfiles_details
+            .collect()
     }
 
     async fn ensure_github_cli_is_installed(&self, client: Client) {
