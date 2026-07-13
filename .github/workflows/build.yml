@@ -66,7 +66,7 @@ jobs:
         if: contains(matrix.platform.name, 'musl')
         run: sudo apt-get update --yes && sudo apt-get install --yes musl-tools
       - name: Build binary
-        uses: houseabsolute/actions-rust-cross@v0
+        uses: houseabsolute/actions-rust-cross@v1
         env:
             CARGO_NET_GIT_FETCH_WITH_CLI: true
         with:
@@ -76,7 +76,7 @@ jobs:
           args: "--locked --release"
           strip: true
       - name: Run tests
-        uses: houseabsolute/actions-rust-cross@v0
+        uses: houseabsolute/actions-rust-cross@v1
         with:
           command: "test"
           target: ${{ matrix.platform.target }}
