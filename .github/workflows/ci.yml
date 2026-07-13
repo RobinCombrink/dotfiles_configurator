@@ -16,17 +16,12 @@ jobs:
     name: Build, lint & test
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: cli
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: cli
 
       - name: Format check
         run: cargo fmt --all -- --check
@@ -44,9 +39,6 @@ jobs:
     runs-on: ${{ matrix.platform.os }}
     permissions:
       contents: write
-    defaults:
-      run:
-        working-directory: cli
     strategy:
       fail-fast: false
       matrix:
@@ -74,8 +66,6 @@ jobs:
           targets: ${{ matrix.platform.target }}
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: cli
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.platform.target }}
@@ -96,7 +86,5 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            cli/${{ matrix.platform.name }}
-            ${{ matrix.platform.name }}
+          files: ${{ matrix.platform.name }}
           generate_release_notes: true
