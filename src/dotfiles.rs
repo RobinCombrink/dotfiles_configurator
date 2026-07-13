@@ -61,6 +61,7 @@ impl Executor for DotfilesDetails {
                 let original_path = details.original_path(&self.dotfiles_repository_path);
                 let link_path = details.link_path(&self.home_dir);
 
+                create_link_parent_directory(&link_path)?;
                 symlink_file(&original_path, &link_path).with_context(|| {
                     format!(
                         "Could not create file symlink\nLink path: {:#?}\nOriginal Path: {:#?} ",
@@ -71,9 +72,24 @@ impl Executor for DotfilesDetails {
             DetailsType::Directory(details) => {
                 let original_path = details.original_path(&self.dotfiles_repository_path);
                 let link_path = details.link_path(&self.home_dir);
+                create_link_parent_directory(&link_path)?;
                 symlink_directory(&original_path, &link_path).with_context(||format!("Could not create directory symlink\nLink path: {:#?}\nOriginal Path: {:#?} ", link_path, original_path ))
             }
         }
+    }
+}
+
+fn create_link_parent_directory(link_path: &Path) -> Result<()> {
+    match link_path.parent() {
+        Some(parent_directory) => {
+            std::fs::create_dir_all(parent_directory).with_context(|| {
+                format!(
+                    "Could not create parent directory for symlink: {:#?}",
+                    parent_directory
+                )
+            })
+        }
+        None => Ok(()),
     }
 }
 
