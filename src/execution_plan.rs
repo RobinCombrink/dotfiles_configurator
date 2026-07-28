@@ -1,4 +1,8 @@
 use {
+    crate::configuration::{
+        ApplicationDetails, AssetFind, Configuration, ConfigurationItem, DetailsType, Download,
+        GitClone, GitCloneConfig, RepositoryDetails, ShellCommand,
+    },
     crate::{
         dotfiles::DotfilesDetails,
         execution::{
@@ -9,10 +13,6 @@ use {
         progress_bar::create_execution_item_coordinator_progress_bar,
     },
     anyhow::{Context, Result},
-    crate::configuration::{
-        ApplicationDetails, AssetFind, Configuration, ConfigurationItem, DetailsType, Download,
-        GitClone, GitCloneConfig, RepositoryDetails, ShellCommand,
-    },
     futures::future::join_all,
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     indicatif::MultiProgress,

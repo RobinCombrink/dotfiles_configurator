@@ -1,4 +1,2 @@
 #[test]
-fn cli_command_executes(){
-    
-}
+fn cli_command_executes() {}

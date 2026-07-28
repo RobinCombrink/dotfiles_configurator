@@ -1,7 +1,7 @@
 use {
+    crate::configuration::{ApplicationDetails, AssetFind, RepositoryDetails, ShellCommand},
     crate::execution::Executor,
     anyhow::{Context, Error, Result, anyhow},
-    crate::configuration::{ApplicationDetails, AssetFind, RepositoryDetails, ShellCommand},
     futures::StreamExt,
     indicatif::ProgressBar,
     log::trace,

@@ -1,6 +1,6 @@
 use {
-    anyhow::{Context, Error, Result},
     crate::configuration::Configuration,
+    anyhow::{Context, Error, Result},
     octocrab::Octocrab,
     secrecy::SecretString,
     std::sync::Arc,

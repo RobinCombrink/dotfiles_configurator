@@ -1,8 +1,8 @@
+use crate::configuration::{DetailsType, GitClone, ShellCommand};
 use crate::dotfiles::DotfilesDetails;
 use crate::execution::shell_command::CommandGetter;
 use crate::execution_plan::DownloadType;
 use crate::{dotfiles::PathFinder, progress_bar::create_progress_bar};
-use crate::configuration::{DetailsType, GitClone, ShellCommand};
 use indicatif::{ProgressBar, ProgressFinish, ProgressStyle};
 use std::{borrow::Cow, path::PathBuf};
 

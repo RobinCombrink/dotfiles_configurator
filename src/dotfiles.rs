@@ -1,5 +1,5 @@
-use anyhow::{Context, Result};
 use crate::configuration::{DetailsType, DirectoryDetails, FileDetails};
+use anyhow::{Context, Result};
 use log::info;
 use std::path::{Path, PathBuf};
 
@@ -81,14 +81,12 @@ impl Executor for DotfilesDetails {
 
 fn create_link_parent_directory(link_path: &Path) -> Result<()> {
     match link_path.parent() {
-        Some(parent_directory) => {
-            std::fs::create_dir_all(parent_directory).with_context(|| {
-                format!(
-                    "Could not create parent directory for symlink: {:#?}",
-                    parent_directory
-                )
-            })
-        }
+        Some(parent_directory) => std::fs::create_dir_all(parent_directory).with_context(|| {
+            format!(
+                "Could not create parent directory for symlink: {:#?}",
+                parent_directory
+            )
+        }),
         None => Ok(()),
     }
 }

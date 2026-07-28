@@ -62,7 +62,9 @@ pub enum AssetFind {
     EndsWith { asset_ends_with: String },
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, JsonSchema, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Default, Serialize, Deserialize, JsonSchema, Clone, PartialEq, Eq, PartialOrd, Ord,
+)]
 pub struct RepositoryDetails {
     pub owner: String,
     pub repo: String,

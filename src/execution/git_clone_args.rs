@@ -1,11 +1,11 @@
-use std::{fmt::Display, fs, path::PathBuf, sync::Arc};
-use anyhow::{Context, Result, anyhow};
-use secrecy::{ExposeSecret, SecretString};
-use octocrab::Octocrab;
-use indicatif::ProgressBar;
-use git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder};
 use crate::configuration::GitClone;
+use anyhow::{Context, Result, anyhow};
+use git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder};
 use github_authentication::authentication::Authentication;
+use indicatif::ProgressBar;
+use octocrab::Octocrab;
+use secrecy::{ExposeSecret, SecretString};
+use std::{fmt::Display, fs, path::PathBuf, sync::Arc};
 
 pub struct GitCloneArgs<T: Authentication> {
     pub git_clone: GitClone,
@@ -105,10 +105,9 @@ impl<T: Authentication> GitCloneArgs<T> {
         let mut callbacks = RemoteCallbacks::new();
 
         callbacks.transfer_progress(move |progress| {
-            let objects_progress_percent = ((progress.received_objects() as f64
-                / progress.total_objects() as f64)
-                * 100_f64)
-                .floor() as u64;
+            let objects_progress_percent =
+                ((progress.received_objects() as f64 / progress.total_objects() as f64) * 100_f64)
+                    .floor() as u64;
 
             let deltas_progress_percent =
                 (progress.indexed_deltas() as f64 / progress.total_deltas() as f64 * 100_f64)

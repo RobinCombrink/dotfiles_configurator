@@ -1,7 +1,7 @@
 use {
+    crate::configuration::ShellCommand,
     crate::execution::{Executor, ExecutorSync},
     anyhow::{Context, Error, Result, anyhow},
-    crate::configuration::ShellCommand,
     log::info,
     std::{
         future::Future,
