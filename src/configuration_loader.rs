@@ -48,7 +48,7 @@ impl ConfigurationLoader {
                 .with_context(|| {
                     format!(
                         "Could not load local configuration. Path:{:#?}",
-                        &args.directory_path
+                        args.directory_path
                     )
                 })?,
             Command::Remote(remote) => self

@@ -51,7 +51,7 @@ impl<T: Authentication> GitCloneArgs<T> {
             .with_context(|| format!("Could not get repository details: {}", self))?;
 
         fs::create_dir_all(&self.directory_path)
-            .with_context(|| format!("Could not create directory: {:#?}", &self.directory_path))?;
+            .with_context(|| format!("Could not create directory: {:#?}", self.directory_path))?;
 
         let directory_path = self.directory_path.join(self.git_clone.repo.clone());
 

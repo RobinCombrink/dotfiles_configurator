@@ -25,11 +25,11 @@ impl ItemProgress for DownloadType {
 
 impl ItemProgress for GitClone {
     fn create_progress_bar(&self, path: PathBuf) -> ProgressBar {
-        let message = format!("Cloning {}/{} into {:#?}", &self.owner, &self.repo, path,);
+        let message = format!("Cloning {}/{} into {:#?}", self.owner, self.repo, path,);
 
         let finish = ProgressFinish::WithMessage(Cow::from(format!(
             "Cloned {}/{} into {:#?}",
-            &self.owner, &self.repo, path,
+            self.owner, self.repo, path,
         )));
 
         let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} ({eta}) {msg}")
