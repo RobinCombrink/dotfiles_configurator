@@ -44,16 +44,6 @@ pub struct ApplicationDetails {
     pub dotfiles: Option<Vec<DetailsType>>,
 }
 
-impl Default for ApplicationDetails {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            uri: Url::parse("http://localhost").unwrap(),
-            dotfiles: None,
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(untagged, rename_all = "snake_case")]
 pub enum AssetFind {
@@ -111,27 +101,6 @@ impl ShellCommand {
             args,
             require_output,
             interactive,
-        })
-    }
-}
-
-#[cfg(target_family = "windows")]
-impl Default for ShellCommand {
-    fn default() -> Self {
-        Self::CommandPrompt(CliCommand {
-            interactive: false,
-            require_output: false,
-            args: vec![],
-        })
-    }
-}
-
-#[cfg(target_family = "unix")]
-impl Default for ShellCommand {
-    fn default() -> Self {
-        Self::Bash(CliCommand {
-            interactive: false,
-            args: vec![],
         })
     }
 }
