@@ -45,8 +45,10 @@ building on top of a lying baseline is not worth it.
 
 Four atomic commits. Nothing else starts until this is done.
 
-1. Add `CI / Build, lint & test` to the required checks, in `.github/fleet-ruleset.json` **and**
-   the live ruleset. It is absent from both, which is why a red `main` still merges.
+1. Add the `CI` workflow's build job to the required checks, in `.github/fleet-ruleset.json`
+   **and** the live ruleset. It is absent from both, which is why a red `main` still merges.
+   Take the context string from the check-runs API rather than composing it — an inline job
+   reports under its own name, unlike the reusable-workflow callers already listed.
 2. `cargo fmt --all` — 17 hunks across 10 files. This is what CI dies on today, before it
    reaches clippy or the tests at all.
 3. Fix the six `useless_borrows_in_formatting` errors in `src/execution/item_progress.rs`.
