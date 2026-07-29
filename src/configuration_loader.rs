@@ -34,8 +34,16 @@ impl ConfigurationLoader {
                 home_dir().expect("Failed to find home directory"),
             )
         };
+        Self::with_directories(args.command, download_directory, home_directory)
+    }
+
+    fn with_directories(
+        config_source: Command,
+        download_directory: PathBuf,
+        home_directory: PathBuf,
+    ) -> Self {
         Self {
-            config_source: args.command,
+            config_source,
             download_directory,
             home_directory,
         }
@@ -189,7 +197,7 @@ mod tests {
     use crate::configuration::{
         ApplicationDetails, ConfigurationItem, Download, GitClone, GitCloneConfig,
     };
-    use crate::{ExecutionType, LocalConfigArguments, execution_plan::ExecutionPlanItems};
+    use crate::{LocalConfigArguments, execution_plan::ExecutionPlanItems};
     use github_authentication::authentication::Authentication;
     use url::Url;
 
@@ -273,6 +281,14 @@ mod tests {
         }
     }
 
+    fn make_loader(command: Command) -> ConfigurationLoader {
+        ConfigurationLoader::with_directories(
+            command,
+            get_temp_directory("downloads"),
+            get_temp_directory("home"),
+        )
+    }
+
     #[test]
     fn given_a_single_execution_plan_entry_when_merged_is_equal() {
         let gitclone_config = make_git_clone_config("single_username", "single_owner");
@@ -329,12 +345,9 @@ mod tests {
     }
     #[tokio::test]
     async fn given_invalid_local_config_path_when_loading_non_existent_file_then_returns_error() {
-        let args = Arguments {
-            command: Command::Local(make_local_config_args("/invalid/file_path.json")),
-            execution_type: ExecutionType::DryRun,
-            debug: false,
-        };
-        let loader = ConfigurationLoader::new(args);
+        let loader = make_loader(Command::Local(make_local_config_args(
+            "/invalid/file_path.json",
+        )));
         let result = loader.load_all_configurations().await;
         assert!(result.is_err());
     }
@@ -345,12 +358,7 @@ mod tests {
         println!("{:#?}", file_path);
         let mut file = File::create(&file_path).unwrap();
         writeln!(file, "{{ this is not valid json }}").unwrap();
-        let args = Arguments {
-            command: Command::Local(make_local_config_args(file_path)),
-            execution_type: crate::ExecutionType::DryRun,
-            debug: false,
-        };
-        let loader = ConfigurationLoader::new(args);
+        let loader = make_loader(Command::Local(make_local_config_args(file_path)));
         let result = loader.load_all_configurations().await;
         assert!(result.is_err());
     }
@@ -358,12 +366,7 @@ mod tests {
     async fn given_valid_local_config_file_when_loading_then_execution_plan_items_are_not_empty() {
         let file_path = get_test_config_directory("single");
 
-        let args = Arguments {
-            command: Command::Local(make_local_config_args(&file_path)),
-            execution_type: crate::ExecutionType::DryRun,
-            debug: false,
-        };
-        let loader = ConfigurationLoader::new(args);
+        let loader = make_loader(Command::Local(make_local_config_args(&file_path)));
 
         let result = loader.load_all_configurations().await;
         assert!(result.is_ok());
