@@ -27,6 +27,9 @@ neither. It needed the version to stop lying.
 | Commands stay as the escape hatch — they are where resource kinds are born | ADR 0001 |
 | Breaking v2 format; `Configuration.version` finally gates the load | ADR 0001 |
 | The build stamps the released version | ADR 0003, superseding ADR 0002 |
+| Readiness is observed, apply iterates, and kind order is a safety property | ADR 0004 |
+| Convergence is additive — a withdrawn declaration is not undone | ADR 0005 |
+| Plan cannot change the machine | ADR 0006 |
 | `tools/*` install from a git revision; drift is the crate's subtree hash | dotfiles ADR 0007 |
 | `post-merge` + `post-rewrite`, applying everything, synchronously, unbounded | dotfiles ADR 0008 |
 
