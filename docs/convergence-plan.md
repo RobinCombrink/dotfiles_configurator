@@ -26,7 +26,7 @@ neither. It needed the version to stop lying.
 | Applications keep download-and-run, gain a declared presence check | ADR 0001 |
 | Commands stay as the escape hatch — they are where resource kinds are born | ADR 0001 |
 | Breaking v2 format; `Configuration.version` finally gates the load | ADR 0001 |
-| The Cargo manifest owns the released version | ADR 0002 |
+| The build stamps the released version | ADR 0003, superseding ADR 0002 |
 | `tools/*` install from a git revision; drift is the crate's subtree hash | dotfiles ADR 0007 |
 | `post-merge` + `post-rewrite`, applying everything, synchronously, unbounded | dotfiles ADR 0008 |
 
@@ -60,14 +60,18 @@ an impression that the tests look green.
 
 ## Phase B — Make the version true
 
-1. **Reduce three release pipelines to one.** `build.yml`, `ci.yml`'s release job and the fleet
-   `release.yml` coexist, and two of them publish. Write-back cannot be correct while two
-   publishers race for the same release. This comes first.
-2. Add a caller-local `.releaserc.json` with manifest write-back. `actions-release` already
-   prefers a caller's config over its bundled default, so this is a per-repo change with no
-   fleet impact.
-3. Verify against a real release: the tag moved, `Cargo.toml` moved with it, and
-   `dotfiles --version` agrees with both.
+The premise this phase started from was wrong. `build.yml` and `ci.yml`'s release job did not
+race the fleet workflow — neither had run since 2025-09-29. Tags created with `GITHUB_TOKEN`
+trigger no workflow, so both tag-triggered publishers were unreachable, and every release from
+`v1.0.0` onward shipped with no binary attached at all.
+
+1. **Delete the two dead publishers** and fold the fleet release call into `ci.yml`, so the
+   build that produces the binary and the release that publishes it share one run.
+2. **Teach `actions-release` to carry artifacts and to answer what version it will cut**
+   (`artifact_name`, `dry_run` + `version` output). Both shipped as v1.1.0 and v1.2.0.
+3. Stamp the version into the build rather than committing it — ADR 0003.
+4. Verify against a real release: the tag moved, the release carries a Windows binary, and
+   `dotfiles --version` agrees with the tag.
 
 ## Phase C — Prove the one unverified assumption
 

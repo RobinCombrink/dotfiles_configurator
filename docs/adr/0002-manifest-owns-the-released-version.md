@@ -1,6 +1,8 @@
 # The Cargo manifest owns the released version
 
-Status: accepted (2026-07-28, grilling session following the multi-angle repo review)
+Status: superseded by ADR 0003 (2026-07-29) — never implemented. Two of its premises did not
+survive contact: the write-back plugins are unavailable to callers, and a binary built before
+the release cannot carry the version that release cuts.
 
 `Cargo.toml` is the single home of this crate's version; semantic-release writes it back as
 part of the release, and the tag is derived from it rather than competing with it. This is
