@@ -8,8 +8,8 @@ use {
     dotfiles::{
         configuration::{
             Application, ApplicationName, ApplicationSource, Configuration, DesiredState,
-            MachineSettings, Notice, PresenceCheck, RepositoryName, Resource, Shell, Symlink,
-            merge_configurations, parse_configuration,
+            GitHubRepository, MachineSettings, Notice, PresenceCheck, RepositoryName,
+            RepositoryOwner, Resource, Shell, Symlink, merge_configurations, parse_configuration,
         },
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
         machine::{ReadMachine, Tool},
@@ -76,9 +76,9 @@ fn machine_settings() -> MachineSettings {
     MachineSettings {
         repositories_directory_path: PathBuf::from("/repositories"),
         github_username: "Alice".to_owned(),
-        dotfiles_repository: RepositoryName {
-            owner: "Alice".to_owned(),
-            repo: "dotfiles".to_owned(),
+        dotfiles_repository: GitHubRepository {
+            owner: RepositoryOwner::from("Alice"),
+            repository: RepositoryName::from("dotfiles"),
         },
     }
 }
@@ -110,7 +110,7 @@ fn declare_winget_package(world: &mut MachineWorld, id: String) {
     world
         .resources
         .push(Resource::Package(dotfiles::configuration::Package::Winget(
-            dotfiles::configuration::WingetPackage { id },
+            dotfiles::configuration::WingetPackage { id: id.into() },
         )));
 }
 
@@ -222,7 +222,7 @@ fn document(version: &str, resources: &str) -> String {
             "machine": {{
                 "repositories_directory_path": "/repositories",
                 "github_username": "Alice",
-                "dotfiles_repository": {{ "owner": "Alice", "repo": "dotfiles" }}
+                "dotfiles_repository": {{ "owner": "Alice", "repository": "dotfiles" }}
             }},
             "resources": {resources}
         }}"#

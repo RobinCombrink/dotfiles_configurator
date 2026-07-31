@@ -1,7 +1,10 @@
 use {
-    crate::configuration::resource::{
-        Application, ApplicationName, ClaudeMcpServer, Package, Registration, RepositoryName,
-        Resource, Symlink,
+    crate::configuration::{
+        names::{ApplicationName, CrateName, McpServerName, RepositoryName, WingetPackageId},
+        resource::{
+            Application, ClaudeMcpServer, GitHubRepository, Package, Registration, Resource,
+            Symlink,
+        },
     },
     std::{fmt::Display, path::PathBuf},
 };
@@ -16,19 +19,21 @@ use {
 pub enum Identity {
     /// The directory the repository is cloned into, which is named by the repository alone
     /// because every configuration shares one repositories directory.
-    ClonedRepository(String),
+    ClonedRepository(RepositoryName),
     Application(ApplicationName),
-    WingetPackage(String),
-    CargoCrate(String),
+    WingetPackage(WingetPackageId),
+    CargoCrate(CrateName),
     /// The path of the link itself, as declared.
     Symlink(PathBuf),
-    ClaudeMcpServer(String),
+    ClaudeMcpServer(McpServerName),
 }
 
 impl Display for Identity {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Identity::ClonedRepository(repo) => write!(formatter, "the clone directory for {repo}"),
+            Identity::ClonedRepository(repository) => {
+                write!(formatter, "the clone directory for {repository}")
+            }
             Identity::Application(name) => write!(formatter, "the application {name}"),
             Identity::WingetPackage(id) => write!(formatter, "the winget package {id}"),
             Identity::CargoCrate(name) => write!(formatter, "the cargo crate {name}"),
@@ -44,8 +49,8 @@ impl Resource {
     /// The fact this resource claims, or `None` for a command, which claims none.
     pub fn identity(&self) -> Option<Identity> {
         match self {
-            Resource::Repository(RepositoryName { repo, .. }) => {
-                Some(Identity::ClonedRepository(repo.clone()))
+            Resource::Repository(GitHubRepository { repository, .. }) => {
+                Some(Identity::ClonedRepository(repository.clone()))
             }
             Resource::Application(Application { name, .. }) => {
                 Some(Identity::Application(name.clone()))

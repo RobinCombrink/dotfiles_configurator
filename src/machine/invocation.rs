@@ -1,5 +1,5 @@
 use crate::{
-    configuration::{ClaudeMcpServer, McpScope},
+    configuration::{ClaudeMcpServer, McpScope, McpServerName, WingetPackageId},
     machine::Tool,
 };
 
@@ -12,12 +12,12 @@ use crate::{
 pub enum ReadInvocation {
     /// Whether winget reports a package as installed. Exits 0 when it is and
     /// `APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND` when it is not.
-    WingetPackage { id: String },
+    WingetPackage { id: WingetPackageId },
     /// Every crate Cargo has installed, one `name vX.Y.Z[ (source)]:` line each.
     CargoInstalledCrates,
     /// The details Claude Code holds for one MCP server. Exits non-zero when there is no such
     /// server.
-    ClaudeMcpServer { name: String },
+    ClaudeMcpServer { name: McpServerName },
 }
 
 impl ReadInvocation {
@@ -35,7 +35,7 @@ impl ReadInvocation {
                 "list".to_owned(),
                 "--exact".to_owned(),
                 "--id".to_owned(),
-                id.clone(),
+                id.to_string(),
                 "--accept-source-agreements".to_owned(),
                 "--disable-interactivity".to_owned(),
             ],
@@ -43,7 +43,7 @@ impl ReadInvocation {
                 vec!["install".to_owned(), "--list".to_owned()]
             }
             ReadInvocation::ClaudeMcpServer { name } => {
-                vec!["mcp".to_owned(), "get".to_owned(), name.clone()]
+                vec!["mcp".to_owned(), "get".to_owned(), name.to_string()]
             }
         }
     }
@@ -52,10 +52,19 @@ impl ReadInvocation {
 /// The closed set of invocations this crate defines for changing state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteInvocation {
-    InstallWingetPackage { id: String },
-    InstallCargoCrate { arguments: Vec<String> },
-    RemoveClaudeMcpServer { name: String, scope: McpScope },
-    AddClaudeMcpServer { server: Box<ClaudeMcpServer> },
+    InstallWingetPackage {
+        id: WingetPackageId,
+    },
+    InstallCargoCrate {
+        arguments: Vec<String>,
+    },
+    RemoveClaudeMcpServer {
+        name: McpServerName,
+        scope: McpScope,
+    },
+    AddClaudeMcpServer {
+        server: Box<ClaudeMcpServer>,
+    },
 }
 
 impl WriteInvocation {
@@ -74,7 +83,7 @@ impl WriteInvocation {
                 "install".to_owned(),
                 "--exact".to_owned(),
                 "--id".to_owned(),
-                id.clone(),
+                id.to_string(),
                 "--accept-package-agreements".to_owned(),
                 "--accept-source-agreements".to_owned(),
                 "--disable-interactivity".to_owned(),
@@ -85,7 +94,7 @@ impl WriteInvocation {
                 "remove".to_owned(),
                 "--scope".to_owned(),
                 scope.as_argument().to_owned(),
-                name.clone(),
+                name.to_string(),
             ],
             WriteInvocation::AddClaudeMcpServer { server } => {
                 let mut arguments = vec![
@@ -93,7 +102,7 @@ impl WriteInvocation {
                     "add".to_owned(),
                     "--scope".to_owned(),
                     server.scope.as_argument().to_owned(),
-                    server.name.clone(),
+                    server.name.to_string(),
                 ];
                 for (key, value) in &server.environment {
                     arguments.push("--env".to_owned());
@@ -118,7 +127,7 @@ mod tests {
         let mut environment = BTreeMap::new();
         environment.insert("SERENA_HOME".to_owned(), "C:\\dotfiles\\serena".to_owned());
         let server = ClaudeMcpServer {
-            name: "serena".to_owned(),
+            name: McpServerName::from("serena"),
             scope: McpScope::User,
             command: "serena".to_owned(),
             args: vec!["start-mcp-server".to_owned()],

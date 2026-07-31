@@ -1,7 +1,7 @@
 use {
     crate::{
         configuration::{
-            CargoPackage, CargoSource, Command, Package, Registration, RepositoryName, Resource,
+            CargoPackage, CargoSource, Command, GitHubRepository, Package, Registration, Resource,
             Symlink, WingetPackage,
         },
         machine::{WriteInvocation, WriteMachine},
@@ -40,12 +40,10 @@ pub async fn converge(resource: &Resource, machine: &impl WriteMachine) -> Resul
 }
 
 async fn converge_repository(
-    repository: &RepositoryName,
+    repository: &GitHubRepository,
     machine: &impl WriteMachine,
 ) -> Result<()> {
-    machine
-        .clone_repository(&repository.owner, &repository.repo)
-        .await
+    machine.clone_repository(repository).await
 }
 
 fn converge_winget_package(package: &WingetPackage, machine: &impl WriteMachine) -> Result<()> {
@@ -63,7 +61,7 @@ fn converge_cargo_package(package: &CargoPackage, machine: &impl WriteMachine) -
         "--force".to_owned(),
     ];
     match &package.source {
-        CargoSource::Registry => arguments.push(package.crate_name.clone()),
+        CargoSource::Registry => arguments.push(package.crate_name.to_string()),
         CargoSource::Path { path } => {
             arguments.push("--path".to_owned());
             arguments.push(path.display().to_string());
@@ -73,7 +71,7 @@ fn converge_cargo_package(package: &CargoPackage, machine: &impl WriteMachine) -
             arguments.push(url.to_string());
             arguments.push("--rev".to_owned());
             arguments.push(revision.clone());
-            arguments.push(package.crate_name.clone());
+            arguments.push(package.crate_name.to_string());
         }
     }
 

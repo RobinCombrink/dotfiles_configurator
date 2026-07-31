@@ -1,7 +1,7 @@
 use crate::{
     configuration::{
-        Application, CargoPackage, CargoSource, ClaudeMcpServer, Command, Package, Registration,
-        RepositoryName, Resource, Symlink, WingetPackage,
+        Application, CargoPackage, CargoSource, ClaudeMcpServer, Command, GitHubRepository,
+        Package, Registration, Resource, Symlink, WingetPackage,
     },
     convergence::{Assessment, Requirement},
     machine::{ReadInvocation, ReadMachine},
@@ -45,8 +45,10 @@ fn requirement_is_met(requirement: Requirement, machine: &impl ReadMachine) -> b
     }
 }
 
-fn assess_repository(repository: &RepositoryName, machine: &impl ReadMachine) -> Assessment {
-    let clone_directory = machine.repositories_directory().join(&repository.repo);
+fn assess_repository(repository: &GitHubRepository, machine: &impl ReadMachine) -> Assessment {
+    let clone_directory = machine
+        .repositories_directory()
+        .join(repository.repository.as_ref());
     match machine.path_exists(&clone_directory.join(".git")) {
         true => Assessment::Converged,
         false => {
@@ -84,7 +86,7 @@ fn assess_cargo_package(package: &CargoPackage, machine: &impl ReadMachine) -> A
         }
     };
 
-    let Some(actual) = installed_crate_source(&installed, &package.crate_name) else {
+    let Some(actual) = installed_crate_source(&installed, package.crate_name.as_ref()) else {
         return Assessment::Drifted("cargo has not installed it".into());
     };
 

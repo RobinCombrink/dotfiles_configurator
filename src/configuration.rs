@@ -10,6 +10,8 @@ use {
 // after it. Naming each child outright resolves the same way from both roots.
 #[path = "configuration/identity.rs"]
 pub mod identity;
+#[path = "configuration/names.rs"]
+pub mod names;
 #[path = "configuration/presence_check.rs"]
 pub mod presence_check;
 #[path = "configuration/resource.rs"]
@@ -17,11 +19,14 @@ pub mod resource;
 
 pub use {
     identity::Identity,
+    names::{
+        ApplicationName, CrateName, McpServerName, RepositoryName, RepositoryOwner, WingetPackageId,
+    },
     presence_check::PresenceCheck,
     resource::{
-        Application, ApplicationName, ApplicationSource, AssetPattern, CargoPackage, CargoSource,
-        ClaudeMcpServer, Command, McpScope, Package, Registration, RepositoryName, Resource,
-        ResourceKind, Shell, Symlink, WingetPackage,
+        Application, ApplicationSource, AssetPattern, CargoPackage, CargoSource, ClaudeMcpServer,
+        Command, GitHubRepository, McpScope, Package, Registration, Resource, ResourceKind, Shell,
+        Symlink, WingetPackage,
     },
 };
 
@@ -51,13 +56,13 @@ pub struct MachineSettings {
     /// The username used when authenticating against GitHub.
     pub github_username: String,
     /// The repository holding the dotfiles themselves, cloned before any symlink can converge.
-    pub dotfiles_repository: RepositoryName,
+    pub dotfiles_repository: GitHubRepository,
 }
 
 impl MachineSettings {
     pub fn dotfiles_repository_path(&self) -> PathBuf {
         self.repositories_directory_path
-            .join(&self.dotfiles_repository.repo)
+            .join(self.dotfiles_repository.repository.as_ref())
     }
 }
 
@@ -191,7 +196,7 @@ mod tests {
         r#""machine": {
             "repositories_directory_path": "C:\\Repositories",
             "github_username": "Alice",
-            "dotfiles_repository": { "owner": "Alice", "repo": "dotfiles" }
+            "dotfiles_repository": { "owner": "Alice", "repository": "dotfiles" }
         }"#
     }
 
@@ -347,9 +352,9 @@ mod tests {
 
         assert_eq!(
             desired_state.resources,
-            vec![Resource::Repository(RepositoryName {
-                owner: "Alice".to_owned(),
-                repo: "dotfiles".to_owned(),
+            vec![Resource::Repository(GitHubRepository {
+                owner: RepositoryOwner::from("Alice"),
+                repository: RepositoryName::from("dotfiles"),
             })]
         );
     }

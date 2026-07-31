@@ -5,7 +5,9 @@
 use {
     anyhow::{Result, bail},
     dotfiles::{
-        configuration::{Application, ApplicationName, PresenceCheck, Shell},
+        configuration::{
+            Application, ApplicationName, GitHubRepository, PresenceCheck, Shell, WingetPackageId,
+        },
         machine::{
             CommandOutput, ReadInvocation, ReadMachine, Tool, WriteInvocation, WriteMachine,
         },
@@ -31,7 +33,7 @@ struct MachineState {
     links: BTreeMap<PathBuf, PathBuf>,
     tools: BTreeSet<Tool>,
     installed_applications: BTreeSet<ApplicationName>,
-    winget_packages: BTreeSet<String>,
+    winget_packages: BTreeSet<WingetPackageId>,
     failing_applications: BTreeSet<ApplicationName>,
     /// Installers that exit zero without putting anything on the machine.
     silent_applications: BTreeSet<ApplicationName>,
@@ -224,8 +226,10 @@ impl WriteMachine for FakeMachine {
         Ok(())
     }
 
-    async fn clone_repository(&self, _owner: &str, repo: &str) -> Result<()> {
-        let clone_directory = self.repositories_directory.join(repo);
+    async fn clone_repository(&self, repository: &GitHubRepository) -> Result<()> {
+        let clone_directory = self
+            .repositories_directory
+            .join(repository.repository.as_ref());
         let mut state = self.state.borrow_mut();
         materialise_clone(&mut state, &clone_directory);
         Ok(())

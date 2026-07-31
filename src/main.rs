@@ -164,8 +164,8 @@ mod tests {
             ]),
             vec![
                 ConfigurationSource::GitHubRepository {
-                    owner: "Alice".to_owned(),
-                    repo: "dotfiles".to_owned(),
+                    owner: "Alice".into(),
+                    repository: "dotfiles".into(),
                     file_paths: vec!["config/one.json".to_owned()],
                 },
                 ConfigurationSource::LocalDirectory("config".into()),

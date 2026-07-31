@@ -1,7 +1,8 @@
 use {
     crate::{
         configuration::{
-            Application, ApplicationSource, AssetPattern, MachineSettings, PresenceCheck, Shell,
+            Application, ApplicationSource, AssetPattern, GitHubRepository, MachineSettings,
+            PresenceCheck, Shell,
         },
         github,
         machine::{
@@ -328,25 +329,27 @@ impl WriteMachine for LocalMachine {
         })
     }
 
-    async fn clone_repository(&self, owner: &str, repo: &str) -> Result<()> {
+    async fn clone_repository(&self, repository: &GitHubRepository) -> Result<()> {
         let token = self.authentication.get_token();
-        let repository = self
+        let owner = repository.owner.as_ref();
+        let name = repository.repository.as_ref();
+        let details = self
             .octocrab
-            .repos(owner, repo)
+            .repos(owner, name)
             .get()
             .await
-            .with_context(|| format!("Could not read the details of {owner}/{repo}"))?;
+            .with_context(|| format!("Could not read the details of {repository}"))?;
 
         fs::create_dir_all(&self.repositories_directory).with_context(|| {
             format!("Could not create {}", self.repositories_directory.display())
         })?;
-        let directory_path = self.repositories_directory.join(repo);
+        let directory_path = self.repositories_directory.join(name);
 
-        let url = repository
+        let url = details
             .html_url
-            .ok_or_else(|| anyhow!("{owner}/{repo} has no html url"))?;
+            .ok_or_else(|| anyhow!("{repository} has no html url"))?;
 
-        let progress = progress_bar(None, format!("cloning {owner}/{repo}"));
+        let progress = progress_bar(None, format!("cloning {repository}"));
         let cloned = RepoBuilder::new()
             .fetch_options(self.fetch_options(&token, owner, &progress))
             .clone(url.as_str(), &directory_path)
@@ -357,7 +360,7 @@ impl WriteMachine for LocalMachine {
             })
             .with_context(|| format!("Could not clone {url} into {}", directory_path.display()));
 
-        progress.finish_with_message(format!("cloned {owner}/{repo}"));
+        progress.finish_with_message(format!("cloned {repository}"));
         cloned
     }
 
@@ -367,8 +370,13 @@ impl WriteMachine for LocalMachine {
                 uri,
                 installer_file_name,
             } => (uri.clone(), installer_file_name.clone()),
-            ApplicationSource::GitHubRelease { owner, repo, asset } => {
-                self.release_asset_url(owner, repo, asset).await?
+            ApplicationSource::GitHubRelease {
+                owner,
+                repository,
+                asset,
+            } => {
+                self.release_asset_url(owner.as_ref(), repository.as_ref(), asset)
+                    .await?
             }
         };
 

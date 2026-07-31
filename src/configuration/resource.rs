@@ -1,5 +1,11 @@
 use {
-    crate::configuration::presence_check::PresenceCheck,
+    crate::configuration::{
+        names::{
+            ApplicationName, CrateName, McpServerName, RepositoryName, RepositoryOwner,
+            WingetPackageId,
+        },
+        presence_check::PresenceCheck,
+    },
     schemars::JsonSchema,
     serde::{Deserialize, Serialize},
     std::{collections::BTreeMap, fmt::Display, path::PathBuf},
@@ -11,7 +17,7 @@ use {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Resource {
-    Repository(RepositoryName),
+    Repository(GitHubRepository),
     Application(Application),
     Package(Package),
     Symlink(Symlink),
@@ -84,44 +90,18 @@ impl Display for Resource {
     }
 }
 
-/// A repository on GitHub, named by the owner and repository it is cloned from.
+/// A repository on GitHub, named by the owner it belongs to and its own name.
 #[derive(
     Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
-pub struct RepositoryName {
-    pub owner: String,
-    pub repo: String,
+pub struct GitHubRepository {
+    pub owner: RepositoryOwner,
+    pub repository: RepositoryName,
 }
 
-impl Display for RepositoryName {
+impl Display for GitHubRepository {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{}/{}", self.owner, self.repo)
-    }
-}
-
-/// The name an application is known by, and the name its downloaded installer is written under.
-#[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(transparent)]
-#[repr(transparent)]
-pub struct ApplicationName(String);
-
-impl From<String> for ApplicationName {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
-impl From<&str> for ApplicationName {
-    fn from(value: &str) -> Self {
-        Self(value.to_owned())
-    }
-}
-
-impl Display for ApplicationName {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        write!(formatter, "{}/{}", self.owner, self.repository)
     }
 }
 
@@ -144,8 +124,8 @@ pub enum ApplicationSource {
     },
     /// An installer downloaded from the latest release of a GitHub repository.
     GitHubRelease {
-        owner: String,
-        repo: String,
+        owner: RepositoryOwner,
+        repository: RepositoryName,
         asset: AssetPattern,
     },
 }
@@ -190,12 +170,12 @@ impl Display for Package {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct WingetPackage {
-    pub id: String,
+    pub id: WingetPackageId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct CargoPackage {
-    pub crate_name: String,
+    pub crate_name: CrateName,
     pub source: CargoSource,
 }
 
@@ -239,7 +219,7 @@ impl Display for Registration {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct ClaudeMcpServer {
-    pub name: String,
+    pub name: McpServerName,
     pub scope: McpScope,
     pub command: String,
     #[serde(default)]

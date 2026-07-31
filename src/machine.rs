@@ -89,8 +89,7 @@ pub trait WriteMachine: ReadMachine {
 
     fn clone_repository(
         &self,
-        owner: &str,
-        repo: &str,
+        repository: &crate::configuration::GitHubRepository,
     ) -> impl std::future::Future<Output = Result<()>>;
 
     fn install_application(

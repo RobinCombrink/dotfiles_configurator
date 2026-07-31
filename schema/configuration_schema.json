@@ -52,7 +52,7 @@
       ]
     },
     "ApplicationName": {
-      "description": "The name an application is known by, and the name its downloaded installer is written under.",
+      "description": "The name an application is known by.",
       "type": "string"
     },
     "ApplicationSource": {
@@ -87,10 +87,10 @@
               "$ref": "#/$defs/AssetPattern"
             },
             "owner": {
-              "type": "string"
+              "$ref": "#/$defs/RepositoryOwner"
             },
-            "repo": {
-              "type": "string"
+            "repository": {
+              "$ref": "#/$defs/RepositoryName"
             },
             "source": {
               "type": "string",
@@ -100,7 +100,7 @@
           "required": [
             "source",
             "owner",
-            "repo",
+            "repository",
             "asset"
           ]
         }
@@ -163,7 +163,7 @@
       "type": "object",
       "properties": {
         "crate_name": {
-          "type": "string"
+          "$ref": "#/$defs/CrateName"
         },
         "source": {
           "$ref": "#/$defs/CargoSource"
@@ -249,7 +249,7 @@
           "default": {}
         },
         "name": {
-          "type": "string"
+          "$ref": "#/$defs/McpServerName"
         },
         "scope": {
           "$ref": "#/$defs/McpScope"
@@ -291,13 +291,33 @@
         "args"
       ]
     },
+    "CrateName": {
+      "description": "The name Cargo knows a crate by.",
+      "type": "string"
+    },
+    "GitHubRepository": {
+      "description": "A repository on GitHub, named by the owner it belongs to and its own name.",
+      "type": "object",
+      "properties": {
+        "owner": {
+          "$ref": "#/$defs/RepositoryOwner"
+        },
+        "repository": {
+          "$ref": "#/$defs/RepositoryName"
+        }
+      },
+      "required": [
+        "owner",
+        "repository"
+      ]
+    },
     "MachineSettings": {
       "description": "The settings every resource in a configuration is read against.",
       "type": "object",
       "properties": {
         "dotfiles_repository": {
           "description": "The repository holding the dotfiles themselves, cloned before any symlink can converge.",
-          "$ref": "#/$defs/RepositoryName"
+          "$ref": "#/$defs/GitHubRepository"
         },
         "github_username": {
           "description": "The username used when authenticating against GitHub.",
@@ -321,6 +341,10 @@
         "project",
         "local"
       ]
+    },
+    "McpServerName": {
+      "description": "The name Claude Code holds an MCP server under.",
+      "type": "string"
     },
     "Notice": {
       "description": "A message for a person about something the tool cannot do. Not a resource — it never\nconverges, is reported by every change set, and is never applied.",
@@ -443,20 +467,12 @@
       ]
     },
     "RepositoryName": {
-      "description": "A repository on GitHub, named by the owner and repository it is cloned from.",
-      "type": "object",
-      "properties": {
-        "owner": {
-          "type": "string"
-        },
-        "repo": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "owner",
-        "repo"
-      ]
+      "description": "A repository's own name, which is also the name of the directory it is cloned into.",
+      "type": "string"
+    },
+    "RepositoryOwner": {
+      "description": "The account a repository belongs to on GitHub.",
+      "type": "string"
     },
     "Resource": {
       "description": "One declared fact about a machine, whose actual state can be read and whose drift can be\nclosed.",
@@ -469,7 +485,7 @@
               "const": "repository"
             }
           },
-          "$ref": "#/$defs/RepositoryName",
+          "$ref": "#/$defs/GitHubRepository",
           "required": [
             "kind"
           ]
@@ -572,12 +588,16 @@
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "$ref": "#/$defs/WingetPackageId"
         }
       },
       "required": [
         "id"
       ]
+    },
+    "WingetPackageId": {
+      "description": "The identifier winget knows a package by.",
+      "type": "string"
     }
   }
 }

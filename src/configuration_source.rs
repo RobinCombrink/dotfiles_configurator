@@ -1,6 +1,9 @@
 use {
     crate::{
-        configuration::{Configuration, DesiredState, merge_configurations, parse_configuration},
+        configuration::{
+            Configuration, DesiredState, RepositoryName, RepositoryOwner, merge_configurations,
+            parse_configuration,
+        },
         github,
     },
     anyhow::{Context, Result, anyhow},
@@ -17,8 +20,8 @@ use {
 pub enum ConfigurationSource {
     LocalDirectory(PathBuf),
     GitHubRepository {
-        owner: String,
-        repo: String,
+        owner: RepositoryOwner,
+        repository: RepositoryName,
         file_paths: Vec<String>,
     },
 }
@@ -39,15 +42,15 @@ impl FromStr for ConfigurationSource {
             "local" => Ok(ConfigurationSource::LocalDirectory(PathBuf::from(rest))),
             "github" => {
                 let mut segments = rest.splitn(3, '/');
-                let (Some(owner), Some(repo), Some(file_paths)) =
+                let (Some(owner), Some(repository), Some(file_paths)) =
                     (segments.next(), segments.next(), segments.next())
                 else {
                     return Err(format!("{value:?} names no file paths; {EXPECTED_SOURCE}"));
                 };
 
                 Ok(ConfigurationSource::GitHubRepository {
-                    owner: owner.to_owned(),
-                    repo: repo.to_owned(),
+                    owner: RepositoryOwner::from(owner),
+                    repository: RepositoryName::from(repository),
                     file_paths: file_paths.split(',').map(str::to_owned).collect(),
                 })
             }
@@ -81,9 +84,9 @@ impl ConfigurationSource {
             ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory),
             ConfigurationSource::GitHubRepository {
                 owner,
-                repo,
+                repository,
                 file_paths,
-            } => Self::load_from_github(owner, repo, file_paths).await,
+            } => Self::load_from_github(owner.as_ref(), repository.as_ref(), file_paths).await,
         }
     }
 
@@ -111,7 +114,7 @@ impl ConfigurationSource {
 
     async fn load_from_github(
         owner: &str,
-        repo: &str,
+        repository: &str,
         file_paths: &[String],
     ) -> Result<Vec<(String, Configuration)>> {
         let authentication = GitHubCliAuthentication::new(owner.to_owned())?;
@@ -119,8 +122,10 @@ impl ConfigurationSource {
 
         let mut loaded = Vec::new();
         for file_path in file_paths {
-            let source = format!("{owner}/{repo}/{file_path}");
-            for contents in github::get_file_contents(owner, repo, file_path, &octocrab).await? {
+            let source = format!("{owner}/{repository}/{file_path}");
+            for contents in
+                github::get_file_contents(owner, repository, file_path, &octocrab).await?
+            {
                 loaded.push((source.clone(), parse_configuration(&contents, &source)?));
             }
         }
@@ -149,7 +154,7 @@ mod tests {
                 "machine": {{
                     "repositories_directory_path": "C:\\Repositories",
                     "github_username": "Alice",
-                    "dotfiles_repository": {{ "owner": "Alice", "repo": "dotfiles" }}
+                    "dotfiles_repository": {{ "owner": "Alice", "repository": "dotfiles" }}
                 }},
                 "resources": [{resources}]
             }}"#
