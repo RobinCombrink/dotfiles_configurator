@@ -206,6 +206,17 @@ fn decode_output(bytes: &[u8], utf16_output: bool) -> String {
     }
 }
 
+/// A declared check names any program it likes, and some Windows programs — `wsl.exe` among them
+/// — emit UTF-16LE the moment their output is redirected. That decodes as *valid* UTF-8 with a
+/// NUL between every character, so a match against it silently never succeeds. Dropping the NULs
+/// before matching costs nothing on output that has none.
+fn matchable(output: &str) -> std::borrow::Cow<'_, str> {
+    match output.contains('\0') {
+        true => std::borrow::Cow::Owned(output.replace('\0', "")),
+        false => std::borrow::Cow::Borrowed(output),
+    }
+}
+
 fn program_is_on_path(program: &str) -> bool {
     let Some(path) = env::var_os("PATH") else {
         return false;
@@ -269,7 +280,7 @@ impl ReadMachine for LocalMachine {
                 contains,
             } => {
                 let output = self.run_declared_command(*shell, args)?;
-                Ok(output.standard_output.contains(contains))
+                Ok(matchable(&output.standard_output).contains(contains))
             }
         }
     }
@@ -424,6 +435,19 @@ mod tests {
         let decoded = decode_output(b"committed v1.1.11:", false);
 
         assert_eq!(decoded, "committed v1.1.11:");
+    }
+
+    #[test]
+    fn a_declared_check_matches_output_a_windows_program_redirected_as_utf16() {
+        let redirected = String::from_utf8_lossy(
+            &"Ubuntu (Default)"
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<u8>>(),
+        )
+        .into_owned();
+
+        assert!(matchable(&redirected).contains("Ubuntu (Default)"));
     }
 
     #[test]
