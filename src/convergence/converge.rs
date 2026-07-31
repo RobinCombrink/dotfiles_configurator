@@ -95,6 +95,17 @@ fn converge_symlink(symlink: &Symlink, machine: &impl WriteMachine) -> Result<()
         );
     }
 
+    // A link is this tool's own work, so one pointing elsewhere is replaced. Anything else at
+    // that path was put there by a person, and convergence never makes undeclared things false.
+    // See ADR 0005.
+    if machine.link_target(&link_path).is_none() && machine.path_exists(&link_path) {
+        bail!(
+            "{} already exists and is not a link. Move it aside to let the dotfiles repository \
+             own it; this tool will not delete something it did not create.",
+            link_path.display()
+        );
+    }
+
     machine.create_link(&link_path, &source_path)
 }
 

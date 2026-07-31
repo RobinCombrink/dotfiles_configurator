@@ -12,10 +12,10 @@ use {
             merge_configurations, parse_configuration,
         },
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
-        machine::Tool,
+        machine::{ReadMachine, Tool},
     },
     fake_machine::FakeMachine,
-    std::path::PathBuf,
+    std::path::{Path, PathBuf},
     url::Url,
 };
 
@@ -162,6 +162,19 @@ fn installing_fails(world: &mut MachineWorld, name: String) {
     world
         .machine
         .make_installing_fail(&ApplicationName::from(name.as_str()));
+}
+
+#[given(regex = r"^installing (.+) reports success without installing anything$")]
+fn installing_does_nothing(world: &mut MachineWorld, name: String) {
+    world
+        .machine
+        .make_installing_silently_do_nothing(&ApplicationName::from(name.as_str()));
+}
+
+#[given(expr = "Alice already has a file of her own at {string}")]
+fn alice_has_her_own_file(world: &mut MachineWorld, path: String) {
+    let resolved = world.machine.resolve_against_home(Path::new(&path));
+    world.machine.add_own_file(resolved);
 }
 
 #[given(expr = "winget is absent from Alice's machine")]
@@ -345,6 +358,20 @@ fn resources_blocked(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.outcome().blocked.len(), expected);
 }
 
+#[then(expr = "{int} resource(s) is/are reported as not having taken")]
+fn resources_unverified(world: &mut MachineWorld, expected: usize) {
+    assert_eq!(world.outcome().unverified.len(), expected);
+}
+
+#[then(expr = "Alice's own file at {string} is still there")]
+fn own_file_is_still_there(world: &mut MachineWorld, path: String) {
+    let resolved = world.machine.resolve_against_home(Path::new(&path));
+    assert!(
+        world.machine.own_file_is_intact(&resolved),
+        "{path} is no longer the file Alice put there"
+    );
+}
+
 #[then(regex = r"^(.+) is installed on Alice's machine$")]
 fn then_application_is_installed(world: &mut MachineWorld, name: String) {
     assert!(
@@ -380,7 +407,7 @@ fn then_repository_is_cloned(world: &mut MachineWorld) {
 
 #[then(expr = "the link {string} points into the dotfiles repository")]
 fn link_points_into_repository(world: &mut MachineWorld, link_path: String) {
-    let resolved = PathBuf::from("/home/alice").join(link_path);
+    let resolved = world.machine.resolve_against_home(Path::new(&link_path));
     let target = world
         .machine
         .link_at(&resolved)

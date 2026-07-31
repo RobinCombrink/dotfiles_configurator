@@ -69,6 +69,20 @@ impl Display for Requirement {
 }
 
 impl Resource {
+    /// Whether converging this resource can be confirmed afterwards by reading the machine. Only
+    /// a command without a presence check cannot: it claims no fact, so it has drift on every
+    /// run by design, and its drift after an apply says nothing about whether the apply worked.
+    pub fn can_be_read_back(&self) -> bool {
+        match self {
+            Resource::Command(command) => command.presence_check.is_some(),
+            Resource::Repository(_)
+            | Resource::Application(_)
+            | Resource::Package(_)
+            | Resource::Symlink(_)
+            | Resource::Registration(_) => true,
+        }
+    }
+
     /// What this resource needs before it can be read or converged. A property of the kind, not
     /// something an author writes down — no configuration can express a cargo package that
     /// forgets it needs cargo.
@@ -139,10 +153,6 @@ pub struct ChangeSet {
 }
 
 impl ChangeSet {
-    pub fn is_empty(&self) -> bool {
-        self.changes.is_empty()
-    }
-
     /// A machine with no drift and nothing left unreadable.
     pub fn is_converged(&self) -> bool {
         self.changes.is_empty() && self.blocked.is_empty()

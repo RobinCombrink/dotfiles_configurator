@@ -18,8 +18,6 @@ pub enum ReadInvocation {
     /// The details Claude Code holds for one MCP server. Exits non-zero when there is no such
     /// server.
     ClaudeMcpServer { name: String },
-    /// The installed WSL distributions. Emits UTF-16LE when its output is redirected.
-    WslDistributions,
 }
 
 impl ReadInvocation {
@@ -28,7 +26,6 @@ impl ReadInvocation {
             ReadInvocation::WingetPackage { .. } => Tool::Winget,
             ReadInvocation::CargoInstalledCrates => Tool::Cargo,
             ReadInvocation::ClaudeMcpServer { .. } => Tool::Claude,
-            ReadInvocation::WslDistributions => Tool::Wsl,
         }
     }
 
@@ -48,20 +45,6 @@ impl ReadInvocation {
             ReadInvocation::ClaudeMcpServer { name } => {
                 vec!["mcp".to_owned(), "get".to_owned(), name.clone()]
             }
-            ReadInvocation::WslDistributions => {
-                vec!["--list".to_owned(), "--quiet".to_owned()]
-            }
-        }
-    }
-
-    /// `wsl.exe` emits UTF-16LE whenever its output is redirected, which decodes as valid UTF-8
-    /// with a NUL between every character — so a naive match against it silently never succeeds.
-    pub fn output_is_utf16(&self) -> bool {
-        match self {
-            ReadInvocation::WslDistributions => true,
-            ReadInvocation::WingetPackage { .. }
-            | ReadInvocation::CargoInstalledCrates
-            | ReadInvocation::ClaudeMcpServer { .. } => false,
         }
     }
 }
@@ -162,11 +145,5 @@ mod tests {
                 "start-mcp-server",
             ]
         );
-    }
-
-    #[test]
-    fn only_the_wsl_read_is_marked_as_reporting_utf16() {
-        assert!(ReadInvocation::WslDistributions.output_is_utf16());
-        assert!(!ReadInvocation::CargoInstalledCrates.output_is_utf16());
     }
 }

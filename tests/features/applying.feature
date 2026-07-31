@@ -46,9 +46,26 @@ Feature: Applying a change set
     Then Neovim is still installed on Alice's machine
     And the machine is reported as converged
 
-  Scenario: A failing resource is attempted once rather than on every pass
+  Scenario: A failing resource is attempted once rather than again and again
     Given Alice declares the application "Broken"
     And Broken is not installed on Alice's machine
     And installing Broken fails on Alice's machine
     When Alice applies
     Then installing Broken was attempted 1 time
+
+  Scenario: An installer that reports success without installing is not called converged
+    Given Alice declares the application "Silent"
+    And Silent is not installed on Alice's machine
+    And installing Silent reports success without installing anything
+    When Alice applies
+    Then the machine is not reported as converged
+    And 1 resource is reported as not having taken
+
+  Scenario: A real file where a link should go is reported rather than deleted
+    Given Alice declares the dotfiles repository
+    And Alice declares the symlink "gitconfig/.gitconfig" at ".gitconfig"
+    And the dotfiles repository holds "gitconfig/.gitconfig"
+    And Alice already has a file of her own at ".gitconfig"
+    When Alice applies
+    Then Alice's own file at ".gitconfig" is still there
+    And 1 resource is reported as failed

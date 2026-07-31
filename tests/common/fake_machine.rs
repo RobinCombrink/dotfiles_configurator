@@ -33,6 +33,8 @@ struct MachineState {
     installed_applications: BTreeSet<ApplicationName>,
     winget_packages: BTreeSet<String>,
     failing_applications: BTreeSet<ApplicationName>,
+    /// Installers that exit zero without putting anything on the machine.
+    silent_applications: BTreeSet<ApplicationName>,
     install_attempts: BTreeMap<ApplicationName, usize>,
     commands_run: Vec<Vec<String>>,
     /// What the dotfiles repository holds, which only appears on the machine once it is cloned.
@@ -88,6 +90,24 @@ impl FakeMachine {
             .get(name)
             .copied()
             .unwrap_or_default()
+    }
+
+    /// A real file a person put there, which convergence must leave alone.
+    pub fn add_own_file(&self, path: PathBuf) {
+        self.state.borrow_mut().paths.insert(path);
+    }
+
+    /// Intact means still a real file rather than something a link now stands in for.
+    pub fn own_file_is_intact(&self, path: &Path) -> bool {
+        let state = self.state.borrow();
+        state.paths.contains(path) && !state.links.contains_key(path)
+    }
+
+    pub fn make_installing_silently_do_nothing(&self, name: &ApplicationName) {
+        self.state
+            .borrow_mut()
+            .silent_applications
+            .insert(name.clone());
     }
 
     pub fn repository_holds(&self, path: PathBuf) {
@@ -169,9 +189,7 @@ impl ReadMachine for FakeMachine {
             ReadInvocation::WingetPackage { id } => {
                 self.state.borrow().winget_packages.contains(id)
             }
-            ReadInvocation::CargoInstalledCrates
-            | ReadInvocation::ClaudeMcpServer { .. }
-            | ReadInvocation::WslDistributions => false,
+            ReadInvocation::CargoInstalledCrates | ReadInvocation::ClaudeMcpServer { .. } => false,
         };
 
         Ok(CommandOutput {
@@ -222,6 +240,9 @@ impl WriteMachine for FakeMachine {
 
         if state.failing_applications.contains(&application.name) {
             bail!("the installer for {} exited non-zero", application.name);
+        }
+        if state.silent_applications.contains(&application.name) {
+            return Ok(());
         }
 
         state

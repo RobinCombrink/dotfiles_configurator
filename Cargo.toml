@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "dotfiles"
 version = "0.0.0-dev"
 edition = "2024"
@@ -8,7 +8,6 @@ edition = "2024"
 [dependencies]
 github_authentication  = { git = "https://github.com/RobinCombrink/GitHubAuthentication" }
 clap = { version = "4.5.43", features = ["derive", "string"] }
-oauth2 = "5.0.0"
 octocrab = "0.44.1"
 log = "0.4.27"
 env_logger = "0.11.8"
@@ -24,8 +23,6 @@ secrecy = "0.10.3"
 schemars = { version = "1.0.4", features = ["url2"] }
 serde = "1.0.219"
 serde_json = "1.0.142"
-strum = { version = "0.27.2", features = ["derive"] }
-time = "0.3.41"
 futures = "0.3.31"
 
 [dev-dependencies]

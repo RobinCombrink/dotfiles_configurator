@@ -12,6 +12,7 @@ use {
     futures::StreamExt,
     git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder},
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
+    indicatif::{ProgressBar, ProgressStyle},
     log::info,
     octocrab::Octocrab,
     reqwest::{Client, header},
@@ -60,12 +61,7 @@ impl LocalMachine {
         })
     }
 
-    fn run(
-        &self,
-        program: &str,
-        arguments: &[String],
-        utf16_output: bool,
-    ) -> Result<CommandOutput> {
+    fn run(&self, program: &str, arguments: &[String]) -> Result<CommandOutput> {
         info!("Reading: {program} {}", arguments.join(" "));
         let output = ProcessCommand::new(program)
             .args(arguments)
@@ -75,8 +71,8 @@ impl LocalMachine {
 
         Ok(CommandOutput {
             succeeded: output.status.success(),
-            standard_output: decode_output(&output.stdout, utf16_output),
-            standard_error: decode_output(&output.stderr, utf16_output),
+            standard_output: decode_output(&output.stdout),
+            standard_error: decode_output(&output.stderr),
         })
     }
 
@@ -106,18 +102,25 @@ impl LocalMachine {
             .get(header::CONTENT_LENGTH)
             .and_then(|length| length.to_str().ok())
             .and_then(|length| length.parse::<u64>().ok());
-        if let Some(total_bytes) = total_bytes {
-            info!("Downloading {total_bytes} bytes from {url}");
-        }
+
+        let name = destination
+            .file_name()
+            .unwrap_or(destination.as_os_str())
+            .to_string_lossy()
+            .into_owned();
+        let progress = progress_bar(total_bytes, format!("downloading {name}"));
 
         let mut partial_file = tokio::fs::File::create(&partial_path)
             .await
             .with_context(|| format!("Could not create {}", partial_path.display()))?;
         let mut body = response.bytes_stream();
         while let Some(chunk) = body.next().await {
-            tokio::io::copy(&mut chunk?.as_ref(), &mut partial_file).await?;
+            let chunk = chunk?;
+            progress.inc(chunk.len() as u64);
+            tokio::io::copy(&mut chunk.as_ref(), &mut partial_file).await?;
         }
         drop(partial_file);
+        progress.finish_with_message(format!("downloaded {name}"));
 
         fs::rename(&partial_path, destination).with_context(|| {
             format!(
@@ -182,10 +185,16 @@ impl LocalMachine {
         &'token self,
         token: &'token secrecy::SecretString,
         owner: &'token str,
+        progress: &'token ProgressBar,
     ) -> FetchOptions<'token> {
         let mut callbacks = RemoteCallbacks::new();
         callbacks.credentials(move |_url, username_from_url, _allowed| {
             Cred::userpass_plaintext(username_from_url.unwrap_or(owner), token.expose_secret())
+        });
+        callbacks.transfer_progress(move |transfer| {
+            progress.set_length(transfer.total_objects() as u64);
+            progress.set_position(transfer.received_objects() as u64);
+            true
         });
 
         let mut fetch_options = FetchOptions::new();
@@ -195,25 +204,40 @@ impl LocalMachine {
     }
 }
 
-/// `wsl.exe` emits UTF-16LE whenever its output is redirected. That decodes as *valid* UTF-8 with
-/// a NUL between every character, so a naive match silently never succeeds; stripping the NULs is
-/// enough to compare against, and is what was agreed rather than an encoding library.
-fn decode_output(bytes: &[u8], utf16_output: bool) -> String {
-    let decoded = String::from_utf8_lossy(bytes);
-    match utf16_output {
-        true => decoded.replace('\0', ""),
-        false => decoded.into_owned(),
-    }
+/// Long operations report progress against a total where one is known, and as a running count
+/// where it is not. Indicatif draws nothing when output is not a terminal, so an unattended run
+/// stays quiet.
+fn progress_bar(total: Option<u64>, message: String) -> ProgressBar {
+    let (bar, style) = match total {
+        Some(total) => (
+            ProgressBar::new(total),
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}",
+        ),
+        None => (
+            ProgressBar::no_length(),
+            "{spinner:.green} [{elapsed_precise}] {bytes} {msg}",
+        ),
+    };
+
+    bar.with_message(message).with_style(
+        ProgressStyle::with_template(style)
+            .unwrap_or_else(|_| ProgressStyle::default_bar())
+            .progress_chars("=> "),
+    )
 }
 
-/// A declared check names any program it likes, and some Windows programs — `wsl.exe` among them
-/// — emit UTF-16LE the moment their output is redirected. That decodes as *valid* UTF-8 with a
-/// NUL between every character, so a match against it silently never succeeds. Dropping the NULs
-/// before matching costs nothing on output that has none.
-fn matchable(output: &str) -> std::borrow::Cow<'_, str> {
-    match output.contains('\0') {
-        true => std::borrow::Cow::Owned(output.replace('\0', "")),
-        false => std::borrow::Cow::Borrowed(output),
+/// Some Windows programs — `wsl.exe` among them — emit UTF-16LE the moment their output is
+/// redirected. That decodes as *valid* UTF-8 with a NUL between every character, so a match
+/// against it silently never succeeds.
+///
+/// Dropping the NULs is what was agreed rather than an encoding library, and doing it to every
+/// program's output costs nothing on the ones that have none. Deciding it per program would be a
+/// flag that has to be set correctly for each, and a declared check can name any program at all.
+fn decode_output(bytes: &[u8]) -> String {
+    let decoded = String::from_utf8_lossy(bytes);
+    match decoded.contains('\0') {
+        true => decoded.replace('\0', ""),
+        false => decoded.into_owned(),
     }
 }
 
@@ -261,11 +285,7 @@ impl ReadMachine for LocalMachine {
     }
 
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput> {
-        self.run(
-            invocation.tool().program(),
-            &invocation.arguments(),
-            invocation.output_is_utf16(),
-        )
+        self.run(invocation.tool().program(), &invocation.arguments())
     }
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<bool> {
@@ -280,7 +300,7 @@ impl ReadMachine for LocalMachine {
                 contains,
             } => {
                 let output = self.run_declared_command(*shell, args)?;
-                Ok(matchable(&output.standard_output).contains(contains))
+                Ok(output.standard_output.contains(contains))
             }
         }
     }
@@ -297,9 +317,7 @@ impl WriteMachine for LocalMachine {
             })?;
         }
 
-        if self.path_exists(link_path) {
-            remove_existing(link_path)?;
-        }
+        replace_existing_link(link_path)?;
 
         create_link(link_path, target_path).with_context(|| {
             format!(
@@ -328,15 +346,19 @@ impl WriteMachine for LocalMachine {
             .html_url
             .ok_or_else(|| anyhow!("{owner}/{repo} has no html url"))?;
 
-        RepoBuilder::new()
-            .fetch_options(self.fetch_options(&token, owner))
+        let progress = progress_bar(None, format!("cloning {owner}/{repo}"));
+        let cloned = RepoBuilder::new()
+            .fetch_options(self.fetch_options(&token, owner, &progress))
             .clone(url.as_str(), &directory_path)
             .map(|_| ())
             .map_err(|error| {
                 let _ = fs::remove_dir_all(&directory_path);
                 anyhow!(error)
             })
-            .with_context(|| format!("Could not clone {url} into {}", directory_path.display()))
+            .with_context(|| format!("Could not clone {url} into {}", directory_path.display()));
+
+        progress.finish_with_message(format!("cloned {owner}/{repo}"));
+        cloned
     }
 
     async fn install_application(&self, application: &Application) -> Result<()> {
@@ -356,7 +378,7 @@ impl WriteMachine for LocalMachine {
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        let output = self.run(invocation.tool().program(), &invocation.arguments(), false)?;
+        let output = self.run(invocation.tool().program(), &invocation.arguments())?;
         match output.succeeded {
             true => Ok(output),
             false => bail!(
@@ -371,7 +393,7 @@ impl WriteMachine for LocalMachine {
 
     fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput> {
         let (program, arguments) = shell_invocation(shell, args);
-        self.run(&program, &arguments, false)
+        self.run(&program, &arguments)
     }
 }
 
@@ -394,13 +416,32 @@ fn shell_invocation(shell: Shell, args: &[String]) -> (String, Vec<String>) {
     }
 }
 
-fn remove_existing(path: &Path) -> Result<()> {
-    let metadata = path.symlink_metadata()?;
-    match metadata.is_dir() {
-        true => fs::remove_dir_all(path),
-        false => fs::remove_file(path),
+/// Clears the way for a link, and only ever by removing another link.
+///
+/// A link is this tool's own work and removing one destroys nothing, so a link pointing somewhere
+/// else is replaced. Anything else at that path was put there by a person: convergence makes
+/// declared things true and never makes undeclared things false, so a real file or directory in
+/// the way is reported rather than deleted. See ADR 0005.
+fn replace_existing_link(link_path: &Path) -> Result<()> {
+    let Ok(metadata) = link_path.symlink_metadata() else {
+        return Ok(());
+    };
+
+    if !metadata.file_type().is_symlink() {
+        bail!(
+            "{} already exists and is not a link. Move it aside to let the dotfiles repository \
+             own it; this tool will not delete something it did not create.",
+            link_path.display()
+        );
     }
-    .with_context(|| format!("Could not remove what is already at {}", path.display()))
+
+    // A directory symlink is removed with `remove_dir`, which unlinks it without touching
+    // whatever it points at.
+    match metadata.is_dir() {
+        true => fs::remove_dir(link_path),
+        false => fs::remove_file(link_path),
+    }
+    .with_context(|| format!("Could not remove the link at {}", link_path.display()))
 }
 
 #[cfg(target_family = "windows")]
@@ -422,32 +463,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn redirected_wsl_output_is_matchable_once_its_nul_padding_is_stripped() {
-        let utf16_ubuntu: Vec<u8> = "Ubuntu".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    fn output_a_program_redirected_as_utf16_is_matchable_once_its_nuls_are_stripped() {
+        let redirected: Vec<u8> = "Ubuntu (Default)"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
 
-        let decoded = decode_output(&utf16_ubuntu, true);
-
-        assert!(decoded.contains("Ubuntu"));
+        assert!(decode_output(&redirected).contains("Ubuntu (Default)"));
     }
 
     #[test]
-    fn output_from_a_tool_that_does_not_redirect_as_utf16_is_left_alone() {
-        let decoded = decode_output(b"committed v1.1.11:", false);
-
-        assert_eq!(decoded, "committed v1.1.11:");
-    }
-
-    #[test]
-    fn a_declared_check_matches_output_a_windows_program_redirected_as_utf16() {
-        let redirected = String::from_utf8_lossy(
-            &"Ubuntu (Default)"
-                .encode_utf16()
-                .flat_map(u16::to_le_bytes)
-                .collect::<Vec<u8>>(),
-        )
-        .into_owned();
-
-        assert!(matchable(&redirected).contains("Ubuntu (Default)"));
+    fn output_from_a_program_that_does_not_redirect_as_utf16_is_left_alone() {
+        assert_eq!(decode_output(b"committed v1.1.11:"), "committed v1.1.11:");
     }
 
     #[test]

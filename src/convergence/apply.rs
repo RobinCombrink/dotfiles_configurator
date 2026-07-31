@@ -1,7 +1,7 @@
 use {
     crate::{
         configuration::{DesiredState, Notice, Resource},
-        convergence::{Blocked, ChangeSet, converge::converge, plan},
+        convergence::{Blocked, Change, ChangeSet, converge::converge, plan},
         machine::WriteMachine,
     },
     log::info,
@@ -22,15 +22,19 @@ pub struct ApplyOutcome {
     pub converged: Vec<Resource>,
     pub failed: Vec<Failure>,
     pub blocked: Vec<Blocked>,
+    /// Resources that were converged without error and still read as drifted afterwards — an
+    /// installer that exits zero without installing anything looks exactly like this.
+    pub unverified: Vec<Change>,
     pub notices: Vec<Notice>,
     pub passes: usize,
 }
 
 impl ApplyOutcome {
-    /// A machine is converged only when nothing failed and nothing is left unreadable. A run that
-    /// ends with resources still unassessable should not imply otherwise.
+    /// A machine is converged only when nothing failed, nothing is left unreadable, and every
+    /// change that could be read back reads as done. A run that ends otherwise should not imply
+    /// the machine is converged.
     pub fn is_converged(&self) -> bool {
-        self.failed.is_empty() && self.blocked.is_empty()
+        self.failed.is_empty() && self.blocked.is_empty() && self.unverified.is_empty()
     }
 }
 
@@ -53,15 +57,23 @@ impl Display for ApplyOutcome {
                 blocked.resource, blocked.requirement
             )?;
         }
+        for change in &self.unverified {
+            writeln!(
+                formatter,
+                "  UNDONE    {} (converged, but still {})",
+                change.resource, change.reason
+            )?;
+        }
         for notice in &self.notices {
             writeln!(formatter, "  notice    {notice}")?;
         }
         write!(
             formatter,
-            "\n{} converged, {} failed, {} still blocked, over {} pass(es)",
+            "\n{} converged, {} failed, {} still blocked, {} did not take, over {} pass(es)",
             self.converged.len(),
             self.failed.len(),
             self.blocked.len(),
+            self.unverified.len(),
             self.passes
         )
     }
@@ -90,10 +102,20 @@ pub async fn apply(desired_state: &DesiredState, machine: &impl WriteMachine) ->
         }
     };
 
+    // The last pass converged nothing, so anything it still reports as drifted was either just
+    // converged and did not take, or declares no way to be read back at all.
+    let unverified = change_set
+        .changes
+        .iter()
+        .filter(|change| converged.contains(&change.resource) && change.resource.can_be_read_back())
+        .cloned()
+        .collect();
+
     ApplyOutcome {
         converged,
         failed,
         blocked: change_set.blocked,
+        unverified,
         notices: change_set.notices,
         passes,
     }
