@@ -1,6 +1,5 @@
 use {
-    crate::configuration::Configuration,
-    anyhow::{Context, Error, Result},
+    anyhow::{Context, Result},
     octocrab::Octocrab,
     secrecy::SecretString,
     std::sync::Arc,
@@ -12,31 +11,24 @@ pub fn create_octocrab(token: SecretString) -> Result<Arc<Octocrab>> {
     Ok(Arc::new(instance))
 }
 
-pub async fn get_configs_from_github(
+/// Reads the decoded contents of a file held in a GitHub repository.
+pub async fn get_file_contents(
     owner: &str,
     repo: &str,
-    file_path: impl Into<String>,
+    file_path: &str,
     octocrab: &Arc<Octocrab>,
-) -> Result<Vec<Result<Configuration, Error>>> {
-    let file_path: String = file_path.into();
-    let config_file_info = octocrab
+) -> Result<Vec<String>> {
+    let contents = octocrab
         .repos(owner.to_owned(), repo.to_owned())
         .get_content()
-        .path(file_path.clone())
+        .path(file_path.to_owned())
         .send()
         .await
-        .with_context(|| format!("{owner}/{repo}/{file_path}"))?;
+        .with_context(|| format!("Could not read {owner}/{repo}/{file_path}"))?;
 
-    let configs = config_file_info
+    Ok(contents
         .items
         .iter()
         .filter_map(|item| item.decoded_content())
-        .map(
-            |content| match serde_json::from_str::<Configuration>(content.as_str()) {
-                Ok(config) => Ok(config),
-                Err(err) => Err(err.into()),
-            },
-        )
-        .collect();
-    Ok(configs)
+        .collect())
 }

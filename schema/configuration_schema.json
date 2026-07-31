@@ -1,0 +1,583 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Configuration",
+  "description": "A configuration as it is written down: the desired state of a machine, as a set of resources\nand the notices that accompany them.",
+  "type": "object",
+  "properties": {
+    "machine": {
+      "$ref": "#/$defs/MachineSettings"
+    },
+    "notices": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Notice"
+      }
+    },
+    "resources": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Resource"
+      }
+    },
+    "version": {
+      "description": "The configuration format version. Must be \"2\".",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "machine"
+  ],
+  "$defs": {
+    "Application": {
+      "description": "A program installed by downloading and running an installer, whose presence the machine cannot\nbe asked about directly and which therefore declares a presence check.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/ApplicationName"
+        },
+        "presence_check": {
+          "$ref": "#/$defs/PresenceCheck"
+        },
+        "source": {
+          "$ref": "#/$defs/ApplicationSource"
+        }
+      },
+      "required": [
+        "name",
+        "source",
+        "presence_check"
+      ]
+    },
+    "ApplicationName": {
+      "description": "The name an application is known by, and the name its downloaded installer is written under.",
+      "type": "string"
+    },
+    "ApplicationSource": {
+      "oneOf": [
+        {
+          "description": "An installer downloaded straight from a URL.",
+          "type": "object",
+          "properties": {
+            "installer_file_name": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "const": "uri"
+            },
+            "uri": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "required": [
+            "source",
+            "uri",
+            "installer_file_name"
+          ]
+        },
+        {
+          "description": "An installer downloaded from the latest release of a GitHub repository.",
+          "type": "object",
+          "properties": {
+            "asset": {
+              "$ref": "#/$defs/AssetPattern"
+            },
+            "owner": {
+              "type": "string"
+            },
+            "repo": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "const": "git_hub_release"
+            }
+          },
+          "required": [
+            "source",
+            "owner",
+            "repo",
+            "asset"
+          ]
+        }
+      ]
+    },
+    "AssetPattern": {
+      "description": "How the wanted asset is picked out of a release's assets.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "match": {
+              "type": "string",
+              "const": "exact"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "match",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "match": {
+              "type": "string",
+              "const": "contains"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "match",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "match": {
+              "type": "string",
+              "const": "ends_with"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "match",
+            "value"
+          ]
+        }
+      ]
+    },
+    "CargoPackage": {
+      "type": "object",
+      "properties": {
+        "crate_name": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/CargoSource"
+        }
+      },
+      "required": [
+        "crate_name",
+        "source"
+      ]
+    },
+    "CargoSource": {
+      "description": "Where Cargo installs a crate from. Cargo reports this back in `cargo install --list`, which is\nwhat makes a cargo package readable: a registry install is bare, a path install carries its\npath, and a git install carries the revision it was asked for and the commit that resolved to.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string",
+              "const": "registry"
+            }
+          },
+          "required": [
+            "source"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "const": "path"
+            }
+          },
+          "required": [
+            "source",
+            "path"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "const": "git"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "required": [
+            "source",
+            "url",
+            "revision"
+          ]
+        }
+      ]
+    },
+    "ClaudeMcpServer": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "command": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/McpScope"
+        }
+      },
+      "required": [
+        "name",
+        "scope",
+        "command"
+      ]
+    },
+    "Command": {
+      "description": "An arbitrary shell invocation, and the resource kind of last resort. A command claims no\nmachine fact and so has no identity; one without a presence check has drift on every run.",
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "presence_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PresenceCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shell": {
+          "$ref": "#/$defs/Shell"
+        }
+      },
+      "required": [
+        "shell",
+        "args"
+      ]
+    },
+    "MachineSettings": {
+      "description": "The settings every resource in a configuration is read against.",
+      "type": "object",
+      "properties": {
+        "dotfiles_repository": {
+          "description": "The repository holding the dotfiles themselves, cloned before any symlink can converge.",
+          "$ref": "#/$defs/RepositoryName"
+        },
+        "github_username": {
+          "description": "The username used when authenticating against GitHub.",
+          "type": "string"
+        },
+        "repositories_directory_path": {
+          "description": "Absolute path of the directory repositories are cloned into.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositories_directory_path",
+        "github_username",
+        "dotfiles_repository"
+      ]
+    },
+    "McpScope": {
+      "type": "string",
+      "enum": [
+        "user",
+        "project",
+        "local"
+      ]
+    },
+    "Notice": {
+      "description": "A message for a person about something the tool cannot do. Not a resource — it never\nconverges, is reported by every change set, and is never applied.",
+      "type": "string"
+    },
+    "Package": {
+      "description": "A resource whose installation is owned by a package manager, which is consequently also what\ncan be asked whether it is installed. Which manager owns it is part of what the resource is,\nso it is the variant rather than a field.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "manager": {
+              "type": "string",
+              "const": "winget"
+            }
+          },
+          "$ref": "#/$defs/WingetPackage",
+          "required": [
+            "manager"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "manager": {
+              "type": "string",
+              "const": "cargo"
+            }
+          },
+          "$ref": "#/$defs/CargoPackage",
+          "required": [
+            "manager"
+          ]
+        }
+      ]
+    },
+    "PresenceCheck": {
+      "description": "An author-declared test that establishes whether a resource is already in its desired state,\nused where the machine cannot be asked directly.\n\nThe forms are a fixed set rather than arbitrary shell so that plan's guarantee is precise: plan\ncannot change a machine through anything the tool decides, and can change one only through a\ncheck the configuration's author wrote and declared as a check. Two of the three forms cannot\nchange anything by construction; `CommandOutputContains` is the narrow, deliberate escape\nhatch. See ADR 0006.",
+      "oneOf": [
+        {
+          "description": "A path exists. Relative paths resolve against the home directory.",
+          "type": "object",
+          "properties": {
+            "check": {
+              "type": "string",
+              "const": "path_exists"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "check",
+            "path"
+          ]
+        },
+        {
+          "description": "A program is resolvable on the machine's search path.",
+          "type": "object",
+          "properties": {
+            "check": {
+              "type": "string",
+              "const": "command_on_path"
+            },
+            "command": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "check",
+            "command"
+          ]
+        },
+        {
+          "description": "A declared command's output contains a string. The only form that can run something the\nauthor chose, and so the only one that is not side-effect-free by construction.",
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "check": {
+              "type": "string",
+              "const": "command_output_contains"
+            },
+            "contains": {
+              "type": "string"
+            },
+            "shell": {
+              "$ref": "#/$defs/Shell"
+            }
+          },
+          "required": [
+            "check",
+            "shell",
+            "args",
+            "contains"
+          ]
+        }
+      ]
+    },
+    "Registration": {
+      "description": "A record this machine holds in another tool's configuration.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "registry": {
+              "type": "string",
+              "const": "claude_mcp_server"
+            }
+          },
+          "$ref": "#/$defs/ClaudeMcpServer",
+          "required": [
+            "registry"
+          ]
+        }
+      ]
+    },
+    "RepositoryName": {
+      "description": "A repository on GitHub, named by the owner and repository it is cloned from.",
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner",
+        "repo"
+      ]
+    },
+    "Resource": {
+      "description": "One declared fact about a machine, whose actual state can be read and whose drift can be\nclosed.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "repository"
+            }
+          },
+          "$ref": "#/$defs/RepositoryName",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "application"
+            }
+          },
+          "$ref": "#/$defs/Application",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "package"
+            }
+          },
+          "$ref": "#/$defs/Package",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "symlink"
+            }
+          },
+          "$ref": "#/$defs/Symlink",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "registration"
+            }
+          },
+          "$ref": "#/$defs/Registration",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "command"
+            }
+          },
+          "$ref": "#/$defs/Command",
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "Shell": {
+      "type": "string",
+      "enum": [
+        "bash",
+        "command_prompt",
+        "power_shell",
+        "wsl"
+      ]
+    },
+    "Symlink": {
+      "description": "A configuration file or directory owned by the dotfiles repository and linked into place on the\nmachine, rather than copied.",
+      "type": "object",
+      "properties": {
+        "link_path": {
+          "description": "Path of the link itself, resolved against the home directory unless it is absolute.",
+          "type": "string"
+        },
+        "source_path": {
+          "description": "Path within the dotfiles repository that the link points at.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "link_path"
+      ]
+    },
+    "WingetPackage": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  }
+}
