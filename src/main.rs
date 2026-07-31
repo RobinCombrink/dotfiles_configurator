@@ -1,5 +1,5 @@
-use {
-    anyhow::{Result, anyhow},
+﻿use {
+    anyhow::Result,
     clap::{Args, Parser, Subcommand},
     dotfiles::{
         configuration::DesiredState,
@@ -8,62 +8,27 @@ use {
         machine::local::LocalMachine,
     },
     log::{LevelFilter, trace},
-    std::{io::Write, path::PathBuf, process::ExitCode, str::FromStr},
+    std::{io::Write, process::ExitCode},
 };
+
+#[cfg(test)]
+use std::str::FromStr;
+
+/// Where configurations are read from when none is named.
+const DEFAULT_SOURCE: &str =
+    "github:RobinCombrink/dotfiles/config/everywhere.dotconfig.json,config/personal.dotconfig.json";
 
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 struct SourceArguments {
-    /// A directory of configuration files to read.
-    #[arg(short = 'd', long = "directory")]
-    directory: Option<PathBuf>,
-    /// A GitHub repository to read configurations from, as `owner,repo,path;path`.
+    /// Where to read configurations from, as `local:<directory>` or
+    /// `github:<owner>/<repo>/<path>[,<path>...]`. Repeatable; read in the order given.
     #[arg(
-        short = 'r',
-        long = "remote",
-        default_value = "RobinCombrink,dotfiles,config/everywhere.dotconfig.json;config/personal.dotconfig.json"
+        short = 's',
+        long = "source",
+        value_name = "SOURCE",
+        default_value = DEFAULT_SOURCE,
     )]
-    remote: Option<RemoteConfiguration>,
-}
-
-impl SourceArguments {
-    fn sources(&self) -> Vec<ConfigurationSource> {
-        let mut sources = Vec::new();
-        if let Some(directory) = &self.directory {
-            sources.push(ConfigurationSource::LocalDirectory(directory.clone()));
-        }
-        if let Some(remote) = &self.remote {
-            sources.push(ConfigurationSource::GitHubRepository {
-                owner: remote.owner.clone(),
-                repo: remote.repo.clone(),
-                file_paths: remote.file_paths.clone(),
-            });
-        }
-        sources
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RemoteConfiguration {
-    owner: String,
-    repo: String,
-    file_paths: Vec<String>,
-}
-
-impl FromStr for RemoteConfiguration {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = value.split(',').collect();
-        let [owner, repo, file_paths] = parts.as_slice() else {
-            return Err("Expected `owner,repo,path;path`".to_owned());
-        };
-
-        Ok(RemoteConfiguration {
-            owner: (*owner).to_owned(),
-            repo: (*repo).to_owned(),
-            file_paths: file_paths.split(';').map(str::to_owned).collect(),
-        })
-    }
+    sources: Vec<ConfigurationSource>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -126,14 +91,7 @@ async fn run(task: Task) -> Result<ExitCode> {
 }
 
 async fn prepare(arguments: &SourceArguments) -> Result<(DesiredState, LocalMachine)> {
-    let sources = arguments.sources();
-    if sources.is_empty() {
-        return Err(anyhow!(
-            "No configuration source was given. Pass --directory, --remote, or both."
-        ));
-    }
-
-    let desired_state = load_desired_state(&sources).await?;
+    let desired_state = load_desired_state(&arguments.sources).await?;
     let machine = LocalMachine::new(&desired_state.machine)?;
     Ok((desired_state, machine))
 }
@@ -169,36 +127,67 @@ fn setup_logging(level_filter: LevelFilter) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_remote_is_read_as_an_owner_a_repository_and_semicolon_separated_paths() {
-        let remote =
-            RemoteConfiguration::from_str("Alice,dotfiles,config/one.json;config/two.json")
+    fn sources_from(arguments: &[&str]) -> Vec<ConfigurationSource> {
+        let parsed =
+            Arguments::try_parse_from(std::iter::once("dotfiles").chain(arguments.iter().copied()))
                 .unwrap();
+        match parsed.task {
+            Task::Plan(source) | Task::Apply(source) => source.sources,
+        }
+    }
 
+    #[test]
+    fn naming_a_directory_reads_that_directory_and_nothing_else() {
         assert_eq!(
-            remote,
-            RemoteConfiguration {
-                owner: "Alice".to_owned(),
-                repo: "dotfiles".to_owned(),
-                file_paths: vec!["config/one.json".to_owned(), "config/two.json".to_owned()],
-            }
+            sources_from(&["plan", "--source", "local:config"]),
+            vec![ConfigurationSource::LocalDirectory("config".into())]
         );
     }
 
     #[test]
-    fn a_remote_missing_a_field_is_rejected_with_the_shape_it_expected() {
-        let error = RemoteConfiguration::from_str("Alice,dotfiles").unwrap_err();
-
-        assert!(error.contains("owner,repo,path"));
+    fn naming_no_source_reads_the_default_one() {
+        assert_eq!(
+            sources_from(&["plan"]),
+            vec![ConfigurationSource::from_str(DEFAULT_SOURCE).unwrap()]
+        );
     }
 
     #[test]
-    fn a_directory_and_a_remote_given_together_are_both_read() {
-        let arguments = SourceArguments {
-            directory: Some("config".into()),
-            remote: Some(RemoteConfiguration::from_str("Alice,dotfiles,config/one.json").unwrap()),
-        };
+    fn sources_are_read_in_the_order_they_were_named() {
+        assert_eq!(
+            sources_from(&[
+                "plan",
+                "--source",
+                "github:Alice/dotfiles/config/one.json",
+                "--source",
+                "local:config",
+            ]),
+            vec![
+                ConfigurationSource::GitHubRepository {
+                    owner: "Alice".to_owned(),
+                    repo: "dotfiles".to_owned(),
+                    file_paths: vec!["config/one.json".to_owned()],
+                },
+                ConfigurationSource::LocalDirectory("config".into()),
+            ]
+        );
+    }
 
-        assert_eq!(arguments.sources().len(), 2);
+    #[test]
+    fn a_windows_directory_keeps_the_colon_in_its_drive_letter() {
+        assert_eq!(
+            ConfigurationSource::from_str("local:C:\\Repositories\\dotfiles\\config").unwrap(),
+            ConfigurationSource::LocalDirectory("C:\\Repositories\\dotfiles\\config".into())
+        );
+    }
+
+    #[test]
+    fn a_source_naming_no_kind_is_rejected_with_the_shapes_it_expected() {
+        let error = ConfigurationSource::from_str("config").unwrap_err();
+
+        assert!(
+            error.contains("local:") && error.contains("github:"),
+            "{error}"
+        );
     }
 }

@@ -8,6 +8,7 @@ use {
     std::{
         fs,
         path::{Path, PathBuf},
+        str::FromStr,
     },
 };
 
@@ -21,6 +22,42 @@ pub enum ConfigurationSource {
         file_paths: Vec<String>,
     },
 }
+
+/// One source is written as one word, so naming a source cannot interact with naming another and
+/// there is no combination of flags that means "nowhere".
+///
+/// `local:<directory>` or `github:<owner>/<repo>/<path>[,<path>...]`
+impl FromStr for ConfigurationSource {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (kind, rest) = value
+            .split_once(':')
+            .ok_or_else(|| format!("{value:?} names no source kind; {EXPECTED_SOURCE}"))?;
+
+        match kind {
+            "local" => Ok(ConfigurationSource::LocalDirectory(PathBuf::from(rest))),
+            "github" => {
+                let mut segments = rest.splitn(3, '/');
+                let (Some(owner), Some(repo), Some(file_paths)) =
+                    (segments.next(), segments.next(), segments.next())
+                else {
+                    return Err(format!("{value:?} names no file paths; {EXPECTED_SOURCE}"));
+                };
+
+                Ok(ConfigurationSource::GitHubRepository {
+                    owner: owner.to_owned(),
+                    repo: repo.to_owned(),
+                    file_paths: file_paths.split(',').map(str::to_owned).collect(),
+                })
+            }
+            other => Err(format!("{other:?} is not a source kind; {EXPECTED_SOURCE}")),
+        }
+    }
+}
+
+const EXPECTED_SOURCE: &str =
+    "expected `local:<directory>` or `github:<owner>/<repo>/<path>[,<path>...]`";
 
 /// Reads every named source and merges what they declare into one desired state.
 pub async fn load_desired_state(sources: &[ConfigurationSource]) -> Result<DesiredState> {
