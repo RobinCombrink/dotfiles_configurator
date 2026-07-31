@@ -28,6 +28,13 @@ strum = { version = "0.27.2", features = ["derive"] }
 time = "0.3.41"
 futures = "0.3.31"
 
+[dev-dependencies]
+cucumber = "0.23.0"
+
+[[test]]
+name = "convergence"
+harness = false
+
 [build-dependencies]
 anyhow = "1.0.98"
 schemars = { version = "1.0.4", features = ["url2"] }
