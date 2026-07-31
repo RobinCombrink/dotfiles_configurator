@@ -59,7 +59,7 @@ fn assess_application(application: &Application, machine: &impl ReadMachine) -> 
     match machine.check_presence(&application.presence_check) {
         Ok(true) => Assessment::Converged,
         Ok(false) => {
-            Assessment::Drifted(format!("not installed: {}", application.presence_check).into())
+            Assessment::Drifted(format!("not installed — {}", application.presence_check).into())
         }
         Err(error) => Assessment::Drifted(format!("presence could not be read: {error}").into()),
     }
@@ -251,7 +251,7 @@ fn assess_command(command: &Command, machine: &impl ReadMachine) -> Assessment {
 
     match machine.check_presence(check) {
         Ok(true) => Assessment::Converged,
-        Ok(false) => Assessment::Drifted(format!("not yet done: {check}").into()),
+        Ok(false) => Assessment::Drifted(format!("not yet done — {check}").into()),
         Err(error) => Assessment::Drifted(format!("presence could not be read: {error}").into()),
     }
 }

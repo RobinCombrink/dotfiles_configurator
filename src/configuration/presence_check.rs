@@ -29,17 +29,21 @@ pub enum PresenceCheck {
     },
 }
 
+/// A check is only ever rendered to explain why something is *not* in its desired state, so it
+/// reads as the thing that was not true rather than as the condition that was tested.
 impl Display for PresenceCheck {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PresenceCheck::PathExists { path } => write!(formatter, "{} exists", path.display()),
+            PresenceCheck::PathExists { path } => {
+                write!(formatter, "{} does not exist", path.display())
+            }
             PresenceCheck::CommandOnPath { command } => {
-                write!(formatter, "{command} is on the path")
+                write!(formatter, "{command} is not on the path")
             }
             PresenceCheck::CommandOutputContains { args, contains, .. } => {
                 write!(
                     formatter,
-                    "output of `{}` contains {contains:?}",
+                    "the output of `{}` does not contain {contains:?}",
                     args.join(" ")
                 )
             }
