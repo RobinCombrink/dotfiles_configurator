@@ -46,6 +46,12 @@ One declared fact about a machine, whose actual state can be read and whose drif
 closed. The unit a change set is composed of.
 _Avoid_: item, entry, task, step
 
+**Resolved**:
+Describes a resource the configuration named through a source rather than individually,
+discovered by reading that source when the change set is produced. Once the set is complete, a
+resolved resource is indistinguishable from a declared one.
+_Avoid_: generated, derived, implicit, expanded
+
 **Resource kind**:
 The category a resource belongs to, which determines how its actual state is read. Symlink,
 repository, application, package, registration, notice, and command.
@@ -54,7 +60,7 @@ _Avoid_: type, category, variant
 **Identity**:
 The machine fact a resource claims, by which two declarations are recognised as the same
 resource. Identical claims collapse to one resource; conflicting claims on one fact are
-rejected when the configuration is loaded, because no machine could satisfy both. A command
+rejected before any change is enacted, because no machine could satisfy both. A command
 claims no fact and so has no identity, which is part of what makes it the last resort.
 _Avoid_: key, id, name
 
