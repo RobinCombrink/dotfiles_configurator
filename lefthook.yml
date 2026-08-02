@@ -4,3 +4,4 @@ remotes:
     configs:
       - lefthook/commit-msg.yml
       - lefthook/rust.yml
+      - lefthook/coverage.yml
