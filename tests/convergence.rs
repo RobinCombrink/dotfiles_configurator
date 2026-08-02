@@ -7,15 +7,20 @@ use {
     cucumber::{World, given, then, when},
     dotfiles::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, Configuration, DesiredState,
-            GitHubRepository, MachineSettings, Notice, PresenceCheck, RepositoryName,
-            RepositoryOwner, Resource, Shell, Symlink, merge_configurations, parse_configuration,
+            Application, ApplicationName, ApplicationSource, DesiredState, GitHubRepository,
+            MachineSettings, Notice, PresenceCheck, RepositoryName, RepositoryOwner, Resource,
+            Shell, Symlink,
         },
+        configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
         machine::{ReadMachine, Tool},
     },
     fake_machine::FakeMachine,
-    std::path::{Path, PathBuf},
+    std::{
+        env, fs,
+        path::{Path, PathBuf},
+        sync::atomic::{AtomicUsize, Ordering},
+    },
     url::Url,
 };
 
@@ -26,7 +31,7 @@ struct MachineWorld {
     resources: Vec<Resource>,
     notices: Vec<Notice>,
     /// Configurations as they are written down, for the scenarios about loading them.
-    documents: Vec<(String, String)>,
+    documents: Vec<String>,
     change_set: Option<ChangeSet>,
     second_change_set: Option<ChangeSet>,
     outcome: Option<ApplyOutcome>,
@@ -199,9 +204,24 @@ fn dotfiles_repository_is_not_cloned(_world: &mut MachineWorld) {
 
 #[given(expr = "Alice has a configuration declaring format version {string}")]
 fn configuration_with_version(world: &mut MachineWorld, version: String) {
-    world
-        .documents
-        .push((format!("configuration {version}"), document(&version, "[]")));
+    world.documents.push(document(&version, "[]"));
+}
+
+#[given(
+    expr = "Alice has a configuration whose machine settings omit the repositories directory path"
+)]
+fn configuration_without_a_repositories_directory_path(world: &mut MachineWorld) {
+    world.documents.push(
+        r#"{
+            "version": "2",
+            "machine": {
+                "github_username": "Alice",
+                "dotfiles_repository": { "owner": "Alice", "repository": "dotfiles" }
+            },
+            "resources": []
+        }"#
+        .to_owned(),
+    );
 }
 
 #[given(expr = "Alice has a configuration linking {string} to {string}")]
@@ -209,10 +229,7 @@ fn configuration_linking(world: &mut MachineWorld, link_path: String, source_pat
     let resources = format!(
         r#"[{{ "kind": "symlink", "source_path": "{source_path}", "link_path": "{link_path}" }}]"#
     );
-    world.documents.push((
-        format!("configuration {}", world.documents.len() + 1),
-        document("2", &resources),
-    ));
+    world.documents.push(document("2", &resources));
 }
 
 fn document(version: &str, resources: &str) -> String {
@@ -258,21 +275,32 @@ fn withdraw_declaration(world: &mut MachineWorld, name: String) {
 }
 
 #[when(expr = "Alice loads her configurations")]
-fn alice_loads(world: &mut MachineWorld) {
-    let parsed: Result<Vec<(String, Configuration)>, _> = world
-        .documents
-        .iter()
-        .map(|(source, contents)| {
-            parse_configuration(contents, source)
-                .map(|configuration| (source.clone(), configuration))
-        })
-        .collect();
+async fn alice_loads(world: &mut MachineWorld) {
+    let directory = configuration_directory();
+    for (position, contents) in world.documents.iter().enumerate() {
+        fs::write(
+            directory.join(format!("{position:02}.dotconfig.json")),
+            contents,
+        )
+        .unwrap();
+    }
 
-    let merged = parsed.and_then(merge_configurations);
-    match merged {
+    match load_desired_state(&[ConfigurationSource::LocalDirectory(directory)]).await {
         Ok(desired_state) => world.loaded = Some(desired_state),
         Err(error) => world.loading_error = Some(format!("{error:#}")),
     }
+}
+
+fn configuration_directory() -> PathBuf {
+    static NEXT_DIRECTORY_NUMBER: AtomicUsize = AtomicUsize::new(0);
+
+    let directory = env::temp_dir().join(format!(
+        "dotfiles_loading_scenarios/{}",
+        NEXT_DIRECTORY_NUMBER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = fs::remove_dir_all(&directory);
+    fs::create_dir_all(&directory).unwrap();
+    directory
 }
 
 #[then(expr = "the change set reports {int} change(s)")]
@@ -425,6 +453,14 @@ fn loading_is_refused(world: &mut MachineWorld) {
     assert!(
         world.loading_error.is_some(),
         "loading succeeded when it should have been refused"
+    );
+}
+
+#[then(expr = "no desired state is loaded")]
+fn no_desired_state_is_loaded(world: &mut MachineWorld) {
+    assert!(
+        world.loaded.is_none(),
+        "a desired state was loaded from configurations that could not all be read"
     );
 }
 

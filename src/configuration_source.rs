@@ -6,8 +6,7 @@ use {
         },
         github,
     },
-    anyhow::{Context, Result, anyhow},
-    github_authentication::authentication::{Authentication, GitHubCliAuthentication},
+    anyhow::{Context, Error, Result, anyhow},
     std::{
         fs,
         path::{Path, PathBuf},
@@ -65,8 +64,18 @@ const EXPECTED_SOURCE: &str =
 /// Reads every named source and merges what they declare into one desired state.
 pub async fn load_desired_state(sources: &[ConfigurationSource]) -> Result<DesiredState> {
     let mut loaded: Vec<(String, Configuration)> = Vec::new();
+    let mut refusals: Vec<Error> = Vec::new();
     for source in sources {
-        loaded.extend(source.load().await?);
+        for attempt in source.load().await {
+            match attempt {
+                Ok(configuration) => loaded.push(configuration),
+                Err(refusal) => refusals.push(refusal),
+            }
+        }
+    }
+
+    if let Some(refusal) = combined_refusal(refusals) {
+        return Err(refusal);
     }
 
     if loaded.is_empty() {
@@ -78,8 +87,22 @@ pub async fn load_desired_state(sources: &[ConfigurationSource]) -> Result<Desir
     Ok(merge_configurations(loaded)?.with_dotfiles_repository())
 }
 
+fn combined_refusal(mut refusals: Vec<Error>) -> Option<Error> {
+    match refusals.len() {
+        0 => None,
+        1 => refusals.pop(),
+        count => {
+            let listed: String = refusals
+                .iter()
+                .map(|refusal| format!("\n  {refusal:#}"))
+                .collect();
+            Some(anyhow!("{count} configurations could not be read:{listed}"))
+        }
+    }
+}
+
 impl ConfigurationSource {
-    async fn load(&self) -> Result<Vec<(String, Configuration)>> {
+    async fn load(&self) -> Vec<Result<(String, Configuration)>> {
         match self {
             ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory),
             ConfigurationSource::GitHubRepository {
@@ -90,9 +113,15 @@ impl ConfigurationSource {
         }
     }
 
-    fn load_local(directory: &Path) -> Result<Vec<(String, Configuration)>> {
-        let entries = fs::read_dir(directory)
-            .with_context(|| format!("Could not read {}", directory.display()))?;
+    fn load_local(directory: &Path) -> Vec<Result<(String, Configuration)>> {
+        let entries = match fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(failure) => {
+                return vec![Err(
+                    Error::new(failure).context(format!("Could not read {}", directory.display()))
+                )];
+            }
+        };
 
         let mut configuration_paths: Vec<PathBuf> = entries
             .filter_map(|entry| entry.ok())
@@ -116,20 +145,23 @@ impl ConfigurationSource {
         owner: &str,
         repository: &str,
         file_paths: &[String],
-    ) -> Result<Vec<(String, Configuration)>> {
-        let authentication = GitHubCliAuthentication::new(owner.to_owned())?;
-        let octocrab = github::create_octocrab(authentication.get_token())?;
+    ) -> Vec<Result<(String, Configuration)>> {
+        let octocrab = match github::authenticated_client(owner) {
+            Ok(octocrab) => octocrab,
+            Err(refusal) => return vec![Err(refusal)],
+        };
 
-        let mut loaded = Vec::new();
+        let mut loaded: Vec<Result<(String, Configuration)>> = Vec::new();
         for file_path in file_paths {
             let source = format!("{owner}/{repository}/{file_path}");
-            for contents in
-                github::get_file_contents(owner, repository, file_path, &octocrab).await?
-            {
-                loaded.push((source.clone(), parse_configuration(&contents, &source)?));
+            match github::get_file_contents(owner, repository, file_path, &octocrab).await {
+                Err(refusal) => loaded.push(Err(refusal)),
+                Ok(documents) => loaded.extend(documents.into_iter().map(|contents| {
+                    Ok((source.clone(), parse_configuration(&contents, &source)?))
+                })),
             }
         }
-        Ok(loaded)
+        loaded
     }
 }
 

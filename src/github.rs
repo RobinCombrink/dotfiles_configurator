@@ -1,5 +1,6 @@
 use {
     anyhow::{Context, Result},
+    github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     octocrab::Octocrab,
     secrecy::SecretString,
     std::sync::Arc,
@@ -9,6 +10,13 @@ pub fn create_octocrab(token: SecretString) -> Result<Arc<Octocrab>> {
     let instance = Octocrab::builder().personal_token(token).build()?;
 
     Ok(Arc::new(instance))
+}
+
+pub fn authenticated_client(username: &str) -> Result<Arc<Octocrab>> {
+    let authentication = GitHubCliAuthentication::new(username.to_owned())
+        .with_context(|| format!("Could not authenticate as {username} through the GitHub CLI"))?;
+
+    create_octocrab(authentication.get_token())
 }
 
 /// Reads the decoded contents of a file held in a GitHub repository.
