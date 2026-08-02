@@ -1,12 +1,13 @@
 use {
     crate::{
         configuration::{
-            Application, ApplicationSource, AssetPattern, GitHubRepository, MachineSettings,
-            PresenceCheck, Shell,
+            Application, ApplicationSource, AssetPattern, CrateName, GitHubRepository,
+            MachineSettings, PresenceCheck, Shell,
         },
         github,
         machine::{
             CommandOutput, ReadInvocation, ReadMachine, Tool, WriteInvocation, WriteMachine,
+            workspace_reading::{Revision, WorkspaceReading},
         },
     },
     anyhow::{Context, Result, anyhow, bail},
@@ -19,6 +20,7 @@ use {
     reqwest::{Client, header},
     secrecy::ExposeSecret,
     std::{
+        collections::BTreeMap,
         env, fs,
         path::{Path, PathBuf},
         process::{Command as ProcessCommand, Stdio},
@@ -26,6 +28,8 @@ use {
     },
     url::Url,
 };
+
+pub mod workspace;
 
 /// The machine this process is running on.
 pub struct LocalMachine {
@@ -287,6 +291,14 @@ impl ReadMachine for LocalMachine {
 
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput> {
         self.run(invocation.tool().program(), &invocation.arguments())
+    }
+
+    fn read_cargo_workspace(
+        &self,
+        repository_path: &Path,
+        installed: &BTreeMap<CrateName, Revision>,
+    ) -> Result<Option<WorkspaceReading>> {
+        workspace::read(repository_path, installed)
     }
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<bool> {

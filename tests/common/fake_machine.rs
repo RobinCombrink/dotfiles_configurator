@@ -10,10 +10,12 @@ use {
     anyhow::{Result, bail},
     dotfiles::{
         configuration::{
-            Application, ApplicationName, GitHubRepository, PresenceCheck, Shell, WingetPackageId,
+            Application, ApplicationName, CrateName, GitHubRepository, PresenceCheck, Shell,
+            WingetPackageId,
         },
         machine::{
             CommandOutput, ReadInvocation, ReadMachine, Tool, WriteInvocation, WriteMachine,
+            workspace_reading::{Revision, WorkspaceReading},
         },
     },
     std::{
@@ -46,6 +48,8 @@ struct MachineState {
     /// What the dotfiles repository holds, which only appears on the machine once it is cloned.
     repository_contents: BTreeSet<PathBuf>,
     reads: Vec<ReadInvocation>,
+    cargo_workspaces: BTreeMap<PathBuf, WorkspaceReading>,
+    workspace_reads: Vec<PathBuf>,
 }
 
 impl Default for FakeMachine {
@@ -68,6 +72,17 @@ impl Default for FakeMachine {
 }
 
 impl FakeMachine {
+    pub fn hold_cargo_workspace(&self, repository_path: PathBuf, reading: WorkspaceReading) {
+        self.state
+            .borrow_mut()
+            .cargo_workspaces
+            .insert(repository_path, reading);
+    }
+
+    pub fn cargo_workspace_reads(&self) -> Vec<PathBuf> {
+        self.state.borrow().workspace_reads.clone()
+    }
+
     pub fn remove_tool(&self, tool: Tool) {
         self.state.borrow_mut().tools.remove(&tool);
     }
@@ -255,6 +270,17 @@ impl ReadMachine for FakeMachine {
             standard_output,
             standard_error: String::new(),
         })
+    }
+
+    fn read_cargo_workspace(
+        &self,
+        repository_path: &Path,
+        _installed: &BTreeMap<CrateName, Revision>,
+    ) -> Result<Option<WorkspaceReading>> {
+        let mut state = self.state.borrow_mut();
+        state.workspace_reads.push(repository_path.to_path_buf());
+
+        Ok(state.cargo_workspaces.get(repository_path).cloned())
     }
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<bool> {

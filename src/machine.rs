@@ -1,11 +1,18 @@
 use {
-    crate::configuration::{PresenceCheck, Shell},
+    crate::{
+        configuration::{CrateName, PresenceCheck, Shell},
+        machine::workspace_reading::{Revision, WorkspaceReading},
+    },
     anyhow::Result,
-    std::path::{Path, PathBuf},
+    std::{
+        collections::BTreeMap,
+        path::{Path, PathBuf},
+    },
 };
 
 pub mod invocation;
 pub mod local;
+pub mod workspace_reading;
 
 pub use invocation::{ReadInvocation, WriteInvocation};
 
@@ -71,6 +78,12 @@ pub trait ReadMachine {
 
     /// Runs a check the configuration's author wrote and declared as a check. Two of the three
     /// forms cannot change anything by construction; the third is the deliberate escape hatch.
+    fn read_cargo_workspace(
+        &self,
+        repository_path: &Path,
+        installed: &BTreeMap<CrateName, Revision>,
+    ) -> Result<Option<WorkspaceReading>>;
+
     fn check_presence(&self, check: &PresenceCheck) -> Result<bool>;
 
     /// Resolves a path declared relative to the home directory. Absolute paths are left alone.
