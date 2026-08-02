@@ -119,6 +119,11 @@ fn declare_winget_package(world: &mut MachineWorld, id: String) {
         )));
 }
 
+#[given(expr = "winget holds {string} on Alice's machine")]
+fn winget_holds_package(world: &mut MachineWorld, id: String) {
+    world.machine.install_winget_package(&id.into());
+}
+
 #[given(expr = "Alice declares the notice {string}")]
 fn declare_notice(world: &mut MachineWorld, message: String) {
     world.notices.push(Notice::from(message.as_str()));

@@ -17,6 +17,26 @@ Feature: Planning what a machine needs
     Then the change set reports 0 changes
     And the change set reports the machine as converged
 
+  Scenario: A declared package that the manager already holds is reported as converged
+    Given Alice declares the winget package "Microsoft.PowerShell"
+    And winget holds "Microsoft.PowerShell" on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A declared package the manager does not hold is reported as a change
+    Given Alice declares the winget package "Microsoft.PowerShell"
+    When Alice plans
+    Then the change set reports 1 change
+
+  Scenario: One package the manager holds does not make another one look held
+    Given Alice declares the winget package "Microsoft.PowerShell"
+    And Alice declares the winget package "Git.Git"
+    And winget holds "Microsoft.PowerShell" on Alice's machine
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "Git.Git"
+
   Scenario: A package whose manager is absent is reported as blocked rather than as drift
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget is absent from Alice's machine

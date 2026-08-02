@@ -10,7 +10,10 @@ pub mod apply;
 pub mod assess;
 pub mod converge;
 
-pub use {apply::ApplyOutcome, assess::assess};
+pub use {
+    apply::ApplyOutcome,
+    assess::{SourceReadings, assess},
+};
 
 /// What a resource kind answers when asked to compare its desired state against the machine.
 /// There is deliberately no state type shared between kinds — a universal one would be the
@@ -163,7 +166,12 @@ impl ChangeSet {
 /// kind first — which ADR 0004 makes a safety property — then by the order resources were
 /// declared, so the same configuration against the same machine always prints the same change set
 /// and two runs can be diffed.
+///
+/// Every source that can answer about a whole set of resources is read before any resource is
+/// assessed, so one is read once per change set rather than once per resource. See ADR 0010.
 pub fn plan(desired_state: &DesiredState, machine: &impl crate::machine::ReadMachine) -> ChangeSet {
+    let readings = SourceReadings::read_for(&desired_state.resources, machine);
+
     let mut assessed: Vec<(ResourceKind, usize, Resource, Assessment)> = desired_state
         .resources
         .iter()
@@ -173,7 +181,7 @@ pub fn plan(desired_state: &DesiredState, machine: &impl crate::machine::ReadMac
                 resource.kind(),
                 position,
                 resource.clone(),
-                assess(resource, machine),
+                assess(resource, machine, &readings),
             )
         })
         .collect();

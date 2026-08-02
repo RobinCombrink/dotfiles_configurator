@@ -8,22 +8,26 @@ use crate::{
 /// Typing what may be run, rather than only who may run it, is what keeps plan's guarantee real:
 /// a single general "run a process" capability would have handed plan the ability to run an
 /// installer. See ADR 0006.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// A variant naming no resource is read once for a whole change set; one naming a resource is
+/// read per resource. See ADR 0010.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ReadInvocation {
-    /// Whether winget reports a package as installed. Exits 0 when it is and
-    /// `APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND` when it is not.
-    WingetPackage { id: WingetPackageId },
+    /// Every package winget reports as installed, as a table whose columns are located from its
+    /// header row.
+    WingetInstalledPackages,
     /// Every crate Cargo has installed, one `name vX.Y.Z[ (source)]:` line each.
     CargoInstalledCrates,
     /// The details Claude Code holds for one MCP server. Exits non-zero when there is no such
-    /// server.
+    /// server. Read per resource because `claude mcp list` health-checks every server it
+    /// reports, which costs more than asking about each one and reaches the network.
     ClaudeMcpServer { name: McpServerName },
 }
 
 impl ReadInvocation {
     pub fn tool(&self) -> Tool {
         match self {
-            ReadInvocation::WingetPackage { .. } => Tool::Winget,
+            ReadInvocation::WingetInstalledPackages => Tool::Winget,
             ReadInvocation::CargoInstalledCrates => Tool::Cargo,
             ReadInvocation::ClaudeMcpServer { .. } => Tool::Claude,
         }
@@ -31,11 +35,11 @@ impl ReadInvocation {
 
     pub fn arguments(&self) -> Vec<String> {
         match self {
-            ReadInvocation::WingetPackage { id } => vec![
+            // 2026-08-02: winget sizes this table's columns to the data, not to the console,
+            // whenever its output is redirected — measured at an 80-column console, where the
+            // output was still 196 characters wide with nothing truncated.
+            ReadInvocation::WingetInstalledPackages => vec![
                 "list".to_owned(),
-                "--exact".to_owned(),
-                "--id".to_owned(),
-                id.to_string(),
                 "--accept-source-agreements".to_owned(),
                 "--disable-interactivity".to_owned(),
             ],

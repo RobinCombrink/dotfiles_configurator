@@ -2,6 +2,10 @@
 //! true of a machine. Substituting a machine is ordinary use of the capability traits rather than
 //! a mode of the program, which is what ADR 0006 traded the `--debug` directory relocation for.
 
+// Each integration test file is its own crate and pulls this module in whole, so a helper only
+// one of them needs reads as dead in the others.
+#![allow(dead_code)]
+
 use {
     anyhow::{Result, bail},
     dotfiles::{
@@ -41,6 +45,7 @@ struct MachineState {
     commands_run: Vec<Vec<String>>,
     /// What the dotfiles repository holds, which only appears on the machine once it is cloned.
     repository_contents: BTreeSet<PathBuf>,
+    reads: Vec<ReadInvocation>,
 }
 
 impl Default for FakeMachine {
@@ -65,6 +70,10 @@ impl Default for FakeMachine {
 impl FakeMachine {
     pub fn remove_tool(&self, tool: Tool) {
         self.state.borrow_mut().tools.remove(&tool);
+    }
+
+    pub fn install_winget_package(&self, id: &WingetPackageId) {
+        self.state.borrow_mut().winget_packages.insert(id.clone());
     }
 
     pub fn install_application(&self, name: &ApplicationName) {
@@ -160,6 +169,50 @@ fn materialise_clone(state: &mut MachineState, clone_directory: &Path) {
     state.paths.extend(held);
 }
 
+/// Renders what winget reports, in the fixed-width shape the real one emits: a header naming each
+/// column, a rule beneath it, and every package on a line of its own. Columns are sized to the
+/// widest value, which is what winget does whenever its output is redirected.
+fn winget_listing(packages: &BTreeSet<WingetPackageId>) -> String {
+    /// Every row carries the same name, so the name column is only ever as wide as this.
+    const PACKAGE_NAME: &str = "A package";
+    const VERSION: &str = "1.0.0";
+
+    let identifiers: Vec<String> = packages.iter().map(WingetPackageId::to_string).collect();
+    let width = |heading: &str, widest_value: usize| heading.len().max(widest_value) + 2;
+    let name_width = width("Name", PACKAGE_NAME.len());
+    let id_width = width(
+        "Id",
+        identifiers
+            .iter()
+            .map(|identifier| identifier.chars().count())
+            .max()
+            .unwrap_or_default(),
+    );
+
+    let mut listing = format!("{:name_width$}{:id_width$}{}\n", "Name", "Id", "Version");
+    listing.push_str(&"-".repeat(name_width + id_width + "Version".len()));
+    listing.push('\n');
+    for identifier in identifiers {
+        listing.push_str(&format!(
+            "{PACKAGE_NAME:name_width$}{identifier:id_width$}{VERSION}\n"
+        ));
+    }
+    listing
+}
+
+impl FakeMachine {
+    /// How many times a source was interrogated, which is what makes "read once per change set" a
+    /// property a test can hold the program to rather than one it takes on trust.
+    pub fn times_read(&self, invocation: &ReadInvocation) -> usize {
+        self.state
+            .borrow()
+            .reads
+            .iter()
+            .filter(|read| *read == invocation)
+            .count()
+    }
+}
+
 impl ReadMachine for FakeMachine {
     fn home_directory(&self) -> &Path {
         &self.home_directory
@@ -187,16 +240,19 @@ impl ReadMachine for FakeMachine {
     }
 
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput> {
-        let succeeded = match invocation {
-            ReadInvocation::WingetPackage { id } => {
-                self.state.borrow().winget_packages.contains(id)
+        self.state.borrow_mut().reads.push(invocation.clone());
+
+        let (succeeded, standard_output) = match invocation {
+            ReadInvocation::WingetInstalledPackages => {
+                (true, winget_listing(&self.state.borrow().winget_packages))
             }
-            ReadInvocation::CargoInstalledCrates | ReadInvocation::ClaudeMcpServer { .. } => false,
+            ReadInvocation::CargoInstalledCrates => (true, String::new()),
+            ReadInvocation::ClaudeMcpServer { .. } => (false, String::new()),
         };
 
         Ok(CommandOutput {
             succeeded,
-            standard_output: String::new(),
+            standard_output,
             standard_error: String::new(),
         })
     }
