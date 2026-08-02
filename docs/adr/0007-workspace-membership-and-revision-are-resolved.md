@@ -1,6 +1,7 @@
 # Workspace membership and revision are resolved, not declared
 
-Status: accepted (2026-08-01, grilling session on automatic convergence)
+Status: accepted (2026-08-01, grilling session on automatic convergence); amended 2026-08-02 on
+what an unresolvable workspace does to a run
 
 A cargo package built from a repository this configuration already has cloned declares the
 workspace it belongs to. Which crates exist, and which revision each installs from, are read from
@@ -53,3 +54,18 @@ kind, and the registry covers the ordinary way to install someone else's crate.
   tool's interest without uninstalling anything, per ADR 0005.
 - The fingerprint covers the crate's own subtree together with the workspace manifest and
   lockfile, because a dependency change alters the built binary without touching the crate.
+- **A workspace that cannot be read refuses the whole run.** Cloned but with no tracked remote
+  branch, an unparseable manifest, a member named by a glob, or no lockfile: each leaves which
+  crates exist unknown, and a source that decides which resources exist cannot fail softly the way
+  a source that describes one resource can. Reporting drift instead would apply a change set built
+  from a membership nobody established. ADR 0009 already refuses to apply any configuration it
+  could not read; this is that rule reaching the resolved half of the configuration.
+- **A workspace whose repository is not cloned contributes no members, and says nothing about
+  them.** They cannot be named, so they cannot be reported. The clone is itself a declared
+  repository resource and appears in the change set as a change, so a first run on a bare machine
+  still reads correctly and the crates arrive on the pass after the clone. The cost is that
+  planning alone, on a machine that has not cloned yet, understates how much work an apply will do.
+- **Membership is the members that build a binary**, decided from the manifest's `[[bin]]` sections
+  and from whether the tree holds `src/main.rs` or `src/bin/`. A library-only member cannot be
+  installed at all, so admitting one would fail on every run forever rather than once; adding a
+  shared library crate to a workspace is ordinary, and it costs nothing here.
