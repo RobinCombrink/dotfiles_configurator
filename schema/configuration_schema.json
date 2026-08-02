@@ -24,6 +24,13 @@
     "version": {
       "description": "The configuration format version. Must be \"2\".",
       "type": "string"
+    },
+    "workspaces": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CargoWorkspace"
+      }
     }
   },
   "required": [
@@ -175,7 +182,6 @@
       ]
     },
     "CargoSource": {
-      "description": "Where Cargo installs a crate from. Cargo reports this back in `cargo install --list`, which is\nwhat makes a cargo package readable: a registry install is bare, a path install carries its\npath, and a git install carries the revision it was asked for and the commit that resolved to.",
       "oneOf": [
         {
           "type": "object",
@@ -204,28 +210,18 @@
             "source",
             "path"
           ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "revision": {
-              "type": "string"
-            },
-            "source": {
-              "type": "string",
-              "const": "git"
-            },
-            "url": {
-              "type": "string",
-              "format": "uri"
-            }
-          },
-          "required": [
-            "source",
-            "url",
-            "revision"
-          ]
         }
+      ]
+    },
+    "CargoWorkspace": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "$ref": "#/$defs/GitHubRepository"
+        }
+      },
+      "required": [
+        "repository"
       ]
     },
     "ClaudeMcpServer": {

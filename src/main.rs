@@ -77,13 +77,13 @@ async fn run(task: Task) -> Result<ExitCode> {
     match task {
         Task::Plan(arguments) => {
             let (desired_state, machine) = prepare(&arguments).await?;
-            let change_set = plan(&desired_state, &machine);
+            let change_set = plan(&desired_state, &machine)?;
             println!("{change_set}");
             Ok(exit_code_for(change_set.is_converged()))
         }
         Task::Apply(arguments) => {
             let (desired_state, machine) = prepare(&arguments).await?;
-            let outcome = apply(&desired_state, &machine).await;
+            let outcome = apply(&desired_state, &machine).await?;
             println!("{outcome}");
             Ok(exit_code_for(outcome.is_converged()))
         }

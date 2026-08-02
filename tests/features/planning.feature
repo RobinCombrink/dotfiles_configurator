@@ -78,3 +78,45 @@ Feature: Planning what a machine needs
     Given Alice declares the command "refresh-completions" with no presence check
     When Alice plans
     Then the change set reports 1 change
+
+  Scenario: A workspace crate whose content matches the repository is converged
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A workspace crate whose content differs from the repository is a change
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from content the workspace has since changed
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "stop-gate"
+
+  Scenario: A workspace crate cargo has never installed is a change
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "stop-gate"
+
+  Scenario: A crate added to the workspace is planned without the configuration changing
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And the workspace holds the crate "claude-statusline"
+    When Alice plans
+    Then the change set reports 2 changes
+    And the change set mentions "claude-statusline"
+
+  Scenario: A workspace whose repository is not cloned yet contributes no crates
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the workspace holds the crate "stop-gate"
+    And the dotfiles repository has not been cloned on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes

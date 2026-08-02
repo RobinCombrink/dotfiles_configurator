@@ -10,11 +10,16 @@ mod fake_machine;
 use {
     dotfiles::{
         configuration::{
-            CargoPackage, CargoSource, DesiredState, GitHubRepository, MachineSettings, Package,
-            RepositoryName, RepositoryOwner, Resource, WingetPackage,
+            CargoPackage, CargoSource, CargoWorkspace, CrateName, DesiredState, GitHubRepository,
+            MachineSettings, Package, RepositoryName, RepositoryOwner, Resource, WingetPackage,
         },
         convergence::plan,
-        machine::ReadInvocation,
+        machine::{
+            ReadInvocation,
+            workspace_reading::{
+                Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
+            },
+        },
     },
     fake_machine::FakeMachine,
     std::path::PathBuf,
@@ -23,6 +28,7 @@ use {
 fn desired_state(resources: Vec<Resource>) -> DesiredState {
     DesiredState {
         resources,
+        workspaces: Vec::new(),
         notices: Vec::new(),
         machine: MachineSettings {
             repositories_directory_path: PathBuf::from("/repositories"),
@@ -55,7 +61,7 @@ fn many_packages_from_one_manager_ask_it_once() {
         winget_package("Neovim.Neovim"),
     ]);
 
-    plan(&desired_state, &machine);
+    plan(&desired_state, &machine).unwrap();
 
     assert_eq!(
         machine.times_read(&ReadInvocation::WingetInstalledPackages),
@@ -73,7 +79,7 @@ fn each_manager_is_asked_once_when_several_are_declared_against() {
         cargo_package("stop-gate"),
     ]);
 
-    plan(&desired_state, &machine);
+    plan(&desired_state, &machine).unwrap();
 
     assert_eq!(
         machine.times_read(&ReadInvocation::WingetInstalledPackages),
@@ -87,7 +93,7 @@ fn a_manager_nothing_is_declared_against_is_never_asked() {
     let machine = FakeMachine::default();
     let desired_state = desired_state(vec![winget_package("Microsoft.PowerShell")]);
 
-    plan(&desired_state, &machine);
+    plan(&desired_state, &machine).unwrap();
 
     assert_eq!(machine.times_read(&ReadInvocation::CargoInstalledCrates), 0);
 }
@@ -98,10 +104,69 @@ fn a_package_whose_manager_is_absent_leaves_that_manager_unasked() {
     machine.remove_tool(dotfiles::machine::Tool::Winget);
     let desired_state = desired_state(vec![winget_package("Microsoft.PowerShell")]);
 
-    plan(&desired_state, &machine);
+    plan(&desired_state, &machine).unwrap();
 
     assert_eq!(
         machine.times_read(&ReadInvocation::WingetInstalledPackages),
         0
     );
+}
+
+fn workspace_holding(crate_names: &[&str]) -> WorkspaceReading {
+    WorkspaceReading {
+        revision: Revision::from("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c"),
+        members: crate_names
+            .iter()
+            .map(|crate_name| {
+                (
+                    CrateName::from(*crate_name),
+                    MemberReading {
+                        desired: Fingerprint {
+                            crate_subtree: ObjectHash::from(*crate_name),
+                            workspace_manifest: ObjectHash::from("the workspace manifest"),
+                            lockfile: ObjectHash::from("the lockfile"),
+                        },
+                        installed: None,
+                    },
+                )
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn every_crate_in_one_workspace_opens_its_repository_once() {
+    let machine = FakeMachine::default();
+    machine.clone_dotfiles_repository();
+    machine.hold_cargo_workspace(
+        PathBuf::from("/repositories/dotfiles"),
+        workspace_holding(&[
+            "stop-gate",
+            "ci-checks",
+            "claude-workspace",
+            "session-mining",
+        ]),
+    );
+    let mut desired_state = desired_state(Vec::new());
+    desired_state.workspaces = vec![CargoWorkspace {
+        repository: GitHubRepository {
+            owner: RepositoryOwner::from("Alice"),
+            repository: RepositoryName::from("dotfiles"),
+        },
+    }];
+
+    let change_set = plan(&desired_state, &machine).unwrap();
+
+    assert_eq!(change_set.changes.len(), 4);
+    assert_eq!(machine.cargo_workspace_reads().len(), 1);
+}
+
+#[test]
+fn a_configuration_declaring_no_workspace_never_opens_a_repository() {
+    let machine = FakeMachine::default();
+    let desired_state = desired_state(vec![cargo_package("committed")]);
+
+    plan(&desired_state, &machine).unwrap();
+
+    assert!(machine.cargo_workspace_reads().is_empty());
 }

@@ -16,6 +16,8 @@ pub mod names;
 pub mod presence_check;
 #[path = "configuration/resource.rs"]
 pub mod resource;
+#[path = "configuration/workspace.rs"]
+pub mod workspace;
 
 pub use {
     identity::Identity,
@@ -28,6 +30,7 @@ pub use {
         Command, GitHubRepository, McpScope, Package, Registration, Resource, ResourceKind, Shell,
         Symlink, WingetPackage,
     },
+    workspace::CargoWorkspace,
 };
 
 /// The only configuration format version this build understands. `Configuration.version` was
@@ -42,6 +45,8 @@ pub struct Configuration {
     /// The configuration format version. Must be "2".
     pub version: String,
     pub machine: MachineSettings,
+    #[serde(default)]
+    pub workspaces: Vec<CargoWorkspace>,
     #[serde(default)]
     pub resources: Vec<Resource>,
     #[serde(default)]
@@ -97,6 +102,7 @@ impl Display for Notice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesiredState {
     pub machine: MachineSettings,
+    pub workspaces: Vec<CargoWorkspace>,
     pub resources: Vec<Resource>,
     pub notices: Vec<Notice>,
 }
@@ -147,6 +153,7 @@ pub fn merge_configurations(configurations: Vec<(String, Configuration)>) -> Res
         .ok_or_else(|| anyhow!("No configurations were loaded"))?;
 
     let machine = first.machine.clone();
+    let mut workspaces: Vec<CargoWorkspace> = Vec::new();
     let mut resources: Vec<Resource> = Vec::new();
     let mut notices: Vec<Notice> = Vec::new();
     let mut claimed: BTreeMap<Identity, (String, Resource)> = BTreeMap::new();
@@ -178,11 +185,18 @@ pub fn merge_configurations(configurations: Vec<(String, Configuration)>) -> Res
             }
         }
 
+        for workspace in configuration.workspaces {
+            if !workspaces.contains(&workspace) {
+                workspaces.push(workspace);
+            }
+        }
+
         notices.extend(configuration.notices);
     }
 
     Ok(DesiredState {
         machine,
+        workspaces,
         resources,
         notices,
     })
@@ -300,6 +314,48 @@ mod tests {
             configuration.notices,
             vec![Notice::from("Sync the settings repository")]
         );
+    }
+
+    #[test]
+    fn a_configuration_cannot_pin_a_crate_to_a_git_revision_by_hand() {
+        let pinned = r#""resources": [{
+            "kind": "package", "manager": "cargo", "crate_name": "stop-gate",
+            "source": {
+                "source": "git",
+                "url": "https://github.com/Alice/dotfiles",
+                "revision": "426d343cd4dbf07fef70dcdfe4b65aedd9a07898"
+            }
+        }]"#;
+
+        assert!(parse(pinned).is_err());
+    }
+
+    #[test]
+    fn a_configuration_cannot_claim_a_crate_comes_from_a_workspace_by_hand() {
+        let claimed = r#""resources": [{
+            "kind": "package", "manager": "cargo", "crate_name": "stop-gate",
+            "source": {
+                "source": "workspace",
+                "repository": { "owner": "Alice", "repository": "dotfiles" }
+            }
+        }]"#;
+
+        assert!(parse(claimed).is_err());
+    }
+
+    #[test]
+    fn a_workspace_declared_by_two_configurations_collapses_to_one() {
+        let workspace = r#""workspaces": [
+            { "repository": { "owner": "Alice", "repository": "dotfiles" } }
+        ]"#;
+        let loaded = vec![
+            ("everywhere".to_owned(), parse(workspace).unwrap()),
+            ("personal".to_owned(), parse(workspace).unwrap()),
+        ];
+
+        let desired_state = merge_configurations(loaded).unwrap();
+
+        assert_eq!(desired_state.workspaces.len(), 1);
     }
 
     #[test]

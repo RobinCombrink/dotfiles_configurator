@@ -85,13 +85,16 @@ impl Display for ApplyOutcome {
 /// again, converge what has since become ready. Termination is structural rather than a limit —
 /// a pass that converges nothing ends the run, and every productive pass strictly shrinks the set
 /// of unconverged resources. See ADR 0004.
-pub async fn apply(desired_state: &DesiredState, machine: &impl WriteMachine) -> ApplyOutcome {
+pub async fn apply(
+    desired_state: &DesiredState,
+    machine: &impl WriteMachine,
+) -> anyhow::Result<ApplyOutcome> {
     let mut converged: Vec<Resource> = Vec::new();
     let mut failed: Vec<Failure> = Vec::new();
     let mut passes = 0;
 
     let change_set = loop {
-        let change_set: ChangeSet = plan(desired_state, machine);
+        let change_set: ChangeSet = plan(desired_state, machine)?;
         passes += 1;
 
         let attempted = attempt(&change_set, machine, &mut converged, &mut failed).await;
@@ -111,14 +114,14 @@ pub async fn apply(desired_state: &DesiredState, machine: &impl WriteMachine) ->
         .cloned()
         .collect();
 
-    ApplyOutcome {
+    Ok(ApplyOutcome {
         converged,
         failed,
         blocked: change_set.blocked,
         unverified,
         notices: change_set.notices,
         passes,
-    }
+    })
 }
 
 /// Converges every changed resource in the set, collecting failures instead of stopping at the
@@ -141,7 +144,7 @@ async fn attempt(
             continue;
         }
 
-        match converge(&change.resource, machine).await {
+        match converge(&change.resource, machine, &change_set.readings).await {
             Ok(()) => {
                 converged.push(change.resource.clone());
                 count += 1;

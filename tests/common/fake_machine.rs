@@ -277,8 +277,13 @@ impl ReadMachine for FakeMachine {
         repository_path: &Path,
         _installed: &BTreeMap<CrateName, Revision>,
     ) -> Result<Option<WorkspaceReading>> {
+        let is_cloned = self.path_exists(&repository_path.join(".git"));
+
         let mut state = self.state.borrow_mut();
         state.workspace_reads.push(repository_path.to_path_buf());
+        if !is_cloned {
+            return Ok(None);
+        }
 
         Ok(state.cargo_workspaces.get(repository_path).cloned())
     }

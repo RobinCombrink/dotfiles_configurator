@@ -9,10 +9,12 @@ use {
 pub mod apply;
 pub mod assess;
 pub mod converge;
+pub mod resolve;
 
 pub use {
     apply::ApplyOutcome,
     assess::{SourceReadings, assess},
+    resolve::resolve,
 };
 
 /// What a resource kind answers when asked to compare its desired state against the machine.
@@ -153,6 +155,7 @@ pub struct ChangeSet {
     pub blocked: Vec<Blocked>,
     pub converged: Vec<Resource>,
     pub notices: Vec<Notice>,
+    pub readings: SourceReadings,
 }
 
 impl ChangeSet {
@@ -169,11 +172,14 @@ impl ChangeSet {
 ///
 /// Every source that can answer about a whole set of resources is read before any resource is
 /// assessed, so one is read once per change set rather than once per resource. See ADR 0010.
-pub fn plan(desired_state: &DesiredState, machine: &impl crate::machine::ReadMachine) -> ChangeSet {
-    let readings = SourceReadings::read_for(&desired_state.resources, machine);
+pub fn plan(
+    desired_state: &DesiredState,
+    machine: &impl crate::machine::ReadMachine,
+) -> anyhow::Result<ChangeSet> {
+    let readings = SourceReadings::read_for(desired_state, machine);
+    let resources = resolve(desired_state, &readings)?;
 
-    let mut assessed: Vec<(ResourceKind, usize, Resource, Assessment)> = desired_state
-        .resources
+    let mut assessed: Vec<(ResourceKind, usize, Resource, Assessment)> = resources
         .iter()
         .enumerate()
         .map(|(position, resource)| {
@@ -202,12 +208,13 @@ pub fn plan(desired_state: &DesiredState, machine: &impl crate::machine::ReadMac
         }
     }
 
-    ChangeSet {
+    Ok(ChangeSet {
         changes,
         blocked,
         converged,
         notices: desired_state.notices.clone(),
-    }
+        readings,
+    })
 }
 
 impl Display for ChangeSet {

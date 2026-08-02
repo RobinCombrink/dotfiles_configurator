@@ -7,16 +7,22 @@ use {
     cucumber::{World, given, then, when},
     dotfiles::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, DesiredState, GitHubRepository,
-            MachineSettings, Notice, PresenceCheck, RepositoryName, RepositoryOwner, Resource,
-            Shell, Symlink,
+            Application, ApplicationName, ApplicationSource, CargoWorkspace, CrateName,
+            DesiredState, GitHubRepository, MachineSettings, Notice, PresenceCheck, RepositoryName,
+            RepositoryOwner, Resource, Shell, Symlink,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
-        machine::{ReadMachine, Tool},
+        machine::{
+            ReadMachine, Tool,
+            workspace_reading::{
+                Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
+            },
+        },
     },
     fake_machine::FakeMachine,
     std::{
+        collections::BTreeMap,
         env, fs,
         path::{Path, PathBuf},
         sync::atomic::{AtomicUsize, Ordering},
@@ -29,6 +35,8 @@ use {
 struct MachineWorld {
     machine: FakeMachine,
     resources: Vec<Resource>,
+    workspaces: Vec<CargoWorkspace>,
+    members: BTreeMap<CrateName, MemberReading>,
     notices: Vec<Notice>,
     /// Configurations as they are written down, for the scenarios about loading them.
     documents: Vec<String>,
@@ -45,6 +53,8 @@ impl MachineWorld {
         Self {
             machine: FakeMachine::default(),
             resources: Vec::new(),
+            workspaces: Vec::new(),
+            members: BTreeMap::new(),
             notices: Vec::new(),
             documents: Vec::new(),
             change_set: None,
@@ -59,9 +69,30 @@ impl MachineWorld {
     fn desired_state(&self) -> DesiredState {
         DesiredState {
             machine: machine_settings(),
+            workspaces: self.workspaces.clone(),
             resources: self.resources.clone(),
             notices: self.notices.clone(),
         }
+    }
+
+    fn member(&mut self, crate_name: &str) -> &mut MemberReading {
+        self.members
+            .get_mut(&CrateName::from(crate_name))
+            .expect("the scenario has not said the workspace holds that crate")
+    }
+
+    fn publish_workspace(&self) {
+        if self.workspaces.is_empty() {
+            return;
+        }
+
+        self.machine.hold_cargo_workspace(
+            machine_settings().dotfiles_repository_path(),
+            WorkspaceReading {
+                revision: Revision::from("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c"),
+                members: self.members.clone(),
+            },
+        );
     }
 
     fn change_set(&self) -> &ChangeSet {
@@ -251,23 +282,63 @@ fn document(version: &str, resources: &str) -> String {
     )
 }
 
+#[given(expr = "Alice declares the cargo workspace in the dotfiles repository")]
+fn declare_cargo_workspace(world: &mut MachineWorld) {
+    world.workspaces.push(CargoWorkspace {
+        repository: machine_settings().dotfiles_repository,
+    });
+}
+
+#[given(expr = "the workspace holds the crate {string}")]
+fn workspace_holds_crate(world: &mut MachineWorld, crate_name: String) {
+    world.members.insert(
+        CrateName::from(crate_name.as_str()),
+        MemberReading {
+            desired: content_named("what the workspace holds now"),
+            installed: None,
+        },
+    );
+}
+
+#[given(expr = "cargo installed {string} from the content the workspace holds now")]
+fn installed_from_current_content(world: &mut MachineWorld, crate_name: String) {
+    let member = world.member(&crate_name);
+    member.installed = Some(member.desired.clone());
+}
+
+#[given(expr = "cargo installed {string} from content the workspace has since changed")]
+fn installed_from_older_content(world: &mut MachineWorld, crate_name: String) {
+    world.member(&crate_name).installed = Some(content_named("what it held before"));
+}
+
+fn content_named(content: &str) -> Fingerprint {
+    Fingerprint {
+        crate_subtree: ObjectHash::from(content),
+        workspace_manifest: ObjectHash::from("the workspace manifest"),
+        lockfile: ObjectHash::from("the lockfile"),
+    }
+}
+
 #[when(expr = "Alice plans")]
 fn alice_plans(world: &mut MachineWorld) {
+    world.publish_workspace();
     world.fingerprint_before = Some(world.machine.fingerprint());
-    world.change_set = Some(plan(&world.desired_state(), &world.machine));
+    world.change_set = Some(plan(&world.desired_state(), &world.machine).unwrap());
 }
 
 #[when(expr = "Alice plans twice")]
 fn alice_plans_twice(world: &mut MachineWorld) {
+    world.publish_workspace();
     world.fingerprint_before = Some(world.machine.fingerprint());
-    world.change_set = Some(plan(&world.desired_state(), &world.machine));
-    world.second_change_set = Some(plan(&world.desired_state(), &world.machine));
+    world.change_set = Some(plan(&world.desired_state(), &world.machine).unwrap());
+    world.second_change_set = Some(plan(&world.desired_state(), &world.machine).unwrap());
 }
 
 #[when(expr = "Alice applies")]
 async fn alice_applies(world: &mut MachineWorld) {
+    world.publish_workspace();
     world.fingerprint_before = Some(world.machine.fingerprint());
-    world.outcome = Some(apply(&world.desired_state(), &world.machine).await);
+    world.outcome = Some(apply(&world.desired_state(), &world.machine).await.unwrap());
 }
 
 #[when(expr = "Alice withdraws the declaration of {string}")]

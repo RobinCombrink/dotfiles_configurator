@@ -7,7 +7,7 @@ use {
         },
     },
     anyhow::{Context, Result, anyhow},
-    git2::{BranchType, Oid, Repository, Tree},
+    git2::{BranchType, Repository, Tree},
     std::{collections::BTreeMap, path::Path},
 };
 
@@ -78,10 +78,9 @@ fn members_at(
     repository: &Repository,
     revision: &Revision,
 ) -> Result<BTreeMap<CrateName, Fingerprint>> {
-    let object_id = Oid::from_str(revision.as_ref())
-        .with_context(|| format!("{revision} is not a commit identifier"))?;
     let commit = repository
-        .find_commit(object_id)
+        .revparse_single(revision.as_ref())
+        .and_then(|object| object.peel_to_commit())
         .with_context(|| format!("{revision} is not in this clone"))?;
     let tree = commit.tree()?;
 

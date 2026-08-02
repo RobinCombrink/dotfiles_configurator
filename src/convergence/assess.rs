@@ -1,10 +1,17 @@
-use crate::{
-    configuration::{
-        Application, CargoPackage, CargoSource, ClaudeMcpServer, Command, GitHubRepository,
-        Package, Registration, Resource, Symlink, WingetPackage,
+use {
+    crate::{
+        configuration::{
+            Application, CargoPackage, CargoSource, ClaudeMcpServer, Command, CrateName,
+            DesiredState, GitHubRepository, Package, Registration, Resource, Symlink,
+            WingetPackage,
+        },
+        convergence::{Assessment, DriftReason, Requirement},
+        machine::{
+            ReadInvocation, ReadMachine,
+            workspace_reading::{Revision, WorkspaceReading},
+        },
     },
-    convergence::{Assessment, DriftReason, Requirement},
-    machine::{ReadInvocation, ReadMachine},
+    std::collections::BTreeMap,
 };
 
 /// Every source that answers about a whole set of resources at once, read once for one change
@@ -18,13 +25,14 @@ use crate::{
 pub struct SourceReadings {
     winget_packages: Option<Result<String, DriftReason>>,
     cargo_crates: Option<Result<String, DriftReason>>,
+    workspaces: BTreeMap<GitHubRepository, Result<Option<WorkspaceReading>, DriftReason>>,
 }
 
 impl SourceReadings {
-    pub fn read_for(resources: &[Resource], machine: &impl ReadMachine) -> Self {
+    pub fn read_for(desired_state: &DesiredState, machine: &impl ReadMachine) -> Self {
         let mut winget_is_needed = false;
-        let mut cargo_is_needed = false;
-        for resource in resources {
+        let mut cargo_is_needed = !desired_state.workspaces.is_empty();
+        for resource in &desired_state.resources {
             if let Resource::Package(package) = resource {
                 match package {
                     Package::Winget(_) => winget_is_needed = true,
@@ -33,19 +41,65 @@ impl SourceReadings {
             }
         }
 
+        let cargo_crates = read_listing(
+            cargo_is_needed,
+            ReadInvocation::CargoInstalledCrates,
+            machine,
+        );
+        let installed = match &cargo_crates {
+            Some(Ok(listing)) => installed_revisions(listing),
+            Some(Err(_)) | None => BTreeMap::new(),
+        };
+
+        let mut workspaces = BTreeMap::new();
+        for workspace in &desired_state.workspaces {
+            let repository_path = machine
+                .repositories_directory()
+                .join(workspace.repository.repository.as_ref());
+            let reading = machine
+                .read_cargo_workspace(&repository_path, &installed)
+                .map_err(|error| DriftReason::from(format!("{error:#}")));
+            workspaces.insert(workspace.repository.clone(), reading);
+        }
+
         Self {
             winget_packages: read_listing(
                 winget_is_needed,
                 ReadInvocation::WingetInstalledPackages,
                 machine,
             ),
-            cargo_crates: read_listing(
-                cargo_is_needed,
-                ReadInvocation::CargoInstalledCrates,
-                machine,
-            ),
+            cargo_crates,
+            workspaces,
         }
     }
+
+    pub fn workspace(
+        &self,
+        repository: &GitHubRepository,
+    ) -> Option<&Result<Option<WorkspaceReading>, DriftReason>> {
+        self.workspaces.get(repository)
+    }
+
+    pub fn workspace_revision(&self, repository: &GitHubRepository) -> Option<&Revision> {
+        match self.workspaces.get(repository) {
+            Some(Ok(Some(reading))) => Some(&reading.revision),
+            Some(Ok(None)) | Some(Err(_)) | None => None,
+        }
+    }
+}
+
+fn installed_revisions(listing: &str) -> BTreeMap<CrateName, Revision> {
+    listing
+        .lines()
+        .filter(|line| !line.starts_with(char::is_whitespace))
+        .filter_map(installed_crate_line)
+        .filter_map(|(name, source)| match source {
+            InstalledFrom::Git { commit, .. } => {
+                Some((CrateName::from(name), Revision::from(commit)))
+            }
+            InstalledFrom::Registry | InstalledFrom::Path(_) => None,
+        })
+        .collect()
 }
 
 /// A listing a tool could not produce is one failure, not one per resource that needed it, so the
@@ -197,6 +251,46 @@ fn winget_id_column(listing: &str) -> Option<(usize, usize)> {
 }
 
 fn assess_cargo_package(package: &CargoPackage, readings: &SourceReadings) -> Assessment {
+    match &package.source {
+        CargoSource::Workspace { repository } => {
+            assess_workspace_member(&package.crate_name, repository, readings)
+        }
+        CargoSource::Registry | CargoSource::Path { .. } => {
+            assess_declared_cargo_package(package, readings)
+        }
+    }
+}
+
+fn assess_workspace_member(
+    crate_name: &CrateName,
+    repository: &GitHubRepository,
+    readings: &SourceReadings,
+) -> Assessment {
+    let reading = match readings.workspace(repository) {
+        Some(Ok(Some(reading))) => reading,
+        Some(Ok(None)) => {
+            return Assessment::Drifted("its repository has not been cloned".into());
+        }
+        Some(Err(reason)) => return Assessment::Drifted(reason.clone()),
+        None => {
+            return Assessment::Drifted("its workspace was not read for this change set".into());
+        }
+    };
+
+    let Some(member) = reading.members.get(crate_name) else {
+        return Assessment::Drifted("the workspace no longer holds it".into());
+    };
+    let Some(installed) = &member.installed else {
+        return Assessment::Drifted("cargo has not installed it".into());
+    };
+
+    match member.desired.difference_from(installed) {
+        None => Assessment::Converged,
+        Some(difference) => Assessment::Drifted(difference.into()),
+    }
+}
+
+fn assess_declared_cargo_package(package: &CargoPackage, readings: &SourceReadings) -> Assessment {
     let installed = match &readings.cargo_crates {
         Some(Ok(listing)) => listing,
         Some(Err(reason)) => return Assessment::Drifted(reason.clone()),
@@ -211,11 +305,6 @@ fn assess_cargo_package(package: &CargoPackage, readings: &SourceReadings) -> As
         (CargoSource::Registry, InstalledFrom::Registry) => Assessment::Converged,
         (CargoSource::Path { path }, InstalledFrom::Path(installed_path))
             if paths_are_the_same(path, installed_path) =>
-        {
-            Assessment::Converged
-        }
-        (CargoSource::Git { revision, .. }, InstalledFrom::Git { commit, .. })
-            if revisions_agree(revision, commit) =>
         {
             Assessment::Converged
         }
@@ -249,38 +338,36 @@ impl std::fmt::Display for InstalledFrom {
 /// installed underneath. A registry install is bare — `committed v1.1.11:` — while anything else
 /// carries its source in parentheses: `ci-checks v0.1.0 (C:\path\to\crate):` for a path, and
 /// `stop-gate v0.1.0 (https://host/owner/repo?rev=<asked>#<resolved>):` for a git revision.
+fn installed_crate_line(line: &str) -> Option<(&str, InstalledFrom)> {
+    let (name, remainder) = line.trim_end().split_once(' ')?;
+
+    let Some((_, source)) = remainder.split_once('(') else {
+        return Some((name, InstalledFrom::Registry));
+    };
+    let source = source.trim_end_matches([')', ':']);
+
+    match source.split_once('#') {
+        Some((location, commit)) => Some((
+            name,
+            InstalledFrom::Git {
+                url: location
+                    .split_once('?')
+                    .map_or(location, |(url, _)| url)
+                    .to_owned(),
+                commit: commit.to_owned(),
+            },
+        )),
+        None => Some((name, InstalledFrom::Path(source.to_owned()))),
+    }
+}
+
 fn installed_crate_source(listing: &str, crate_name: &str) -> Option<InstalledFrom> {
     listing
         .lines()
         .filter(|line| !line.starts_with(char::is_whitespace))
-        .find_map(|line| {
-            let (name, remainder) = line.trim_end().split_once(' ')?;
-            if name != crate_name {
-                return None;
-            }
-
-            let Some((_, source)) = remainder.split_once('(') else {
-                return Some(InstalledFrom::Registry);
-            };
-            let source = source.trim_end_matches([')', ':']);
-
-            match source.split_once('#') {
-                Some((location, commit)) => Some(InstalledFrom::Git {
-                    url: location
-                        .split_once('?')
-                        .map_or(location, |(url, _)| url)
-                        .to_owned(),
-                    commit: commit.to_owned(),
-                }),
-                None => Some(InstalledFrom::Path(source.to_owned())),
-            }
-        })
-}
-
-/// The listing abbreviates the resolved commit, so a declared revision agrees with it when either
-/// is a prefix of the other.
-fn revisions_agree(declared: &str, installed: &str) -> bool {
-    !declared.is_empty() && (declared.starts_with(installed) || installed.starts_with(declared))
+        .filter_map(installed_crate_line)
+        .find(|(name, _)| *name == crate_name)
+        .map(|(_, source)| source)
 }
 
 fn paths_are_the_same(declared: &std::path::Path, installed: &str) -> bool {
@@ -509,18 +596,26 @@ mod tests {
     }
 
     #[test]
-    fn a_full_revision_agrees_with_the_abbreviated_commit_the_listing_reports() {
-        assert!(revisions_agree(
-            "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c",
-            "2ae2ffff"
-        ));
+    fn the_commit_a_crate_resolved_to_is_read_out_of_the_listing() {
+        let listing = concat!(
+            "committed v1.1.11:\n",
+            "    committed.exe\n",
+            "stop-gate v0.1.0 (https://github.com/Alice/dotfiles?rev=426d343#2ae2ffff):\n",
+            "    stop-gate.exe\n",
+        );
+
+        let revisions = installed_revisions(listing);
+
+        assert_eq!(
+            revisions.get(&CrateName::from("stop-gate")),
+            Some(&Revision::from("2ae2ffff"))
+        );
     }
 
     #[test]
-    fn a_revision_that_resolved_to_a_different_commit_does_not_agree() {
-        assert!(!revisions_agree(
-            "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c",
-            "9f31a0c2"
-        ));
+    fn a_crate_installed_from_the_registry_names_no_commit_to_compare_against() {
+        let listing = "committed v1.1.11:\n    committed.exe\n";
+
+        assert!(installed_revisions(listing).is_empty());
     }
 }

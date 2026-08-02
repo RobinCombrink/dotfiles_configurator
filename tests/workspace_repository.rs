@@ -231,6 +231,22 @@ fn a_branch_that_tracks_no_remote_is_refused_rather_than_read_from_the_local_com
 }
 
 #[test]
+fn the_abbreviated_commit_cargo_lists_still_finds_the_content_it_names() {
+    let repository = workspace_holding_a_binary_and_a_library();
+    let installed_from = repository.head_revision();
+    let abbreviated = Revision::from(&installed_from.as_ref()[..9]);
+    repository.write("README.md", "a change to something else entirely\n");
+    repository.commit("unrelated");
+    repository.push();
+
+    let reading = workspace::read(repository.path(), &installed("alpha", &abbreviated))
+        .unwrap()
+        .unwrap();
+
+    assert!(alpha(&reading));
+}
+
+#[test]
 fn a_crate_whose_installed_commit_is_absent_from_the_clone_reads_as_not_installed() {
     let repository = workspace_holding_a_binary_and_a_library();
     let absent = Revision::from("0123456789012345678901234567890123456789");

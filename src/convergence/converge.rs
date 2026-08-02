@@ -4,6 +4,7 @@ use {
             CargoPackage, CargoSource, Command, GitHubRepository, Package, Registration, Resource,
             Symlink, WingetPackage,
         },
+        convergence::SourceReadings,
         machine::{WriteInvocation, WriteMachine},
     },
     anyhow::{Context, Result, bail},
@@ -11,7 +12,11 @@ use {
 
 /// Closes the drift on one resource. Only ever called for a resource a state reader has just
 /// reported as drifted.
-pub async fn converge(resource: &Resource, machine: &impl WriteMachine) -> Result<()> {
+pub async fn converge(
+    resource: &Resource,
+    machine: &impl WriteMachine,
+    readings: &SourceReadings,
+) -> Result<()> {
     match resource {
         Resource::Repository(repository) => converge_repository(repository, machine).await,
         Resource::Application(application) => machine
@@ -19,7 +24,9 @@ pub async fn converge(resource: &Resource, machine: &impl WriteMachine) -> Resul
             .await
             .with_context(|| format!("Could not install {}", application.name)),
         Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
-        Resource::Package(Package::Cargo(package)) => converge_cargo_package(package, machine),
+        Resource::Package(Package::Cargo(package)) => {
+            converge_cargo_package(package, machine, readings)
+        }
         Resource::Symlink(symlink) => converge_symlink(symlink, machine),
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
             let removal = WriteInvocation::RemoveClaudeMcpServer {
@@ -54,7 +61,11 @@ fn converge_winget_package(package: &WingetPackage, machine: &impl WriteMachine)
         .map(|_| ())
 }
 
-fn converge_cargo_package(package: &CargoPackage, machine: &impl WriteMachine) -> Result<()> {
+fn converge_cargo_package(
+    package: &CargoPackage,
+    machine: &impl WriteMachine,
+    readings: &SourceReadings,
+) -> Result<()> {
     let mut arguments = vec![
         "install".to_owned(),
         "--locked".to_owned(),
@@ -66,11 +77,14 @@ fn converge_cargo_package(package: &CargoPackage, machine: &impl WriteMachine) -
             arguments.push("--path".to_owned());
             arguments.push(path.display().to_string());
         }
-        CargoSource::Git { url, revision } => {
+        CargoSource::Workspace { repository } => {
+            let Some(revision) = readings.workspace_revision(repository) else {
+                bail!("{repository} was not read, so there is no revision to install from");
+            };
             arguments.push("--git".to_owned());
-            arguments.push(url.to_string());
+            arguments.push(repository.clone_url());
             arguments.push("--rev".to_owned());
-            arguments.push(revision.clone());
+            arguments.push(revision.to_string());
             arguments.push(package.crate_name.to_string());
         }
     }

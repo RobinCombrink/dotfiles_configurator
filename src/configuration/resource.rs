@@ -99,6 +99,12 @@ pub struct GitHubRepository {
     pub repository: RepositoryName,
 }
 
+impl GitHubRepository {
+    pub fn clone_url(&self) -> String {
+        format!("https://github.com/{}/{}", self.owner, self.repository)
+    }
+}
+
 impl Display for GitHubRepository {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{}/{}", self.owner, self.repository)
@@ -179,15 +185,18 @@ pub struct CargoPackage {
     pub source: CargoSource,
 }
 
-/// Where Cargo installs a crate from. Cargo reports this back in `cargo install --list`, which is
-/// what makes a cargo package readable: a registry install is bare, a path install carries its
-/// path, and a git install carries the revision it was asked for and the commit that resolved to.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum CargoSource {
     Registry,
-    Path { path: PathBuf },
-    Git { url: Url, revision: String },
+    Path {
+        path: PathBuf,
+    },
+    #[serde(skip_deserializing)]
+    #[schemars(skip)]
+    Workspace {
+        repository: GitHubRepository,
+    },
 }
 
 /// A configuration file or directory owned by the dotfiles repository and linked into place on the
