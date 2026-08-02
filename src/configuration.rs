@@ -133,7 +133,7 @@ pub fn parse_configuration(contents: &str, source: &str) -> Result<Configuration
         );
     }
 
-    serde_json::from_value(document).with_context(|| {
+    serde_path_to_error::deserialize(document).with_context(|| {
         format!("{source} is not a valid version {SUPPORTED_VERSION} configuration")
     })
 }
@@ -234,6 +234,50 @@ mod tests {
         let error = parse_configuration(&versionless, "everywhere.dotconfig.json").unwrap_err();
 
         assert!(error.to_string().contains("declares no version"));
+    }
+
+    #[test]
+    fn a_missing_machine_setting_is_reported_by_the_object_it_belongs_to() {
+        let without_a_repositories_directory_path = r#"{
+            "version": "2",
+            "machine": {
+                "github_username": "Alice",
+                "dotfiles_repository": { "owner": "Alice", "repository": "dotfiles" }
+            },
+            "resources": []
+        }"#;
+
+        let error = parse_configuration(
+            without_a_repositories_directory_path,
+            "personal.dotconfig.json",
+        )
+        .unwrap_err();
+
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("machine") && message.contains("repositories_directory_path"),
+            "expected the message to name the object holding the field, got: {message}"
+        );
+    }
+
+    #[test]
+    fn a_fault_inside_a_resource_is_reported_by_its_position_in_the_list() {
+        let with_an_unknown_shell = configuration_json(
+            SUPPORTED_VERSION,
+            r#""resources": [
+                { "kind": "command", "shell": "bash", "args": ["first"] },
+                { "kind": "command", "shell": "nonesuch", "args": ["second"] }
+            ]"#,
+        );
+
+        let error =
+            parse_configuration(&with_an_unknown_shell, "personal.dotconfig.json").unwrap_err();
+
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("resources[1]"),
+            "expected the message to name the offending resource, got: {message}"
+        );
     }
 
     #[test]
