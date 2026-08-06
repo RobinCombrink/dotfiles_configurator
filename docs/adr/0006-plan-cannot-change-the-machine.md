@@ -1,6 +1,7 @@
 # Plan cannot change the machine
 
-Status: accepted (2026-07-31, grilling session on the Phase D domain model)
+Status: accepted (2026-07-31, grilling session on the Phase D domain model); amended 2026-08-06 on
+what the guarantee covers
 
 Producing a change set and enacting one are given different capabilities. Plan holds capabilities
 that can only read; apply holds those and the ones that write. "Plan had no side effects" is
@@ -24,6 +25,9 @@ change anything by construction. What remains is a narrow, deliberate escape hat
 So the guarantee is precise, and stating it precisely matters: **plan cannot change a machine
 through anything the tool decides; it can change one only through a check the configuration's
 author wrote and declared as a check.**
+
+The guarantee is about the machine's declared resources. ADR 0013 records why a run's own log sits
+outside the split rather than inside it.
 
 ## Considered options
 
