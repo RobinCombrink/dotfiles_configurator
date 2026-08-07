@@ -13,16 +13,16 @@ pub enum Context {
 }
 
 impl Context {
+    const ALL: [Context; 3] = [Context::Everywhere, Context::Personal, Context::Work];
+
     /// ```
     /// use dotfiles::configuration::Context;
     ///
-    /// assert!(Context::Personal.includes(Context::Everywhere));
-    /// assert!(Context::Personal.includes(Context::Personal));
-    /// assert!(!Context::Personal.includes(Context::Work));
-    /// assert!(!Context::Everywhere.includes(Context::Personal));
+    /// assert!(Context::Everywhere.applies_on(Context::Personal));
+    /// assert!(!Context::Work.applies_on(Context::Personal));
     /// ```
-    pub fn includes(self, declared: Context) -> bool {
-        declared == Context::Everywhere || declared == self
+    pub fn applies_on(self, machine: Context) -> bool {
+        self == Context::Everywhere || self == machine
     }
 
     fn as_written(self) -> &'static str {
@@ -30,6 +30,14 @@ impl Context {
             Context::Everywhere => "everywhere",
             Context::Personal => "personal",
             Context::Work => "work",
+        }
+    }
+
+    pub fn machine_described(self) -> &'static str {
+        match self {
+            Context::Everywhere => "a machine of no class",
+            Context::Personal => "a personal machine",
+            Context::Work => "a work machine",
         }
     }
 }
@@ -44,15 +52,19 @@ impl FromStr for Context {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "everywhere" => Ok(Context::Everywhere),
-            "personal" => Ok(Context::Personal),
-            "work" => Ok(Context::Work),
-            other => Err(format!(
-                "{other:?} is no machine this tool knows; expected `everywhere`, `personal` or \
-                 `work`"
-            )),
-        }
+        Context::ALL
+            .into_iter()
+            .find(|context| context.as_written() == value)
+            .ok_or_else(|| {
+                let known: Vec<&str> = Context::ALL
+                    .iter()
+                    .map(|context| context.as_written())
+                    .collect();
+                format!(
+                    "{value:?} is no machine this tool knows; expected one of {}",
+                    known.join(", ")
+                )
+            })
     }
 }
 
@@ -62,21 +74,27 @@ mod tests {
 
     #[test]
     fn a_configuration_for_every_machine_applies_to_a_machine_of_any_class() {
-        assert!(Context::Personal.includes(Context::Everywhere));
-        assert!(Context::Work.includes(Context::Everywhere));
-        assert!(Context::Everywhere.includes(Context::Everywhere));
+        assert!(Context::Everywhere.applies_on(Context::Personal));
+        assert!(Context::Everywhere.applies_on(Context::Work));
+        assert!(Context::Everywhere.applies_on(Context::Everywhere));
     }
 
     #[test]
     fn a_configuration_for_one_class_of_machine_applies_to_no_other_class() {
-        assert!(!Context::Work.includes(Context::Personal));
-        assert!(!Context::Personal.includes(Context::Work));
+        assert!(!Context::Personal.applies_on(Context::Work));
+        assert!(!Context::Work.applies_on(Context::Personal));
     }
 
     #[test]
-    fn a_machine_belonging_to_no_class_applies_only_what_is_for_every_machine() {
-        assert!(!Context::Everywhere.includes(Context::Personal));
-        assert!(!Context::Everywhere.includes(Context::Work));
+    fn a_configuration_for_one_class_of_machine_applies_to_that_class() {
+        assert!(Context::Personal.applies_on(Context::Personal));
+        assert!(Context::Work.applies_on(Context::Work));
+    }
+
+    #[test]
+    fn a_machine_belonging_to_no_class_takes_nothing_written_for_a_class() {
+        assert!(!Context::Personal.applies_on(Context::Everywhere));
+        assert!(!Context::Work.applies_on(Context::Everywhere));
     }
 
     #[test]
@@ -91,8 +109,18 @@ mod tests {
 
     #[test]
     fn every_context_is_written_the_way_it_is_read() {
-        for context in [Context::Everywhere, Context::Personal, Context::Work] {
+        for context in Context::ALL {
             assert_eq!(Context::from_str(&context.to_string()), Ok(context));
+        }
+    }
+
+    #[test]
+    fn every_context_reaches_json_spelled_the_way_the_command_line_reads_it() {
+        for context in Context::ALL {
+            assert_eq!(
+                serde_json::to_string(&context).unwrap(),
+                format!("\"{context}\"")
+            );
         }
     }
 }
