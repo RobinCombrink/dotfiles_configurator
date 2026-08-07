@@ -48,8 +48,11 @@ provisioning takes, and no threshold has a principled value against a single cra
 - **A converged run prints its summary and nothing more.** These triggers fire on every commit, and
   a tool that speaks on every commit is a tool whose hooks get removed. The log is written anyway:
   the run that turns out to have been interesting cannot be re-instrumented afterwards.
-- **The log holds the arguments of every invocation**, so an invocation carrying an environment
-  value has to be redacted at that boundary before one of them carries a credential.
+- **The log holds the arguments of every invocation, verbatim.** Redacting them was considered and
+  rejected: a configuration is fetched from a repository, so a value written into one is already
+  committed before any log exists, and a log that hides it would make the tool tolerant of a
+  declaration nobody should be able to write. The constraint belongs to what a configuration may
+  hold, not to what the log may print.
 - **Logging is process infrastructure and sits outside the capability split**, so producing a change
   set writes a log without acquiring any ability to change a resource. ADR 0006 states the guarantee
   about the machine's declared resources.
