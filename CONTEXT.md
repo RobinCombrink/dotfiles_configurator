@@ -118,9 +118,9 @@ naming two that describe different machines are unexpressable rather than reject
 _Avoid_: machine class, environment, mode, tier
 
 **Configuration source**:
-Where configurations are read from — a local directory, or a directory in a GitHub repository. It
-is read whole, and determines only where: which configurations apply is decided by the context
-each one declares.
+Where configurations are read from — a local directory, or a directory in a GitHub repository. Every
+`*.dotconfig.json` directly in it is read, subdirectories are not descended into, and it determines
+only where: which configurations apply is decided by the context each one declares.
 _Avoid_: config location, provider, backend
 
 **Dotfile**:
