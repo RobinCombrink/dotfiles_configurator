@@ -6,3 +6,4 @@ pub mod configuration_source;
 pub mod convergence;
 pub mod github;
 pub mod machine;
+pub mod reporting;
