@@ -161,6 +161,11 @@ Where configurations are read from — a local directory, or a directory in a Gi
 only where: which configurations apply is decided by the context each one declares.
 _Avoid_: config location, provider, backend
 
+**GitHub account**:
+The account a configuration acts as, inherited by every resource it declares. Not a repository's
+owner — an owner is an address, and a public repository is read by any account at all.
+_Avoid_: identity, username, credential, login
+
 **Dotfile**:
 A configuration file or directory owned by the dotfiles repository and linked into place on
 the machine, rather than copied.
