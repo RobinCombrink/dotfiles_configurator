@@ -2,9 +2,10 @@ use {
     schemars::JsonSchema,
     serde::{Deserialize, Serialize},
     std::{fmt::Display, str::FromStr},
+    strum::{EnumIter, IntoEnumIterator},
 };
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum Context {
     Everywhere,
@@ -13,8 +14,6 @@ pub enum Context {
 }
 
 impl Context {
-    const ALL: [Context; 3] = [Context::Everywhere, Context::Personal, Context::Work];
-
     /// ```
     /// use dotfiles::configuration::Context;
     ///
@@ -52,12 +51,10 @@ impl FromStr for Context {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Context::ALL
-            .into_iter()
+        Context::iter()
             .find(|context| context.as_written() == value)
             .ok_or_else(|| {
-                let known: Vec<&str> = Context::ALL
-                    .iter()
+                let known: Vec<&str> = Context::iter()
                     .map(|context| context.as_written())
                     .collect();
                 format!(
@@ -109,14 +106,14 @@ mod tests {
 
     #[test]
     fn every_context_is_written_the_way_it_is_read() {
-        for context in Context::ALL {
+        for context in Context::iter() {
             assert_eq!(Context::from_str(&context.to_string()), Ok(context));
         }
     }
 
     #[test]
     fn every_context_reaches_json_spelled_the_way_the_command_line_reads_it() {
-        for context in Context::ALL {
+        for context in Context::iter() {
             assert_eq!(
                 serde_json::to_string(&context).unwrap(),
                 format!("\"{context}\"")
