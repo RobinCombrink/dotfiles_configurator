@@ -54,8 +54,32 @@ _Avoid_: generated, derived, implicit, expanded
 
 **Resource kind**:
 The category a resource belongs to, which determines how its actual state is read. Symlink,
-repository, application, package, registration, notice, and command.
+repository, application, package, environment variable, registration, notice, and command.
 _Avoid_: type, category, variant
+
+**Application**:
+A program on the machine. How it arrives is a shape of the application rather than a setting on
+it, and the shape determines how its actual state is read: an installer is read through a
+presence check, a released binary through the version it reports.
+_Avoid_: program, app, software, tool
+
+**Installer**:
+The shape of an application that is downloaded and run, and whose presence the machine cannot be
+asked about directly. The original meaning of application, now one of two.
+_Avoid_: setup, package, executable
+
+**Released binary**:
+The shape of an application that is an executable inside a release archive, installed under the
+name it carries inside that archive. Its desired state is the version of the latest release and
+its actual state is the version the installed binary reports, so it is the one application shape
+that can be assessed for currency rather than for presence.
+_Avoid_: download, artifact, portable app
+
+**Environment variable**:
+A resource kind in two shapes. A variable's desired state is its whole value; a search path
+entry's desired state is membership of the search path, never the whole of it, because the
+machine and other installers write there too.
+_Avoid_: env var, setting, PATH entry
 
 **Identity**:
 The machine fact a resource claims, by which two declarations are recognised as the same
@@ -87,8 +111,8 @@ _Avoid_: available, satisfied, unblocked
 An author-declared test that establishes whether a resource is already in its desired state,
 used where the machine cannot be asked directly. Chosen from a fixed set of forms rather than
 written as arbitrary shell, so that most checks cannot change the machine they are asking
-about. Required on an application; optional on a command, and a command without one has drift
-on every run.
+about. Required on an installer; optional on a command, and a command without one has drift
+on every run. Unavailable on a released binary, which is asked for its version instead.
 _Avoid_: guard, precondition, unless, creates
 
 **Notice**:
@@ -109,6 +133,20 @@ One file declaring part of a desired state, and the machines it is for. Several 
 and merged. A configuration is self-describing: it says which machines it applies to, so nothing
 outside it decides whether it is read.
 _Avoid_: manifest, profile, layer, tier
+
+**Generation**:
+The lowest build of this program that can read a given configuration, stated by the configuration
+itself. A build reads any configuration at or below its own generation, migrating older shapes
+forward as it reads them, and refuses one above. A floor belongs to each document rather than to
+the set, so configurations read together may state different ones.
+_Avoid_: schema version, format version, revision
+
+**Unreadable**:
+Describes a configuration a run could not turn into desired state, of which none is applied. Two
+causes with two closures: **malformed** is a fault in the repository it was read from and a person
+resolves it; **too new** is a fault in the build reading it and the program resolves it by
+updating itself.
+_Avoid_: invalid, broken, corrupt
 
 **Context**:
 Which machine something is — `everywhere`, `personal` or `work`. An invocation names the one its
@@ -132,3 +170,8 @@ _Avoid_: config file, rc file, setting
 The repository holding the dotfiles themselves, cloned before any dotfile resource can
 converge.
 _Avoid_: config repo, source repo
+
+**Tool directory**:
+The directory this program owns on a machine, holding the binaries it installs and the log of
+every run. Distinct from the dotfiles repository, which this program reads and does not own.
+_Avoid_: home, install directory, data directory
