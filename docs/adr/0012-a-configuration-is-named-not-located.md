@@ -1,7 +1,7 @@
 # A configuration is named, not located
 
-Status: accepted (2026-08-06, grilling session on previewing, convergence triggers and the
-push window)
+Status: superseded by ADR 0014 (2026-08-07). Accepted 2026-08-06, grilling session on
+previewing, convergence triggers and the push window.
 
 An invocation names the configurations it wants — `everywhere`, `personal`, `work` — and names
 separately where they are read from. The two were one string, and a local directory source read

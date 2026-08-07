@@ -104,21 +104,23 @@ _Avoid_: script, hook, action
 
 ### Configuration
 
-**Named configuration**:
-One of the fixed set of configurations an invocation can ask for. Named rather than located: which
-configurations are read is decided by naming them, and where they are read from is a separate
-question that cannot change it.
+**Configuration**:
+One file declaring part of a desired state, and the machines it is for. Several are read together
+and merged. A configuration is self-describing: it says which machines it applies to, so nothing
+outside it decides whether it is read.
 _Avoid_: manifest, profile, layer, tier
 
 **Context**:
-The combination of named configurations an invocation applies, restricted to the combinations a
-machine could be. Naming none describes no machine, and neither does naming two that describe
-different ones; both are unexpressable rather than rejected.
+Which machine something is — `everywhere`, `personal` or `work`. An invocation names the one its
+machine is; a configuration declares the one it applies to, and applies when it declares
+`everywhere` or the machine the invocation named. One value rather than a set, so naming none and
+naming two that describe different machines are unexpressable rather than rejected.
 _Avoid_: machine class, environment, mode, tier
 
 **Configuration source**:
-Where the named configurations are read from — a local directory, or a GitHub repository. It
-determines only where.
+Where configurations are read from — a local directory, or a directory in a GitHub repository. It
+is read whole, and determines only where: which configurations apply is decided by the context
+each one declares.
 _Avoid_: config location, provider, backend
 
 **Dotfile**:
