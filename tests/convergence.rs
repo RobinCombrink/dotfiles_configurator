@@ -48,7 +48,6 @@ struct MachineWorld {
     fingerprint_before: Option<String>,
     loading_error: Option<String>,
     loaded: Option<DesiredState>,
-    /// Where this scenario's runs write their logs, so retention can be counted in isolation.
     log_directory: TempDir,
     report: Option<RunReport>,
 }

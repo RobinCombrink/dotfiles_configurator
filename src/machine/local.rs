@@ -204,7 +204,6 @@ fn rendered_invocation(program: &Path, arguments: &[String]) -> String {
     }
 }
 
-/// Runs a child whose output something parses, so it reaches the log and never the screen.
 fn capture(program: &Path, arguments: &[String], report: &RunReport) -> Result<CommandOutput> {
     report.note(&rendered_invocation(program, arguments));
 
@@ -226,8 +225,7 @@ fn capture(program: &Path, arguments: &[String], report: &RunReport) -> Result<C
     })
 }
 
-/// Runs a child that changes the machine, showing each line as it arrives rather than holding it
-/// all until the child exits. See ADR 0013.
+// ADR 0013
 fn stream(program: &Path, arguments: &[String], report: &RunReport) -> Result<CommandOutput> {
     report.announce(&rendered_invocation(program, arguments));
 
@@ -280,7 +278,11 @@ fn drain(source: impl Read, report: &RunReport) -> String {
     loop {
         raw_line.clear();
         match reader.read_until(b'\n', &mut raw_line) {
-            Ok(0) | Err(_) => return collected,
+            Ok(0) => return collected,
+            Err(error) => {
+                report.note(&format!("stopped reading this child's output: {error}"));
+                return collected;
+            }
             Ok(_) => {}
         }
 
