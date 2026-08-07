@@ -1,9 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Configuration",
-  "description": "A configuration as it is written down: the desired state of a machine, as a set of resources\nand the notices that accompany them.",
+  "description": "A configuration as it is written down: the desired state of a machine, as a set of resources and the notices that accompany them, and which machines it is for.",
   "type": "object",
   "properties": {
+    "applies_to": {
+      "description": "Which machines this configuration is for. One declaring \"everywhere\" applies to every machine; any other applies only to a machine an invocation names as being that.",
+      "$ref": "#/$defs/Context"
+    },
     "machine": {
       "$ref": "#/$defs/MachineSettings"
     },
@@ -22,7 +26,7 @@
       }
     },
     "version": {
-      "description": "The configuration format version. Must be \"2\".",
+      "description": "The configuration format version. Must be \"3\".",
       "type": "string"
     },
     "workspaces": {
@@ -35,6 +39,7 @@
   },
   "required": [
     "version",
+    "applies_to",
     "machine"
   ],
   "$defs": {
@@ -285,6 +290,14 @@
       "required": [
         "shell",
         "args"
+      ]
+    },
+    "Context": {
+      "type": "string",
+      "enum": [
+        "everywhere",
+        "personal",
+        "work"
       ]
     },
     "CrateName": {

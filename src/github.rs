@@ -40,3 +40,27 @@ pub async fn get_file_contents(
         .filter_map(|item| item.decoded_content())
         .collect())
 }
+
+pub async fn list_directory_files(
+    owner: &str,
+    repo: &str,
+    directory: &str,
+    octocrab: &Arc<Octocrab>,
+) -> Result<Vec<String>> {
+    let contents = octocrab
+        .repos(owner.to_owned(), repo.to_owned())
+        .get_content()
+        .path(directory.to_owned())
+        .send()
+        .await
+        .with_context(|| format!("Could not read {owner}/{repo}/{directory}"))?;
+
+    let mut file_paths: Vec<String> = contents
+        .items
+        .into_iter()
+        .filter(|item| item.r#type == "file")
+        .map(|item| item.path)
+        .collect();
+    file_paths.sort();
+    Ok(file_paths)
+}

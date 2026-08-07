@@ -1,5 +1,5 @@
 use {
-    anyhow::{Context, Result, anyhow, bail},
+    anyhow::{Context as _, Result, anyhow, bail},
     schemars::JsonSchema,
     serde::{Deserialize, Serialize},
     std::{collections::BTreeMap, fmt::Display, path::PathBuf},
@@ -8,6 +8,8 @@ use {
 // The build script includes this file to generate the configuration schema, and resolves a
 // `#[path]`-loaded module's children against its own directory rather than a directory named
 // after it. Naming each child outright resolves the same way from both roots.
+#[path = "configuration/context.rs"]
+pub mod context;
 #[path = "configuration/identity.rs"]
 pub mod identity;
 #[path = "configuration/names.rs"]
@@ -20,6 +22,7 @@ pub mod resource;
 pub mod workspace;
 
 pub use {
+    context::Context,
     identity::Identity,
     names::{
         ApplicationName, CrateName, McpServerName, RepositoryName, RepositoryOwner, WingetPackageId,
@@ -36,14 +39,23 @@ pub use {
 /// The only configuration format version this build understands. `Configuration.version` was
 /// parsed and discarded until the model took a breaking revision; it is now the gate that rejects
 /// the old shape with a real message.
-pub const SUPPORTED_VERSION: &str = "2";
+pub const SUPPORTED_VERSION: &str = "3";
 
-/// A configuration as it is written down: the desired state of a machine, as a set of resources
-/// and the notices that accompany them.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(
+    description = "A configuration as it is written down: the desired state of a machine, \
+                          as a set of resources and the notices that accompany them, and which \
+                          machines it is for."
+)]
 pub struct Configuration {
-    /// The configuration format version. Must be "2".
+    #[schemars(description = "The configuration format version. Must be \"3\".")]
     pub version: String,
+    #[schemars(
+        description = "Which machines this configuration is for. One declaring \"everywhere\" \
+                       applies to every machine; any other applies only to a machine an \
+                       invocation names as being that."
+    )]
+    pub applies_to: Context,
     pub machine: MachineSettings,
     #[serde(default)]
     pub workspaces: Vec<CargoWorkspace>,
@@ -216,7 +228,7 @@ mod tests {
 
     fn configuration_json(version: &str, body: &str) -> String {
         format!(
-            r#"{{ "version": "{version}", {}, {body} }}"#,
+            r#"{{ "version": "{version}", "applies_to": "everywhere", {}, {body} }}"#,
             machine_settings_json()
         )
     }
@@ -243,7 +255,10 @@ mod tests {
 
     #[test]
     fn a_configuration_declaring_no_version_at_all_is_rejected() {
-        let versionless = format!(r#"{{ {}, "resources": [] }}"#, machine_settings_json());
+        let versionless = format!(
+            r#"{{ "applies_to": "everywhere", {}, "resources": [] }}"#,
+            machine_settings_json()
+        );
 
         let error = parse_configuration(&versionless, "everywhere.dotconfig.json").unwrap_err();
 
@@ -253,7 +268,8 @@ mod tests {
     #[test]
     fn a_missing_machine_setting_is_reported_by_the_object_it_belongs_to() {
         let without_a_repositories_directory_path = r#"{
-            "version": "2",
+            "version": "3",
+            "applies_to": "everywhere",
             "machine": {
                 "github_username": "Alice",
                 "dotfiles_repository": { "owner": "Alice", "repository": "dotfiles" }

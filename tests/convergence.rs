@@ -7,7 +7,7 @@ use {
     cucumber::{World, given, then, when},
     dotfiles::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, CargoWorkspace, CrateName,
+            Application, ApplicationName, ApplicationSource, CargoWorkspace, Context, CrateName,
             DesiredState, GitHubRepository, MachineSettings, Notice, PresenceCheck, RepositoryName,
             RepositoryOwner, Resource, Shell, Symlink,
         },
@@ -258,7 +258,28 @@ fn dotfiles_repository_is_not_cloned(_world: &mut MachineWorld) {
 
 #[given(expr = "Alice has a configuration declaring format version {string}")]
 fn configuration_with_version(world: &mut MachineWorld, version: String) {
-    world.documents.push(document(&version, "[]"));
+    world.documents.push(document(&version, "everywhere", "[]"));
+}
+
+#[given(expr = "Alice has a configuration for work machines declaring format version {string}")]
+fn work_configuration_with_version(world: &mut MachineWorld, version: String) {
+    world.documents.push(document(&version, "work", "[]"));
+}
+
+#[given(expr = "Alice has a configuration that declares no machines it is for")]
+fn configuration_without_a_context(world: &mut MachineWorld) {
+    world.documents.push(
+        r#"{
+            "version": "3",
+            "machine": {
+                "repositories_directory_path": "/repositories",
+                "github_username": "Alice",
+                "dotfiles_repository": { "owner": "Alice", "repository": "dotfiles" }
+            },
+            "resources": []
+        }"#
+        .to_owned(),
+    );
 }
 
 #[given(
@@ -267,7 +288,8 @@ fn configuration_with_version(world: &mut MachineWorld, version: String) {
 fn configuration_without_a_repositories_directory_path(world: &mut MachineWorld) {
     world.documents.push(
         r#"{
-            "version": "2",
+            "version": "3",
+            "applies_to": "everywhere",
             "machine": {
                 "github_username": "Alice",
                 "dotfiles_repository": { "owner": "Alice", "repository": "dotfiles" }
@@ -280,16 +302,57 @@ fn configuration_without_a_repositories_directory_path(world: &mut MachineWorld)
 
 #[given(expr = "Alice has a configuration linking {string} to {string}")]
 fn configuration_linking(world: &mut MachineWorld, link_path: String, source_path: String) {
-    let resources = format!(
-        r#"[{{ "kind": "symlink", "source_path": "{source_path}", "link_path": "{link_path}" }}]"#
-    );
-    world.documents.push(document("2", &resources));
+    world.documents.push(document(
+        "3",
+        "everywhere",
+        &symlink(&link_path, &source_path),
+    ));
 }
 
-fn document(version: &str, resources: &str) -> String {
+#[given(expr = "Alice has a configuration for every machine linking {string} to {string}")]
+fn configuration_for_every_machine_linking(
+    world: &mut MachineWorld,
+    link_path: String,
+    source_path: String,
+) {
+    world.documents.push(document(
+        "3",
+        "everywhere",
+        &symlink(&link_path, &source_path),
+    ));
+}
+
+#[given(expr = "Alice has a configuration for personal machines linking {string} to {string}")]
+fn personal_configuration_linking(
+    world: &mut MachineWorld,
+    link_path: String,
+    source_path: String,
+) {
+    world.documents.push(document(
+        "3",
+        "personal",
+        &symlink(&link_path, &source_path),
+    ));
+}
+
+#[given(expr = "Alice has a configuration for work machines linking {string} to {string}")]
+fn work_configuration_linking(world: &mut MachineWorld, link_path: String, source_path: String) {
+    world
+        .documents
+        .push(document("3", "work", &symlink(&link_path, &source_path)));
+}
+
+fn symlink(link_path: &str, source_path: &str) -> String {
+    format!(
+        r#"[{{ "kind": "symlink", "source_path": "{source_path}", "link_path": "{link_path}" }}]"#
+    )
+}
+
+fn document(version: &str, applies_to: &str, resources: &str) -> String {
     format!(
         r#"{{
             "version": "{version}",
+            "applies_to": "{applies_to}",
             "machine": {{
                 "repositories_directory_path": "/repositories",
                 "github_username": "Alice",
@@ -397,8 +460,17 @@ fn withdraw_declaration(world: &mut MachineWorld, name: String) {
     });
 }
 
-#[when(expr = "Alice loads her configurations")]
-async fn alice_loads(world: &mut MachineWorld) {
+#[when(expr = "Alice loads her configurations for a personal machine")]
+async fn alice_loads_for_a_personal_machine(world: &mut MachineWorld) {
+    alice_loads(world, Context::Personal).await;
+}
+
+#[when(expr = "Alice loads her configurations for a machine of no class")]
+async fn alice_loads_for_a_machine_of_no_class(world: &mut MachineWorld) {
+    alice_loads(world, Context::Everywhere).await;
+}
+
+async fn alice_loads(world: &mut MachineWorld, context: Context) {
     let directory = configuration_directory();
     for (position, contents) in world.documents.iter().enumerate() {
         fs::write(
@@ -408,7 +480,7 @@ async fn alice_loads(world: &mut MachineWorld) {
         .unwrap();
     }
 
-    match load_desired_state(&[ConfigurationSource::LocalDirectory(directory)]).await {
+    match load_desired_state(&[ConfigurationSource::LocalDirectory(directory)], context).await {
         Ok(desired_state) => world.loaded = Some(desired_state),
         Err(error) => world.loading_error = Some(format!("{error:#}")),
     }
