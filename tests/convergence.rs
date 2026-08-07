@@ -19,6 +19,7 @@ use {
                 Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
+        reporting::{RunKind, RunReport},
     },
     fake_machine::FakeMachine,
     std::{
@@ -27,6 +28,7 @@ use {
         path::{Path, PathBuf},
         sync::atomic::{AtomicUsize, Ordering},
     },
+    tempfile::TempDir,
     url::Url,
 };
 
@@ -46,6 +48,9 @@ struct MachineWorld {
     fingerprint_before: Option<String>,
     loading_error: Option<String>,
     loaded: Option<DesiredState>,
+    /// Where this scenario's runs write their logs, so retention can be counted in isolation.
+    log_directory: TempDir,
+    report: Option<RunReport>,
 }
 
 impl MachineWorld {
@@ -63,7 +68,21 @@ impl MachineWorld {
             fingerprint_before: None,
             loading_error: None,
             loaded: None,
+            log_directory: tempfile::tempdir().expect("a directory to write run logs into"),
+            report: None,
         }
+    }
+
+    fn open_a_report(&self, kind: RunKind) -> RunReport {
+        RunReport::open_in(self.log_directory.path(), kind).unwrap()
+    }
+
+    fn logged_runs(&self) -> usize {
+        fs::read_dir(self.log_directory.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().is_some_and(|kind| kind == "log"))
+            .count()
     }
 
     fn desired_state(&self) -> DesiredState {
@@ -323,22 +342,51 @@ fn content_named(content: &str) -> Fingerprint {
 fn alice_plans(world: &mut MachineWorld) {
     world.publish_workspace();
     world.fingerprint_before = Some(world.machine.fingerprint());
-    world.change_set = Some(plan(&world.desired_state(), &world.machine).unwrap());
+
+    let report = world.open_a_report(RunKind::Plan);
+    world.change_set = Some(plan(&world.desired_state(), &world.machine, &report).unwrap());
+    world.report = Some(report);
 }
 
 #[when(expr = "Alice plans twice")]
 fn alice_plans_twice(world: &mut MachineWorld) {
     world.publish_workspace();
     world.fingerprint_before = Some(world.machine.fingerprint());
-    world.change_set = Some(plan(&world.desired_state(), &world.machine).unwrap());
-    world.second_change_set = Some(plan(&world.desired_state(), &world.machine).unwrap());
+
+    let report = world.open_a_report(RunKind::Plan);
+    world.change_set = Some(plan(&world.desired_state(), &world.machine, &report).unwrap());
+    world.second_change_set = Some(plan(&world.desired_state(), &world.machine, &report).unwrap());
+    world.report = Some(report);
 }
 
 #[when(expr = "Alice applies")]
 async fn alice_applies(world: &mut MachineWorld) {
     world.publish_workspace();
     world.fingerprint_before = Some(world.machine.fingerprint());
-    world.outcome = Some(apply(&world.desired_state(), &world.machine).await.unwrap());
+
+    let report = world.open_a_report(RunKind::Apply);
+    world.outcome = Some(
+        apply(&world.desired_state(), &world.machine, &report)
+            .await
+            .unwrap(),
+    );
+    world.report = Some(report);
+}
+
+#[when(expr = "Alice applies twice")]
+async fn alice_applies_twice(world: &mut MachineWorld) {
+    world.publish_workspace();
+    world.fingerprint_before = Some(world.machine.fingerprint());
+
+    for _ in 0..2 {
+        let report = world.open_a_report(RunKind::Apply);
+        world.outcome = Some(
+            apply(&world.desired_state(), &world.machine, &report)
+                .await
+                .unwrap(),
+        );
+        world.report = Some(report);
+    }
 }
 
 #[when(expr = "Alice withdraws the declaration of {string}")]
@@ -377,6 +425,34 @@ fn configuration_directory() -> PathBuf {
     let _ = fs::remove_dir_all(&directory);
     fs::create_dir_all(&directory).unwrap();
     directory
+}
+
+#[given(expr = "{int} runs have already been logged")]
+fn earlier_runs_have_been_logged(world: &mut MachineWorld, count: usize) {
+    for _ in 0..count {
+        drop(world.open_a_report(RunKind::Apply));
+    }
+}
+
+#[then(expr = "the log of Alice's run names {string}")]
+fn the_log_names(world: &mut MachineWorld, expected: String) {
+    let path = world
+        .report
+        .as_ref()
+        .expect("the scenario has not run yet")
+        .log_path()
+        .expect("the run wrote no log");
+    let written = fs::read_to_string(&path).unwrap();
+
+    assert!(
+        written.contains(&expected),
+        "expected the log to name {expected:?}, got:\n{written}"
+    );
+}
+
+#[then(expr = "{int} runs are logged")]
+fn runs_are_logged(world: &mut MachineWorld, expected: usize) {
+    assert_eq!(world.logged_runs(), expected);
 }
 
 #[then(expr = "the change set reports {int} change(s)")]

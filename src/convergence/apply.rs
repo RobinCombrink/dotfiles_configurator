@@ -3,8 +3,8 @@ use {
         configuration::{DesiredState, Notice, Resource},
         convergence::{Blocked, Change, ChangeSet, converge::converge, plan},
         machine::WriteMachine,
+        reporting::RunReport,
     },
-    log::info,
     std::fmt::Display,
 };
 
@@ -88,17 +88,18 @@ impl Display for ApplyOutcome {
 pub async fn apply(
     desired_state: &DesiredState,
     machine: &impl WriteMachine,
+    report: &RunReport,
 ) -> anyhow::Result<ApplyOutcome> {
     let mut converged: Vec<Resource> = Vec::new();
     let mut failed: Vec<Failure> = Vec::new();
     let mut passes = 0;
 
     let change_set = loop {
-        let change_set: ChangeSet = plan(desired_state, machine)?;
+        let change_set: ChangeSet = plan(desired_state, machine, report)?;
         passes += 1;
 
-        let attempted = attempt(&change_set, machine, &mut converged, &mut failed).await;
-        info!("Pass {passes} converged {attempted} resource(s)");
+        let attempted = attempt(&change_set, machine, report, &mut converged, &mut failed).await;
+        report.note(&format!("pass {passes} converged {attempted} resource(s)"));
 
         if attempted == 0 {
             break change_set;
@@ -129,6 +130,7 @@ pub async fn apply(
 async fn attempt(
     change_set: &ChangeSet,
     machine: &impl WriteMachine,
+    report: &RunReport,
     converged: &mut Vec<Resource>,
     failed: &mut Vec<Failure>,
 ) -> usize {
@@ -144,15 +146,24 @@ async fn attempt(
             continue;
         }
 
-        match converge(&change.resource, machine, &change_set.readings).await {
+        let outcome = {
+            let _doing = report.doing(format!("converging {}", change.resource));
+            converge(&change.resource, machine, &change_set.readings).await
+        };
+
+        match outcome {
             Ok(()) => {
+                report.note(&format!("converged {}", change.resource));
                 converged.push(change.resource.clone());
                 count += 1;
             }
-            Err(error) => failed.push(Failure {
-                resource: change.resource.clone(),
-                error,
-            }),
+            Err(error) => {
+                report.note(&format!("FAILED {}: {error:#}", change.resource));
+                failed.push(Failure {
+                    resource: change.resource.clone(),
+                    error,
+                });
+            }
         }
     }
     count

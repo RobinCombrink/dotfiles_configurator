@@ -6,6 +6,7 @@
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{apply::apply, plan},
         machine::local::LocalMachine,
+        reporting::{RunKind, RunReport},
     },
     log::{LevelFilter, trace},
     std::{io::Write, process::ExitCode},
@@ -76,23 +77,28 @@ async fn main() -> ExitCode {
 async fn run(task: Task) -> Result<ExitCode> {
     match task {
         Task::Plan(arguments) => {
-            let (desired_state, machine) = prepare(&arguments).await?;
-            let change_set = plan(&desired_state, &machine)?;
+            let report = RunReport::open(RunKind::Plan)?;
+            let (desired_state, machine) = prepare(&arguments, &report).await?;
+            let change_set = plan(&desired_state, &machine, &report)?;
             println!("{change_set}");
             Ok(exit_code_for(change_set.is_converged()))
         }
         Task::Apply(arguments) => {
-            let (desired_state, machine) = prepare(&arguments).await?;
-            let outcome = apply(&desired_state, &machine).await?;
+            let report = RunReport::open(RunKind::Apply)?;
+            let (desired_state, machine) = prepare(&arguments, &report).await?;
+            let outcome = apply(&desired_state, &machine, &report).await?;
             println!("{outcome}");
             Ok(exit_code_for(outcome.is_converged()))
         }
     }
 }
 
-async fn prepare(arguments: &SourceArguments) -> Result<(DesiredState, LocalMachine)> {
+async fn prepare<'report>(
+    arguments: &SourceArguments,
+    report: &'report RunReport,
+) -> Result<(DesiredState, LocalMachine<'report>)> {
     let desired_state = load_desired_state(&arguments.sources).await?;
-    let machine = LocalMachine::new(&desired_state.machine)?;
+    let machine = LocalMachine::new(&desired_state.machine, report)?;
     Ok((desired_state, machine))
 }
 
