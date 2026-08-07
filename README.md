@@ -43,7 +43,7 @@ cargo run -- plan --context personal --source local:config
 cargo run -- apply --context work --source github:owner/repo/config --source local:config
 ```
 
-A source is a directory, read whole: every `*.dotconfig.json` in it is loaded, and each one applies only if it declares `everywhere` or the machine named.
+A source is a directory: every `*.dotconfig.json` directly in it is loaded — subdirectories are not descended into — and each one applies only if it declares `everywhere` or the machine named.
 
 `plan` and `apply` exit non-zero when the machine is left unconverged — whether because something drifted, failed, or could not be read at all.
 
