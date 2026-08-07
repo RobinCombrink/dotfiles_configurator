@@ -9,22 +9,24 @@ use {
             CommandOutput, ReadInvocation, ReadMachine, Tool, WriteInvocation, WriteMachine,
             workspace_reading::{Revision, WorkspaceReading},
         },
+        reporting::RunReport,
     },
     anyhow::{Context, Result, anyhow, bail},
     futures::StreamExt,
     git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder},
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
-    indicatif::{ProgressBar, ProgressStyle},
-    log::info,
+    indicatif::ProgressBar,
     octocrab::Octocrab,
     reqwest::{Client, header},
     secrecy::ExposeSecret,
     std::{
         collections::BTreeMap,
         env, fs,
+        io::{BufRead, BufReader, Read},
         path::{Path, PathBuf},
         process::{Command as ProcessCommand, Stdio},
         sync::Arc,
+        thread,
     },
     url::Url,
 };
@@ -32,7 +34,7 @@ use {
 pub mod workspace;
 
 /// The machine this process is running on.
-pub struct LocalMachine {
+pub struct LocalMachine<'report> {
     home_directory: PathBuf,
     repositories_directory: PathBuf,
     dotfiles_repository_path: PathBuf,
@@ -40,10 +42,11 @@ pub struct LocalMachine {
     authentication: GitHubCliAuthentication,
     octocrab: Arc<Octocrab>,
     http_client: Client,
+    report: &'report RunReport,
 }
 
-impl LocalMachine {
-    pub fn new(settings: &MachineSettings) -> Result<Self> {
+impl<'report> LocalMachine<'report> {
+    pub fn new(settings: &MachineSettings, report: &'report RunReport) -> Result<Self> {
         let authentication = GitHubCliAuthentication::new(settings.github_username.clone())
             .with_context(|| {
                 format!(
@@ -63,21 +66,7 @@ impl LocalMachine {
             authentication,
             octocrab,
             http_client: Client::default(),
-        })
-    }
-
-    fn run(&self, program: &str, arguments: &[String]) -> Result<CommandOutput> {
-        info!("Reading: {program} {}", arguments.join(" "));
-        let output = ProcessCommand::new(program)
-            .args(arguments)
-            .stdin(Stdio::null())
-            .output()
-            .with_context(|| format!("Could not run {program}"))?;
-
-        Ok(CommandOutput {
-            succeeded: output.status.success(),
-            standard_output: decode_output(&output.stdout),
-            standard_error: decode_output(&output.stderr),
+            report,
         })
     }
 
@@ -113,7 +102,9 @@ impl LocalMachine {
             .unwrap_or(destination.as_os_str())
             .to_string_lossy()
             .into_owned();
-        let progress = progress_bar(total_bytes, format!("downloading {name}"));
+        let progress = self
+            .report
+            .progress_bar(total_bytes, format!("downloading {name}"));
 
         let mut partial_file = tokio::fs::File::create(&partial_path)
             .await
@@ -170,18 +161,15 @@ impl LocalMachine {
     }
 
     fn run_installer(&self, installer_path: &Path) -> Result<()> {
-        info!("Running installer {}", installer_path.display());
-        let status = ProcessCommand::new(installer_path)
-            .stdin(Stdio::null())
-            .status()
-            .with_context(|| format!("Could not run {}", installer_path.display()))?;
+        let output = stream(installer_path, &[], self.report)?;
 
-        match status.success() {
+        match output.succeeded {
             true => Ok(()),
             false => bail!(
-                "{} exited with {:?}",
+                "{} failed:\n{}\n{}",
                 installer_path.display(),
-                status.code()
+                output.standard_output.trim(),
+                output.standard_error.trim()
             ),
         }
     }
@@ -209,26 +197,97 @@ impl LocalMachine {
     }
 }
 
-/// Long operations report progress against a total where one is known, and as a running count
-/// where it is not. Indicatif draws nothing when output is not a terminal, so an unattended run
-/// stays quiet.
-fn progress_bar(total: Option<u64>, message: String) -> ProgressBar {
-    let (bar, style) = match total {
-        Some(total) => (
-            ProgressBar::new(total),
-            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}",
-        ),
-        None => (
-            ProgressBar::no_length(),
-            "{spinner:.green} [{elapsed_precise}] {bytes} {msg}",
-        ),
-    };
+fn rendered_invocation(program: &Path, arguments: &[String]) -> String {
+    match arguments.is_empty() {
+        true => program.display().to_string(),
+        false => format!("{} {}", program.display(), arguments.join(" ")),
+    }
+}
 
-    bar.with_message(message).with_style(
-        ProgressStyle::with_template(style)
-            .unwrap_or_else(|_| ProgressStyle::default_bar())
-            .progress_chars("=> "),
-    )
+/// Runs a child whose output something parses, so it reaches the log and never the screen.
+fn capture(program: &Path, arguments: &[String], report: &RunReport) -> Result<CommandOutput> {
+    report.note(&rendered_invocation(program, arguments));
+
+    let output = ProcessCommand::new(program)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("Could not run {}", program.display()))?;
+
+    let standard_output = decode_output(&output.stdout);
+    let standard_error = decode_output(&output.stderr);
+    report.captured_output(&standard_output);
+    report.captured_output(&standard_error);
+
+    Ok(CommandOutput {
+        succeeded: output.status.success(),
+        standard_output,
+        standard_error,
+    })
+}
+
+/// Runs a child that changes the machine, showing each line as it arrives rather than holding it
+/// all until the child exits. See ADR 0013.
+fn stream(program: &Path, arguments: &[String], report: &RunReport) -> Result<CommandOutput> {
+    report.announce(&rendered_invocation(program, arguments));
+
+    let mut child = ProcessCommand::new(program)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("Could not run {}", program.display()))?;
+
+    let piped_output = child.stdout.take().ok_or_else(|| {
+        anyhow!(
+            "{} gave nothing to read on standard output",
+            program.display()
+        )
+    })?;
+    let piped_error = child.stderr.take().ok_or_else(|| {
+        anyhow!(
+            "{} gave nothing to read on standard error",
+            program.display()
+        )
+    })?;
+
+    let (standard_output, standard_error) = thread::scope(|scope| {
+        let reading_output = scope.spawn(|| drain(piped_output, report));
+        let reading_error = scope.spawn(|| drain(piped_error, report));
+        (
+            reading_output.join().unwrap_or_default(),
+            reading_error.join().unwrap_or_default(),
+        )
+    });
+
+    let status = child
+        .wait()
+        .with_context(|| format!("Could not wait for {}", program.display()))?;
+
+    Ok(CommandOutput {
+        succeeded: status.success(),
+        standard_output,
+        standard_error,
+    })
+}
+
+fn drain(source: impl Read, report: &RunReport) -> String {
+    let mut reader = BufReader::new(source);
+    let mut collected = String::new();
+    let mut raw_line = Vec::new();
+
+    loop {
+        raw_line.clear();
+        match reader.read_until(b'\n', &mut raw_line) {
+            Ok(0) | Err(_) => return collected,
+            Ok(_) => {}
+        }
+
+        let line = decode_output(&raw_line);
+        report.child_line(line.trim_end_matches(['\r', '\n']));
+        collected.push_str(&line);
+    }
 }
 
 /// Some Windows programs — `wsl.exe` among them — emit UTF-16LE the moment their output is
@@ -264,7 +323,7 @@ fn program_is_on_path(program: &str) -> bool {
     })
 }
 
-impl ReadMachine for LocalMachine {
+impl ReadMachine for LocalMachine<'_> {
     fn home_directory(&self) -> &Path {
         &self.home_directory
     }
@@ -290,7 +349,11 @@ impl ReadMachine for LocalMachine {
     }
 
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput> {
-        self.run(invocation.tool().program(), &invocation.arguments())
+        capture(
+            Path::new(invocation.tool().program()),
+            &invocation.arguments(),
+            self.report,
+        )
     }
 
     fn read_cargo_workspace(
@@ -312,14 +375,15 @@ impl ReadMachine for LocalMachine {
                 args,
                 contains,
             } => {
-                let output = self.run_declared_command(*shell, args)?;
+                let (program, arguments) = shell_invocation(*shell, args);
+                let output = capture(Path::new(&program), &arguments, self.report)?;
                 Ok(output.standard_output.contains(contains))
             }
         }
     }
 }
 
-impl WriteMachine for LocalMachine {
+impl WriteMachine for LocalMachine<'_> {
     fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<()> {
         if let Some(parent_directory) = link_path.parent() {
             fs::create_dir_all(parent_directory).with_context(|| {
@@ -361,7 +425,9 @@ impl WriteMachine for LocalMachine {
             .html_url
             .ok_or_else(|| anyhow!("{repository} has no html url"))?;
 
-        let progress = progress_bar(None, format!("cloning {repository}"));
+        let progress = self
+            .report
+            .progress_bar(None, format!("cloning {repository}"));
         let cloned = RepoBuilder::new()
             .fetch_options(self.fetch_options(&token, owner, &progress))
             .clone(url.as_str(), &directory_path)
@@ -398,7 +464,11 @@ impl WriteMachine for LocalMachine {
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        let output = self.run(invocation.tool().program(), &invocation.arguments())?;
+        let output = stream(
+            Path::new(invocation.tool().program()),
+            &invocation.arguments(),
+            self.report,
+        )?;
         match output.succeeded {
             true => Ok(output),
             false => bail!(
@@ -413,7 +483,7 @@ impl WriteMachine for LocalMachine {
 
     fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput> {
         let (program, arguments) = shell_invocation(shell, args);
-        self.run(&program, &arguments)
+        stream(Path::new(&program), &arguments, self.report)
     }
 }
 
@@ -480,7 +550,65 @@ fn create_link(link_path: &Path, target_path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, crate::reporting::RunKind};
+
+    #[cfg(target_family = "windows")]
+    const A_SHELL_EVERY_MACHINE_HAS: Shell = Shell::CommandPrompt;
+    #[cfg(target_family = "unix")]
+    const A_SHELL_EVERY_MACHINE_HAS: Shell = Shell::Bash;
+
+    fn echoing_two_lines() -> (String, Vec<String>) {
+        shell_invocation(
+            A_SHELL_EVERY_MACHINE_HAS,
+            &[
+                "echo".to_owned(),
+                "first".to_owned(),
+                "&&".to_owned(),
+                "echo".to_owned(),
+                "second".to_owned(),
+            ],
+        )
+    }
+
+    #[test]
+    fn every_line_a_changing_child_writes_reaches_the_log() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
+        let (program, arguments) = echoing_two_lines();
+
+        let output = stream(Path::new(&program), &arguments, &report).unwrap();
+
+        let written = fs::read_to_string(report.log_path().unwrap()).unwrap();
+        assert!(output.succeeded, "{output:?}");
+        assert!(
+            written.contains("first") && written.contains("second"),
+            "{written}"
+        );
+    }
+
+    #[test]
+    fn a_streamed_child_still_hands_back_its_output_for_a_failure_message_to_quote() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
+        let (program, arguments) = echoing_two_lines();
+
+        let output = stream(Path::new(&program), &arguments, &report).unwrap();
+
+        assert!(output.standard_output.contains("first"), "{output:?}");
+        assert!(output.standard_output.contains("second"), "{output:?}");
+    }
+
+    #[test]
+    fn the_log_names_the_invocation_a_captured_read_ran() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Plan).unwrap();
+        let (program, arguments) = echoing_two_lines();
+
+        capture(Path::new(&program), &arguments, &report).unwrap();
+
+        let written = fs::read_to_string(report.log_path().unwrap()).unwrap();
+        assert!(written.contains(&program), "{written}");
+    }
 
     #[test]
     fn output_a_program_redirected_as_utf16_is_matchable_once_its_nuls_are_stripped() {

@@ -2,6 +2,7 @@ use {
     crate::{
         configuration::{DesiredState, Notice, Resource, ResourceKind, Shell},
         machine::Tool,
+        reporting::RunReport,
     },
     std::fmt::Display,
 };
@@ -175,14 +176,19 @@ impl ChangeSet {
 pub fn plan(
     desired_state: &DesiredState,
     machine: &impl crate::machine::ReadMachine,
+    report: &RunReport,
 ) -> anyhow::Result<ChangeSet> {
-    let readings = SourceReadings::read_for(desired_state, machine);
+    let readings = {
+        let _doing = report.doing("reading what the machine already has");
+        SourceReadings::read_for(desired_state, machine)
+    };
     let resources = resolve(desired_state, &readings)?;
 
     let mut assessed: Vec<(ResourceKind, usize, Resource, Assessment)> = resources
         .iter()
         .enumerate()
         .map(|(position, resource)| {
+            let _doing = report.doing(format!("reading {resource}"));
             (
                 resource.kind(),
                 position,
