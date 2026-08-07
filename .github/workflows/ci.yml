@@ -40,7 +40,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
-    uses: RobinCombrink/actions-release/.github/workflows/release.yml@1e02c35d40602bf9ebb0eed1615aec89f2e6a5f7 # v1.2.0
+    uses: RobinCombrink/actions-release/.github/workflows/release.yml@728b67450bcefe04ccce6bed2df5ae9ea1f173d7 # v1.2.1
     with:
       dry_run: true
 
@@ -102,6 +102,6 @@ jobs:
     needs: [check, build]
     permissions:
       contents: write
-    uses: RobinCombrink/actions-release/.github/workflows/release.yml@1e02c35d40602bf9ebb0eed1615aec89f2e6a5f7 # v1.2.0
+    uses: RobinCombrink/actions-release/.github/workflows/release.yml@728b67450bcefe04ccce6bed2df5ae9ea1f173d7 # v1.2.1
     with:
       artifact_name: release-binaries
