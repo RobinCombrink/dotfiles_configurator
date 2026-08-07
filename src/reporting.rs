@@ -5,7 +5,7 @@ use {
     std::{
         fmt::Display,
         fs::{self, File, OpenOptions},
-        io::Write,
+        io::{IsTerminal, Write},
         path::{Path, PathBuf},
         process,
         sync::{Arc, Condvar, Mutex},
@@ -59,7 +59,33 @@ impl std::fmt::Debug for RunReport {
 struct Shared {
     log: Option<Mutex<LogFile>>,
     progress: MultiProgress,
+    screen: Screen,
     current_activity: Mutex<Option<Activity>>,
+}
+
+/// Indicatif draws nothing at all where stderr is not a terminal, so a run under a git trigger
+/// would otherwise be as mute as the one that motivated ADR 0013.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Screen {
+    Terminal,
+    PlainLines,
+    Nothing,
+}
+
+impl Screen {
+    fn of_this_process() -> Self {
+        match std::io::stderr().is_terminal() {
+            true => Screen::Terminal,
+            false => Screen::PlainLines,
+        }
+    }
+
+    fn draw_target(self) -> ProgressDrawTarget {
+        match self {
+            Screen::Terminal => ProgressDrawTarget::stderr(),
+            Screen::PlainLines | Screen::Nothing => ProgressDrawTarget::hidden(),
+        }
+    }
 }
 
 struct LogFile {
@@ -84,7 +110,7 @@ struct EndOfRun {
 }
 
 impl EndOfRun {
-    fn wait_for_up_to(&self, interval: Duration) -> bool {
+    fn was_reached_within(&self, interval: Duration) -> bool {
         let Ok(reached) = self.reached.lock() else {
             return true;
         };
@@ -129,25 +155,20 @@ impl RunReport {
         discard_all_but_newest(directory, RETAINED_RUNS.saturating_sub(1))?;
 
         let (path, file) = create_log(directory, kind)?;
-        let report = Self::new(
-            Some(LogFile { path, file }),
-            MultiProgress::with_draw_target(ProgressDrawTarget::stderr()),
-        );
+        let report = Self::new(Some(LogFile { path, file }), Screen::of_this_process());
         report.note(&format!("{kind} started"));
         Ok(report)
     }
 
     pub fn discarded() -> Self {
-        Self::new(
-            None,
-            MultiProgress::with_draw_target(ProgressDrawTarget::hidden()),
-        )
+        Self::new(None, Screen::Nothing)
     }
 
-    fn new(log: Option<LogFile>, progress: MultiProgress) -> Self {
+    fn new(log: Option<LogFile>, screen: Screen) -> Self {
         let shared = Arc::new(Shared {
             log: log.map(Mutex::new),
-            progress,
+            progress: MultiProgress::with_draw_target(screen.draw_target()),
+            screen,
             current_activity: Mutex::new(None),
         });
 
@@ -158,10 +179,7 @@ impl RunReport {
     }
 
     pub fn log_path(&self) -> Option<PathBuf> {
-        self.shared
-            .log
-            .as_ref()
-            .and_then(|log| log.lock().ok().map(|log| log.path.clone()))
+        self.shared.log_path()
     }
 
     pub fn doing(&self, activity: impl Display) -> Doing<'_> {
@@ -192,7 +210,7 @@ impl RunReport {
     pub fn child_line(&self, line: &str) {
         self.restart_the_silence_clock();
         self.note(line);
-        let _ = self.shared.progress.println(line);
+        self.shared.show(line);
     }
 
     pub fn captured_output(&self, text: &str) {
@@ -226,22 +244,11 @@ impl RunReport {
 
     pub fn announce(&self, message: &str) {
         self.note(message);
-        let _ = self.shared.progress.println(message);
+        self.shared.show(message);
     }
 
     pub fn note(&self, message: &str) {
-        let Some(log) = self.shared.log.as_ref() else {
-            return;
-        };
-        let Ok(mut log) = log.lock() else {
-            return;
-        };
-
-        let _ = writeln!(
-            log.file,
-            "{} {message}",
-            Local::now().format("%H:%M:%S%.3f")
-        );
+        self.shared.write_down(message);
     }
 
     fn restart_the_silence_clock(&self) {
@@ -257,6 +264,39 @@ impl RunReport {
         if let Ok(mut current) = self.shared.current_activity.lock() {
             *current = None;
         }
+    }
+}
+
+impl Shared {
+    fn show(&self, message: &str) {
+        match self.screen {
+            Screen::Terminal => {
+                let _ = self.progress.println(message);
+            }
+            Screen::PlainLines => eprintln!("{message}"),
+            Screen::Nothing => {}
+        }
+    }
+
+    fn write_down(&self, message: &str) {
+        let Some(log) = self.log.as_ref() else {
+            return;
+        };
+        let Ok(mut log) = log.lock() else {
+            return;
+        };
+
+        let _ = writeln!(
+            log.file,
+            "{} {message}",
+            Local::now().format("%H:%M:%S%.3f")
+        );
+    }
+
+    fn log_path(&self) -> Option<PathBuf> {
+        self.log
+            .as_ref()
+            .and_then(|log| log.lock().ok().map(|log| log.path.clone()))
     }
 }
 
@@ -281,7 +321,7 @@ fn watch_for_silence(shared: Arc<Shared>) -> SilenceWatchdog {
     let watched_for = Arc::clone(&end_of_run);
 
     let thread = thread::spawn(move || {
-        while !watched_for.wait_for_up_to(SILENCE_POLL_INTERVAL) {
+        while !watched_for.was_reached_within(SILENCE_POLL_INTERVAL) {
             let Ok(mut current) = shared.current_activity.lock() else {
                 continue;
             };
@@ -295,12 +335,7 @@ fn watch_for_silence(shared: Arc<Shared>) -> SilenceWatchdog {
             }
             activity.silence_already_reported = true;
 
-            let log_path = shared
-                .log
-                .as_ref()
-                .and_then(|log| log.lock().ok().map(|log| log.path.clone()));
-            let message = silence_message(&activity.label, silence, log_path.as_deref());
-            let _ = shared.progress.println(&message);
+            report_a_silence(&shared, &activity.label, silence);
         }
     });
 
@@ -308,6 +343,13 @@ fn watch_for_silence(shared: Arc<Shared>) -> SilenceWatchdog {
         end_of_run,
         thread: Some(thread),
     }
+}
+
+fn report_a_silence(shared: &Shared, label: &str, silence: Duration) {
+    let log_path = shared.log_path();
+    let message = silence_message(label, silence, log_path.as_deref());
+    shared.write_down(&message);
+    shared.show(&message);
 }
 
 fn silence_message(label: &str, silence: Duration, log_path: Option<&Path>) -> String {
@@ -345,6 +387,10 @@ fn create_log(directory: &Path, kind: RunKind) -> Result<(PathBuf, File)> {
     unreachable!("a free name is always reached")
 }
 
+fn is_a_run_log(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| extension == "log")
+}
+
 fn discard_all_but_newest(directory: &Path, keep: usize) -> Result<()> {
     let entries = fs::read_dir(directory)
         .with_context(|| format!("Could not read {}", directory.display()))?;
@@ -352,7 +398,7 @@ fn discard_all_but_newest(directory: &Path, keep: usize) -> Result<()> {
     let mut logs: Vec<(SystemTime, PathBuf)> = entries
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "log"))
+        .filter(|path| is_a_run_log(path))
         .filter_map(|path| {
             let modified = path
                 .metadata()
@@ -379,7 +425,7 @@ mod tests {
             .unwrap()
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "log"))
+            .filter(|path| is_a_run_log(path))
             .collect()
     }
 
@@ -434,6 +480,31 @@ mod tests {
         report.announce("installing Neovim");
 
         assert_eq!(report.log_path(), None);
+    }
+
+    #[test]
+    fn a_real_run_speaks_whether_or_not_it_has_a_terminal_to_speak_to() {
+        assert_ne!(Screen::of_this_process(), Screen::Nothing);
+    }
+
+    #[test]
+    fn a_run_without_a_terminal_draws_no_progress_bars() {
+        assert!(Screen::PlainLines.draw_target().is_hidden());
+    }
+
+    #[test]
+    fn a_reported_silence_is_written_down_rather_than_only_shown() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
+
+        report_a_silence(
+            &report.shared,
+            "installing cargo-llvm-cov",
+            Duration::from_secs(630),
+        );
+
+        let written = fs::read_to_string(report.log_path().unwrap()).unwrap();
+        assert!(written.contains("installing cargo-llvm-cov"), "{written}");
     }
 
     #[test]
