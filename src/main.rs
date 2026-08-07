@@ -1,8 +1,8 @@
-﻿use {
+use {
     anyhow::Result,
     clap::{Args, Parser, Subcommand},
     dotfiles::{
-        configuration::DesiredState,
+        configuration::{Context, DesiredState},
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{apply::apply, plan},
         machine::local::LocalMachine,
@@ -16,18 +16,25 @@
 use std::str::FromStr;
 
 /// Where configurations are read from when none is named.
-const DEFAULT_SOURCE: &str =
-    "github:RobinCombrink/dotfiles/config/everywhere.dotconfig.json,config/personal.dotconfig.json";
+const DEFAULT_SOURCE: &str = "github:RobinCombrink/dotfiles/config";
 
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
-struct SourceArguments {
-    /// Where to read configurations from, as `local:<directory>` or
-    /// `github:<owner>/<repo>/<path>[,<path>...]`. Repeatable; read in the order given.
+struct ConfigurationArguments {
+    #[arg(
+        short = 'c',
+        long = "context",
+        value_name = "CONTEXT",
+        help = "Which machine this is — `everywhere`, `personal` or `work`. A configuration \
+                applies when it declares this machine, or `everywhere`."
+    )]
+    context: Context,
     #[arg(
         short = 's',
         long = "source",
         value_name = "SOURCE",
         default_value = DEFAULT_SOURCE,
+        help = "Where to read configurations from, as `local:<directory>` or \
+                `github:<owner>/<repo>/<directory>`. Repeatable; read in the order given."
     )]
     sources: Vec<ConfigurationSource>,
 }
@@ -35,9 +42,9 @@ struct SourceArguments {
 #[derive(Subcommand, Debug)]
 enum Task {
     /// Report the change set that would close every drift, without touching the machine.
-    Plan(SourceArguments),
+    Plan(ConfigurationArguments),
     /// Enact the change set, repeating until a pass changes nothing.
-    Apply(SourceArguments),
+    Apply(ConfigurationArguments),
 }
 
 #[derive(Parser, Debug)]
@@ -94,10 +101,10 @@ async fn run(task: Task) -> Result<ExitCode> {
 }
 
 async fn prepare<'report>(
-    arguments: &SourceArguments,
+    arguments: &ConfigurationArguments,
     report: &'report RunReport,
 ) -> Result<(DesiredState, LocalMachine<'report>)> {
-    let desired_state = load_desired_state(&arguments.sources).await?;
+    let desired_state = load_desired_state(&arguments.sources, arguments.context).await?;
     let machine = LocalMachine::new(&desired_state.machine, report)?;
     Ok((desired_state, machine))
 }
@@ -133,19 +140,23 @@ fn setup_logging(level_filter: LevelFilter) {
 mod tests {
     use super::*;
 
-    fn sources_from(arguments: &[&str]) -> Vec<ConfigurationSource> {
+    fn parse(arguments: &[&str]) -> ConfigurationArguments {
         let parsed =
             Arguments::try_parse_from(std::iter::once("dotfiles").chain(arguments.iter().copied()))
                 .unwrap();
         match parsed.task {
-            Task::Plan(source) | Task::Apply(source) => source.sources,
+            Task::Plan(configuration) | Task::Apply(configuration) => configuration,
         }
+    }
+
+    fn sources_from(arguments: &[&str]) -> Vec<ConfigurationSource> {
+        parse(arguments).sources
     }
 
     #[test]
     fn naming_a_directory_reads_that_directory_and_nothing_else() {
         assert_eq!(
-            sources_from(&["plan", "--source", "local:config"]),
+            sources_from(&["plan", "--context", "personal", "--source", "local:config"]),
             vec![ConfigurationSource::LocalDirectory("config".into())]
         );
     }
@@ -153,7 +164,7 @@ mod tests {
     #[test]
     fn naming_no_source_reads_the_default_one() {
         assert_eq!(
-            sources_from(&["plan"]),
+            sources_from(&["plan", "--context", "personal"]),
             vec![ConfigurationSource::from_str(DEFAULT_SOURCE).unwrap()]
         );
     }
@@ -163,8 +174,10 @@ mod tests {
         assert_eq!(
             sources_from(&[
                 "plan",
+                "--context",
+                "personal",
                 "--source",
-                "github:Alice/dotfiles/config/one.json",
+                "github:Alice/dotfiles/config",
                 "--source",
                 "local:config",
             ]),
@@ -172,7 +185,7 @@ mod tests {
                 ConfigurationSource::GitHubRepository {
                     owner: "Alice".into(),
                     repository: "dotfiles".into(),
-                    file_paths: vec!["config/one.json".to_owned()],
+                    directory: "config".to_owned(),
                 },
                 ConfigurationSource::LocalDirectory("config".into()),
             ]
@@ -195,5 +208,15 @@ mod tests {
             error.contains("local:") && error.contains("github:"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn the_machine_named_decides_which_configurations_apply() {
+        assert_eq!(parse(&["plan", "--context", "work"]).context, Context::Work);
+    }
+
+    #[test]
+    fn an_invocation_naming_no_machine_is_refused() {
+        assert!(Arguments::try_parse_from(["dotfiles", "plan"]).is_err());
     }
 }

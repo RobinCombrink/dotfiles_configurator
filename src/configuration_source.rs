@@ -1,12 +1,12 @@
 use {
     crate::{
         configuration::{
-            Configuration, DesiredState, RepositoryName, RepositoryOwner, merge_configurations,
-            parse_configuration,
+            Configuration, Context, DesiredState, RepositoryName, RepositoryOwner,
+            merge_configurations, parse_configuration,
         },
         github,
     },
-    anyhow::{Context, Error, Result, anyhow},
+    anyhow::{Context as _, Error, Result, anyhow},
     std::{
         fs,
         path::{Path, PathBuf},
@@ -21,14 +21,10 @@ pub enum ConfigurationSource {
     GitHubRepository {
         owner: RepositoryOwner,
         repository: RepositoryName,
-        file_paths: Vec<String>,
+        directory: String,
     },
 }
 
-/// One source is written as one word, so naming a source cannot interact with naming another and
-/// there is no combination of flags that means "nowhere".
-///
-/// `local:<directory>` or `github:<owner>/<repo>/<path>[,<path>...]`
 impl FromStr for ConfigurationSource {
     type Err = String;
 
@@ -41,16 +37,16 @@ impl FromStr for ConfigurationSource {
             "local" => Ok(ConfigurationSource::LocalDirectory(PathBuf::from(rest))),
             "github" => {
                 let mut segments = rest.splitn(3, '/');
-                let (Some(owner), Some(repository), Some(file_paths)) =
+                let (Some(owner), Some(repository), Some(directory)) =
                     (segments.next(), segments.next(), segments.next())
                 else {
-                    return Err(format!("{value:?} names no file paths; {EXPECTED_SOURCE}"));
+                    return Err(format!("{value:?} names no directory; {EXPECTED_SOURCE}"));
                 };
 
                 Ok(ConfigurationSource::GitHubRepository {
                     owner: RepositoryOwner::from(owner),
                     repository: RepositoryName::from(repository),
-                    file_paths: file_paths.split(',').map(str::to_owned).collect(),
+                    directory: directory.to_owned(),
                 })
             }
             other => Err(format!("{other:?} is not a source kind; {EXPECTED_SOURCE}")),
@@ -58,11 +54,18 @@ impl FromStr for ConfigurationSource {
     }
 }
 
-const EXPECTED_SOURCE: &str =
-    "expected `local:<directory>` or `github:<owner>/<repo>/<path>[,<path>...]`";
+const EXPECTED_SOURCE: &str = "expected `local:<directory>` or `github:<owner>/<repo>/<directory>`";
 
-/// Reads every named source and merges what they declare into one desired state.
-pub async fn load_desired_state(sources: &[ConfigurationSource]) -> Result<DesiredState> {
+pub const CONFIGURATION_SUFFIX: &str = ".dotconfig.json";
+
+fn is_configuration_file(path: &str) -> bool {
+    path.ends_with(CONFIGURATION_SUFFIX)
+}
+
+pub async fn load_desired_state(
+    sources: &[ConfigurationSource],
+    context: Context,
+) -> Result<DesiredState> {
     let mut loaded: Vec<(String, Configuration)> = Vec::new();
     let mut refusals: Vec<Error> = Vec::new();
     for source in sources {
@@ -84,7 +87,18 @@ pub async fn load_desired_state(sources: &[ConfigurationSource]) -> Result<Desir
         ));
     }
 
-    Ok(merge_configurations(loaded)?.with_dotfiles_repository())
+    let applicable: Vec<(String, Configuration)> = loaded
+        .into_iter()
+        .filter(|(_, configuration)| context.includes(configuration.applies_to))
+        .collect();
+
+    if applicable.is_empty() {
+        return Err(anyhow!(
+            "No configuration in any of the sources given applies to a {context} machine"
+        ));
+    }
+
+    Ok(merge_configurations(applicable)?.with_dotfiles_repository())
 }
 
 fn combined_refusal(mut refusals: Vec<Error>) -> Option<Error> {
@@ -108,8 +122,8 @@ impl ConfigurationSource {
             ConfigurationSource::GitHubRepository {
                 owner,
                 repository,
-                file_paths,
-            } => Self::load_from_github(owner.as_ref(), repository.as_ref(), file_paths).await,
+                directory,
+            } => Self::load_from_github(owner.as_ref(), repository.as_ref(), directory).await,
         }
     }
 
@@ -126,7 +140,7 @@ impl ConfigurationSource {
         let mut configuration_paths: Vec<PathBuf> = entries
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| path.is_file())
+            .filter(|path| path.is_file() && is_configuration_file(&path.to_string_lossy()))
             .collect();
         configuration_paths.sort();
 
@@ -144,15 +158,24 @@ impl ConfigurationSource {
     async fn load_from_github(
         owner: &str,
         repository: &str,
-        file_paths: &[String],
+        directory: &str,
     ) -> Vec<Result<(String, Configuration)>> {
         let octocrab = match github::authenticated_client(owner) {
             Ok(octocrab) => octocrab,
             Err(refusal) => return vec![Err(refusal)],
         };
 
+        let file_paths =
+            match github::list_directory_files(owner, repository, directory, &octocrab).await {
+                Ok(file_paths) => file_paths,
+                Err(refusal) => return vec![Err(refusal)],
+            };
+
         let mut loaded: Vec<Result<(String, Configuration)>> = Vec::new();
-        for file_path in file_paths {
+        for file_path in file_paths
+            .iter()
+            .filter(|file_path| is_configuration_file(file_path))
+        {
             let source = format!("{owner}/{repository}/{file_path}");
             match github::get_file_contents(owner, repository, file_path, &octocrab).await {
                 Err(refusal) => loaded.push(Err(refusal)),
@@ -179,10 +202,11 @@ mod tests {
         directory
     }
 
-    fn write_configuration(directory: &Path, file_name: &str, resources: &str) {
+    fn write_configuration(directory: &Path, file_name: &str, applies_to: &str, resources: &str) {
         let contents = format!(
             r#"{{
-                "version": "2",
+                "version": "3",
+                "applies_to": "{applies_to}",
                 "machine": {{
                     "repositories_directory_path": "C:\\Repositories",
                     "github_username": "Alice",
@@ -195,11 +219,25 @@ mod tests {
         file.write_all(contents.as_bytes()).unwrap();
     }
 
+    fn command(argument: &str) -> String {
+        format!(r#"{{ "kind": "command", "shell": "bash", "args": ["{argument}"] }}"#)
+    }
+
+    fn rendered(desired_state: &DesiredState) -> Vec<String> {
+        desired_state
+            .resources
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    }
+
     #[tokio::test]
     async fn a_directory_that_does_not_exist_is_reported_by_path() {
         let source = ConfigurationSource::LocalDirectory("/no/such/directory".into());
 
-        let error = load_desired_state(&[source]).await.unwrap_err();
+        let error = load_desired_state(&[source], Context::Personal)
+            .await
+            .unwrap_err();
 
         assert!(error.to_string().contains("no/such/directory"));
     }
@@ -210,25 +248,25 @@ mod tests {
         write_configuration(
             &directory,
             "b_second.dotconfig.json",
-            r#"{ "kind": "command", "shell": "bash", "args": ["second"] }"#,
+            "everywhere",
+            &command("second"),
         );
         write_configuration(
             &directory,
             "a_first.dotconfig.json",
-            r#"{ "kind": "command", "shell": "bash", "args": ["first"] }"#,
+            "everywhere",
+            &command("first"),
         );
 
-        let desired_state = load_desired_state(&[ConfigurationSource::LocalDirectory(directory)])
-            .await
-            .unwrap();
+        let desired_state = load_desired_state(
+            &[ConfigurationSource::LocalDirectory(directory)],
+            Context::Personal,
+        )
+        .await
+        .unwrap();
 
-        let rendered: Vec<String> = desired_state
-            .resources
-            .iter()
-            .map(ToString::to_string)
-            .collect();
         assert_eq!(
-            rendered,
+            rendered(&desired_state),
             vec![
                 "repository Alice/dotfiles".to_owned(),
                 "command first".to_owned(),
@@ -238,15 +276,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_directory_holding_a_configuration_for_another_machine_contributes_none_of_it() {
+        let directory = temporary_directory("another_machine");
+        write_configuration(
+            &directory,
+            "everywhere.dotconfig.json",
+            "everywhere",
+            &command("for every machine"),
+        );
+        write_configuration(
+            &directory,
+            "personal.dotconfig.json",
+            "personal",
+            &command("for a personal machine"),
+        );
+
+        let desired_state = load_desired_state(
+            &[ConfigurationSource::LocalDirectory(directory)],
+            Context::Work,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            rendered(&desired_state),
+            vec![
+                "repository Alice/dotfiles".to_owned(),
+                "command for every machine".to_owned(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_file_without_the_configuration_suffix_is_not_read_at_all() {
+        let directory = temporary_directory("unsuffixed_file");
+        write_configuration(
+            &directory,
+            "everywhere.dotconfig.json",
+            "everywhere",
+            &command("declared"),
+        );
+        let mut readme = File::create(directory.join("README.md")).unwrap();
+        readme.write_all(b"These are the configurations.").unwrap();
+
+        let desired_state = load_desired_state(
+            &[ConfigurationSource::LocalDirectory(directory)],
+            Context::Personal,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            rendered(&desired_state),
+            vec![
+                "repository Alice/dotfiles".to_owned(),
+                "command declared".to_owned(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_directory_holding_nothing_for_this_machine_is_refused_naming_the_machine() {
+        let directory = temporary_directory("nothing_applies");
+        write_configuration(
+            &directory,
+            "work.dotconfig.json",
+            "work",
+            &command("for a work machine"),
+        );
+
+        let error = load_desired_state(
+            &[ConfigurationSource::LocalDirectory(directory)],
+            Context::Personal,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.to_string().contains("personal"), "{error}");
+    }
+
+    #[tokio::test]
     async fn a_configuration_in_the_superseded_format_is_rejected_by_file_name() {
         let directory = temporary_directory("superseded_format");
         let mut file = File::create(directory.join("everywhere.dotconfig.json")).unwrap();
         file.write_all(br#"{ "version": "0.1.0", "clone_config": {}, "items": [] }"#)
             .unwrap();
 
-        let error = load_desired_state(&[ConfigurationSource::LocalDirectory(directory)])
-            .await
-            .unwrap_err();
+        let error = load_desired_state(
+            &[ConfigurationSource::LocalDirectory(directory)],
+            Context::Personal,
+        )
+        .await
+        .unwrap_err();
 
         assert!(error.to_string().contains("everywhere.dotconfig.json"));
     }
