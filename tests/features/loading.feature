@@ -9,19 +9,34 @@ Feature: Loading a configuration
     Given Alice has a configuration for personal machines linking ".gitconfig" to "gitconfig/.gitconfig"
     And Alice has a configuration for work machines linking ".npmrc" to "npm/.npmrc"
     When Alice loads her configurations for a personal machine
-    Then the desired state holds 1 symlink
+    Then the desired state links ".gitconfig"
+    And the desired state does not link ".npmrc"
 
   Scenario: A configuration for every machine applies alongside the machine's own
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
     And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
     When Alice loads her configurations for a personal machine
-    Then the desired state holds 2 symlinks
+    Then the desired state links ".gitconfig"
+    And the desired state links ".npmrc"
 
   Scenario: A machine belonging to no class applies only what is for every machine
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
     And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
     When Alice loads her configurations for a machine of no class
-    Then the desired state holds 1 symlink
+    Then the desired state links ".gitconfig"
+    And the desired state does not link ".npmrc"
+
+  Scenario: A machine nothing applies to is refused rather than converged against nothing
+    Given Alice has a configuration for work machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "personal"
+
+  Scenario: A file that is not a configuration is left where it lies
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice keeps a "README.md" alongside her configurations
+    When Alice loads her configurations for a personal machine
+    Then the desired state links ".gitconfig"
 
   Scenario: A configuration for another machine is refused when it cannot be read
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
@@ -38,8 +53,8 @@ Feature: Loading a configuration
     And the refusal mentions "3"
 
   Scenario: Two configurations claiming the same link differently are refused
-    Given Alice has a configuration linking ".gitconfig" to "gitconfig/.gitconfig"
-    And Alice has a configuration linking ".gitconfig" to "elsewhere/.gitconfig"
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for every machine linking ".gitconfig" to "elsewhere/.gitconfig"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "conflicting claims"
@@ -53,7 +68,7 @@ Feature: Loading a configuration
     And the refusal mentions "0.2.0"
 
   Scenario: A configuration Alice can read is refused alongside one she cannot
-    Given Alice has a configuration linking ".gitconfig" to "gitconfig/.gitconfig"
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
     And Alice has a configuration declaring format version "0.1.0"
     When Alice loads her configurations for a personal machine
     Then loading is refused
@@ -73,7 +88,7 @@ Feature: Loading a configuration
     And the refusal mentions "applies_to"
 
   Scenario: Two configurations claiming the same link identically are one resource
-    Given Alice has a configuration linking ".gitconfig" to "gitconfig/.gitconfig"
-    And Alice has a configuration linking ".gitconfig" to "gitconfig/.gitconfig"
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
     When Alice loads her configurations for a personal machine
     Then the desired state holds 1 symlink

@@ -42,6 +42,8 @@ struct MachineWorld {
     notices: Vec<Notice>,
     /// Configurations as they are written down, for the scenarios about loading them.
     documents: Vec<String>,
+    /// Files kept beside the configurations that are not configurations themselves.
+    stray_file_names: Vec<String>,
     change_set: Option<ChangeSet>,
     second_change_set: Option<ChangeSet>,
     outcome: Option<ApplyOutcome>,
@@ -61,6 +63,7 @@ impl MachineWorld {
             members: BTreeMap::new(),
             notices: Vec::new(),
             documents: Vec::new(),
+            stray_file_names: Vec::new(),
             change_set: None,
             second_change_set: None,
             outcome: None,
@@ -91,6 +94,19 @@ impl MachineWorld {
             resources: self.resources.clone(),
             notices: self.notices.clone(),
         }
+    }
+
+    fn linked_paths(&self) -> Vec<String> {
+        self.loaded
+            .as_ref()
+            .expect("nothing was loaded")
+            .resources
+            .iter()
+            .filter_map(|resource| match resource {
+                Resource::Symlink(symlink) => Some(symlink.link_path.display().to_string()),
+                _ => None,
+            })
+            .collect()
     }
 
     fn member(&mut self, crate_name: &str) -> &mut MemberReading {
@@ -266,6 +282,11 @@ fn work_configuration_with_version(world: &mut MachineWorld, version: String) {
     world.documents.push(document(&version, "work", "[]"));
 }
 
+#[given(expr = "Alice keeps a {string} alongside her configurations")]
+fn stray_file_alongside_configurations(world: &mut MachineWorld, file_name: String) {
+    world.stray_file_names.push(file_name);
+}
+
 #[given(expr = "Alice has a configuration that declares no machines it is for")]
 fn configuration_without_a_context(world: &mut MachineWorld) {
     world.documents.push(
@@ -298,15 +319,6 @@ fn configuration_without_a_repositories_directory_path(world: &mut MachineWorld)
         }"#
         .to_owned(),
     );
-}
-
-#[given(expr = "Alice has a configuration linking {string} to {string}")]
-fn configuration_linking(world: &mut MachineWorld, link_path: String, source_path: String) {
-    world.documents.push(document(
-        "3",
-        "everywhere",
-        &symlink(&link_path, &source_path),
-    ));
 }
 
 #[given(expr = "Alice has a configuration for every machine linking {string} to {string}")]
@@ -478,6 +490,9 @@ async fn alice_loads(world: &mut MachineWorld, context: Context) {
             contents,
         )
         .unwrap();
+    }
+    for file_name in &world.stray_file_names {
+        fs::write(directory.join(file_name), "not a configuration").unwrap();
     }
 
     match load_desired_state(&[ConfigurationSource::LocalDirectory(directory)], context).await {
@@ -711,6 +726,24 @@ fn desired_state_holds_symlinks(world: &mut MachineWorld, expected: usize) {
         .count();
 
     assert_eq!(symlinks, expected);
+}
+
+#[then(expr = "the desired state links {string}")]
+fn desired_state_links(world: &mut MachineWorld, link_path: String) {
+    let linked = world.linked_paths();
+    assert!(
+        linked.contains(&link_path),
+        "expected {link_path:?} to be linked, got {linked:?}"
+    );
+}
+
+#[then(expr = "the desired state does not link {string}")]
+fn desired_state_does_not_link(world: &mut MachineWorld, link_path: String) {
+    let linked = world.linked_paths();
+    assert!(
+        !linked.contains(&link_path),
+        "expected {link_path:?} not to be linked, got {linked:?}"
+    );
 }
 
 #[tokio::main]

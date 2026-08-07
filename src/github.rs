@@ -43,17 +43,17 @@ pub async fn get_file_contents(
 
 pub async fn list_directory_files(
     owner: &str,
-    repo: &str,
+    repository: &str,
     directory: &str,
     octocrab: &Arc<Octocrab>,
 ) -> Result<Vec<String>> {
     let contents = octocrab
-        .repos(owner.to_owned(), repo.to_owned())
+        .repos(owner.to_owned(), repository.to_owned())
         .get_content()
         .path(directory.to_owned())
         .send()
         .await
-        .with_context(|| format!("Could not read {owner}/{repo}/{directory}"))?;
+        .with_context(|| format!("Could not read {owner}/{repository}/{directory}"))?;
 
     let mut file_paths: Vec<String> = contents
         .items

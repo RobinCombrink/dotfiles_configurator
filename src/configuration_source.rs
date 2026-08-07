@@ -56,7 +56,7 @@ impl FromStr for ConfigurationSource {
 
 const EXPECTED_SOURCE: &str = "expected `local:<directory>` or `github:<owner>/<repo>/<directory>`";
 
-pub const CONFIGURATION_SUFFIX: &str = ".dotconfig.json";
+const CONFIGURATION_SUFFIX: &str = ".dotconfig.json";
 
 fn is_configuration_file(path: &str) -> bool {
     path.ends_with(CONFIGURATION_SUFFIX)
@@ -89,12 +89,13 @@ pub async fn load_desired_state(
 
     let applicable: Vec<(String, Configuration)> = loaded
         .into_iter()
-        .filter(|(_, configuration)| context.includes(configuration.applies_to))
+        .filter(|(_, configuration)| configuration.applies_to.applies_on(context))
         .collect();
 
     if applicable.is_empty() {
         return Err(anyhow!(
-            "No configuration in any of the sources given applies to a {context} machine"
+            "No configuration in any of the sources given applies to {}",
+            context.machine_described()
         ));
     }
 
