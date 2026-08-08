@@ -140,9 +140,10 @@ mod tests {
     use super::*;
 
     fn parse(arguments: &[&str]) -> ConfigurationArguments {
-        let parsed =
-            Arguments::try_parse_from(std::iter::once("dotfiles_configurator").chain(arguments.iter().copied()))
-                .unwrap();
+        let parsed = Arguments::try_parse_from(
+            std::iter::once("dotfiles_configurator").chain(arguments.iter().copied()),
+        )
+        .unwrap();
         match parsed.task {
             Task::Plan(configuration) | Task::Apply(configuration) => configuration,
         }

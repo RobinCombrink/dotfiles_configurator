@@ -177,11 +177,11 @@ fn declare_application(world: &mut MachineWorld, name: String) {
 
 #[given(expr = "Alice declares the winget package {string}")]
 fn declare_winget_package(world: &mut MachineWorld, id: String) {
-    world
-        .resources
-        .push(Resource::Package(dotfiles_configurator::configuration::Package::Winget(
+    world.resources.push(Resource::Package(
+        dotfiles_configurator::configuration::Package::Winget(
             dotfiles_configurator::configuration::WingetPackage { id: id.into() },
-        )));
+        ),
+    ));
 }
 
 #[given(expr = "winget holds {string} on Alice's machine")]
@@ -211,13 +211,13 @@ fn declare_dotfiles_repository(world: &mut MachineWorld) {
 
 #[given(expr = "Alice declares the command {string} with no presence check")]
 fn declare_command_without_check(world: &mut MachineWorld, command: String) {
-    world
-        .resources
-        .push(Resource::Command(dotfiles_configurator::configuration::Command {
+    world.resources.push(Resource::Command(
+        dotfiles_configurator::configuration::Command {
             shell: Shell::Bash,
             args: vec![command],
             presence_check: None,
-        }));
+        },
+    ));
 }
 
 #[given(regex = r"^(.+) is installed on Alice's machine$")]
