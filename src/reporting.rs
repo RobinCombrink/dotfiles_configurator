@@ -3,6 +3,7 @@ use {
     chrono::Local,
     indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle},
     std::{
+        env,
         fmt::Display,
         fs::{self, File, OpenOptions},
         io::{IsTerminal, Write},
@@ -18,6 +19,9 @@ use {
 const SILENCE_THRESHOLD: Duration = Duration::from_secs(600); // 10 minutes
 
 const RETAINED_RUNS: usize = 20;
+
+// ADR 0015
+const TOOL_DIRECTORY: &str = concat!(".", env!("CARGO_PKG_NAME"));
 
 const SILENCE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -142,11 +146,7 @@ impl Drop for SilenceWatchdog {
 
 impl RunReport {
     pub fn open(kind: RunKind) -> Result<Self> {
-        let directory = dirs::data_local_dir()
-            .context("Could not find the local data directory to write a run log into")?
-            .join("dotfiles")
-            .join("logs");
-        Self::open_in(&directory, kind)
+        Self::open_in(&log_directory()?, kind)
     }
 
     pub fn open_in(directory: &Path, kind: RunKind) -> Result<Self> {
@@ -416,9 +416,26 @@ fn discard_all_but_newest(directory: &Path, keep: usize) -> Result<()> {
     Ok(())
 }
 
+fn log_directory() -> Result<PathBuf> {
+    Ok(env::home_dir()
+        .context("Could not find the home directory to write a run log into")?
+        .join(TOOL_DIRECTORY)
+        .join("logs"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_logs_are_written_into_the_tools_own_directory_under_the_home_directory() {
+        let home = env::home_dir().unwrap();
+
+        assert_eq!(
+            log_directory().unwrap(),
+            home.join(".dotfiles_configurator").join("logs")
+        );
+    }
 
     fn logs_in(directory: &Path) -> Vec<PathBuf> {
         fs::read_dir(directory)
@@ -513,7 +530,7 @@ mod tests {
             "installing cargo-llvm-cov",
             Duration::from_secs(630),
             Some(Path::new(
-                "/data/dotfiles/logs/apply-20260807-141233.000-91.log",
+                "/home/alice/.dotfiles_configurator/logs/apply-20260807-141233.000-91.log",
             )),
         );
 
