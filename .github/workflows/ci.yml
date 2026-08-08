@@ -68,7 +68,7 @@ jobs:
         shell: bash
         run: |
           sed -i "0,/^version = /s/^version = .*/version = \"$RELEASE_VERSION\"/" Cargo.toml
-          sed -i "/^name = \"dotfiles\"\$/{n;s/^version = .*/version = \"$RELEASE_VERSION\"/}" Cargo.lock
+          sed -i "/^name = \"dotfiles_configurator\"\$/{n;s/^version = .*/version = \"$RELEASE_VERSION\"/}" Cargo.lock
           stamped=$(sed -n '0,/^version = /s/^version = "\(.*\)"/\1/p' Cargo.toml)
           if [ "$stamped" != "$RELEASE_VERSION" ]; then
             echo "Stamp failed: Cargo.toml reports '$stamped', expected '$RELEASE_VERSION'." >&2
@@ -81,7 +81,7 @@ jobs:
       - name: Verify the binary reports the release version
         shell: bash
         run: |
-          reported=$(./target/$TARGET/release/dotfiles.exe --version | tr -d '\r' | awk '{print $NF}')
+          reported=$(./target/$TARGET/release/dotfiles_configurator.exe --version | tr -d '\r' | awk '{print $NF}')
           if [ "$reported" != "$RELEASE_VERSION" ]; then
             echo "Binary reports '$reported', expected '$RELEASE_VERSION'." >&2
             exit 1
@@ -90,12 +90,12 @@ jobs:
       - name: Package as archive
         shell: pwsh
         run: |
-          Compress-Archive -Path "target/$env:TARGET/release/dotfiles.exe" -DestinationPath "dotfiles-windows-x86_64.zip"
+          Compress-Archive -Path "target/$env:TARGET/release/dotfiles_configurator.exe" -DestinationPath "dotfiles_configurator-windows-x86_64.zip"
 
       - uses: actions/upload-artifact@v4
         with:
           name: release-binaries
-          path: dotfiles-windows-x86_64.zip
+          path: dotfiles_configurator-windows-x86_64.zip
           if-no-files-found: error
 
   release:

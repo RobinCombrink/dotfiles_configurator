@@ -5,7 +5,7 @@ mod fake_machine;
 
 use {
     cucumber::{World, given, then, when},
-    dotfiles::{
+    dotfiles_configurator::{
         configuration::{
             Application, ApplicationName, ApplicationSource, CargoWorkspace, Context, CrateName,
             DesiredState, GitHubRepository, MachineSettings, Notice, PresenceCheck, RepositoryName,
@@ -179,8 +179,8 @@ fn declare_application(world: &mut MachineWorld, name: String) {
 fn declare_winget_package(world: &mut MachineWorld, id: String) {
     world
         .resources
-        .push(Resource::Package(dotfiles::configuration::Package::Winget(
-            dotfiles::configuration::WingetPackage { id: id.into() },
+        .push(Resource::Package(dotfiles_configurator::configuration::Package::Winget(
+            dotfiles_configurator::configuration::WingetPackage { id: id.into() },
         )));
 }
 
@@ -213,7 +213,7 @@ fn declare_dotfiles_repository(world: &mut MachineWorld) {
 fn declare_command_without_check(world: &mut MachineWorld, command: String) {
     world
         .resources
-        .push(Resource::Command(dotfiles::configuration::Command {
+        .push(Resource::Command(dotfiles_configurator::configuration::Command {
             shell: Shell::Bash,
             args: vec![command],
             presence_check: None,
@@ -580,10 +580,10 @@ fn application_precedes_symlink(world: &mut MachineWorld) {
         .collect();
     let application = kinds
         .iter()
-        .position(|kind| *kind == dotfiles::configuration::ResourceKind::Application);
+        .position(|kind| *kind == dotfiles_configurator::configuration::ResourceKind::Application);
     let symlink = kinds
         .iter()
-        .position(|kind| *kind == dotfiles::configuration::ResourceKind::Symlink);
+        .position(|kind| *kind == dotfiles_configurator::configuration::ResourceKind::Symlink);
 
     assert!(
         application < symlink,

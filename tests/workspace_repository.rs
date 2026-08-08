@@ -1,7 +1,7 @@
 #![allow(clippy::disallowed_macros)]
 
 use {
-    dotfiles::{
+    dotfiles_configurator::{
         configuration::CrateName,
         machine::{local::workspace, workspace_reading::Revision},
     },
@@ -134,7 +134,7 @@ fn installed(crate_name: &str, revision: &Revision) -> BTreeMap<CrateName, Revis
     BTreeMap::from([(CrateName::from(crate_name), revision.clone())])
 }
 
-fn alpha(reading: &dotfiles::machine::workspace_reading::WorkspaceReading) -> bool {
+fn alpha(reading: &dotfiles_configurator::machine::workspace_reading::WorkspaceReading) -> bool {
     let member = &reading.members[&CrateName::from("alpha")];
     member.installed.as_ref() == Some(&member.desired)
 }

@@ -1,7 +1,7 @@
 use {
     anyhow::Result,
     clap::{Args, Parser, Subcommand},
-    dotfiles::{
+    dotfiles_configurator::{
         configuration::{Context, DesiredState},
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{apply::apply, plan},
@@ -48,7 +48,6 @@ enum Task {
 }
 
 #[derive(Parser, Debug)]
-#[clap(name = "Dotfiles")]
 #[command(version, about, long_about = None)]
 struct Arguments {
     #[command(subcommand)]
@@ -142,7 +141,7 @@ mod tests {
 
     fn parse(arguments: &[&str]) -> ConfigurationArguments {
         let parsed =
-            Arguments::try_parse_from(std::iter::once("dotfiles").chain(arguments.iter().copied()))
+            Arguments::try_parse_from(std::iter::once("dotfiles_configurator").chain(arguments.iter().copied()))
                 .unwrap();
         match parsed.task {
             Task::Plan(configuration) | Task::Apply(configuration) => configuration,
@@ -217,6 +216,6 @@ mod tests {
 
     #[test]
     fn an_invocation_naming_no_machine_is_refused() {
-        assert!(Arguments::try_parse_from(["dotfiles", "plan"]).is_err());
+        assert!(Arguments::try_parse_from(["dotfiles_configurator", "plan"]).is_err());
     }
 }

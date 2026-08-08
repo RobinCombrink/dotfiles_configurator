@@ -8,7 +8,7 @@
 mod fake_machine;
 
 use {
-    dotfiles::{
+    dotfiles_configurator::{
         configuration::{
             CargoPackage, CargoSource, CargoWorkspace, CrateName, DesiredState, GitHubRepository,
             MachineSettings, Package, RepositoryName, RepositoryOwner, Resource, WingetPackage,
@@ -102,7 +102,7 @@ fn a_manager_nothing_is_declared_against_is_never_asked() {
 #[test]
 fn a_package_whose_manager_is_absent_leaves_that_manager_unasked() {
     let machine = FakeMachine::default();
-    machine.remove_tool(dotfiles::machine::Tool::Winget);
+    machine.remove_tool(dotfiles_configurator::machine::Tool::Winget);
     let desired_state = desired_state(vec![winget_package("Microsoft.PowerShell")]);
 
     plan(&desired_state, &machine, &RunReport::discarded()).unwrap();

@@ -15,7 +15,7 @@ pub enum Context {
 
 impl Context {
     /// ```
-    /// use dotfiles::configuration::Context;
+    /// use dotfiles_configurator::configuration::Context;
     ///
     /// assert!(Context::Everywhere.applies_on(Context::Personal));
     /// assert!(!Context::Work.applies_on(Context::Personal));

@@ -8,7 +8,7 @@
 
 use {
     anyhow::{Result, bail},
-    dotfiles::{
+    dotfiles_configurator::{
         configuration::{
             Application, ApplicationName, CrateName, GitHubRepository, PresenceCheck, Shell,
             WingetPackageId,
