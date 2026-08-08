@@ -59,7 +59,6 @@ impl<'report> LocalMachine<'report> {
         })
     }
 
-    // ADR 0010
     fn authenticated_account(&self) -> Result<&AuthenticatedAccount> {
         if let Some(account) = self.authenticated_account.get() {
             return Ok(account);
