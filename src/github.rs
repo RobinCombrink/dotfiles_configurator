@@ -1,5 +1,5 @@
 use {
-    anyhow::{Context, Result},
+    anyhow::{Context, Result, bail},
     github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     octocrab::Octocrab,
     secrecy::SecretString,
@@ -13,6 +13,10 @@ pub struct AuthenticatedAccount {
 
 impl AuthenticatedAccount {
     pub fn authenticate_as(account: &str) -> Result<Self> {
+        if !GitHubCliAuthentication::is_github_cli_on_path()? {
+            bail!(GITHUB_CLI_IS_ABSENT);
+        }
+
         let authentication =
             GitHubCliAuthentication::new(account.to_owned()).with_context(|| {
                 format!("Could not authenticate as {account} through the GitHub CLI")
@@ -34,6 +38,11 @@ impl AuthenticatedAccount {
         &self.token
     }
 }
+
+const GITHUB_CLI_IS_ABSENT: &str = concat!(
+    "The GitHub CLI (gh) is not on the path. ",
+    "Install it from https://cli.github.com, then authenticate with `gh auth login`."
+);
 
 /// Reads the decoded contents of a file held in a GitHub repository.
 pub async fn get_file_contents(
