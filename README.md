@@ -28,7 +28,7 @@ Alongside them, **notices** carry messages about things the tool cannot do. They
 
 ## Running locally
 
-Requires the GitHub CLI (`gh`) to be installed and authenticated.
+Requires the GitHub CLI (`gh`) to be installed and authenticated wherever a run reaches GitHub: reading configurations from a `github:` source, cloning a repository, or installing an application from a release. Credentials are obtained at the moment they are needed, so planning against a `local:` source asks for none.
 
 Every invocation names which machine it is on. Each configuration declares which machines it is for, so where they are read from cannot change which of them apply.
 

@@ -4,7 +4,7 @@ use {
             Application, ApplicationSource, AssetPattern, CrateName, GitHubRepository,
             MachineSettings, PresenceCheck, Shell,
         },
-        github,
+        github::AuthenticatedAccount,
         machine::{
             CommandOutput, ReadInvocation, ReadMachine, Tool, WriteInvocation, WriteMachine,
             workspace_reading::{Revision, WorkspaceReading},
@@ -14,9 +14,7 @@ use {
     anyhow::{Context, Result, anyhow, bail},
     futures::StreamExt,
     git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder},
-    github_authentication::authentication::{Authentication, GitHubCliAuthentication},
     indicatif::ProgressBar,
-    octocrab::Octocrab,
     reqwest::{Client, header},
     secrecy::ExposeSecret,
     std::{
@@ -25,7 +23,7 @@ use {
         io::{BufRead, BufReader, Read},
         path::{Path, PathBuf},
         process::{Command as ProcessCommand, Stdio},
-        sync::Arc,
+        sync::OnceLock,
         thread,
     },
     url::Url,
@@ -39,23 +37,14 @@ pub struct LocalMachine<'report> {
     repositories_directory: PathBuf,
     dotfiles_repository_path: PathBuf,
     download_directory: PathBuf,
-    authentication: GitHubCliAuthentication,
-    octocrab: Arc<Octocrab>,
+    github_account: String,
+    authenticated_account: OnceLock<AuthenticatedAccount>,
     http_client: Client,
     report: &'report RunReport,
 }
 
 impl<'report> LocalMachine<'report> {
     pub fn new(settings: &MachineSettings, report: &'report RunReport) -> Result<Self> {
-        let authentication = GitHubCliAuthentication::new(settings.github_username.clone())
-            .with_context(|| {
-                format!(
-                    "Could not authenticate as {} through the GitHub CLI",
-                    settings.github_username
-                )
-            })?;
-        let octocrab = github::create_octocrab(authentication.get_token())?;
-
         Ok(Self {
             home_directory: env::home_dir()
                 .ok_or_else(|| anyhow!("Could not find the home directory"))?,
@@ -63,11 +52,21 @@ impl<'report> LocalMachine<'report> {
             dotfiles_repository_path: settings.dotfiles_repository_path(),
             download_directory: dirs::download_dir()
                 .ok_or_else(|| anyhow!("Could not find the download directory"))?,
-            authentication,
-            octocrab,
+            github_account: settings.github_username.clone(),
+            authenticated_account: OnceLock::new(),
             http_client: Client::default(),
             report,
         })
+    }
+
+    // ADR 0010
+    fn authenticated_account(&self) -> Result<&AuthenticatedAccount> {
+        if let Some(account) = self.authenticated_account.get() {
+            return Ok(account);
+        }
+
+        let account = AuthenticatedAccount::authenticate_as(&self.github_account)?;
+        Ok(self.authenticated_account.get_or_init(|| account))
     }
 
     async fn download(&self, url: &Url, destination: &Path) -> Result<()> {
@@ -134,7 +133,8 @@ impl<'report> LocalMachine<'report> {
         asset: &AssetPattern,
     ) -> Result<(Url, String)> {
         let release = self
-            .octocrab
+            .authenticated_account()?
+            .client()
             .repos(owner, repo)
             .releases()
             .get_latest()
@@ -408,11 +408,11 @@ impl WriteMachine for LocalMachine<'_> {
     }
 
     async fn clone_repository(&self, repository: &GitHubRepository) -> Result<()> {
-        let token = self.authentication.get_token();
+        let account = self.authenticated_account()?;
         let owner = repository.owner.as_ref();
         let name = repository.repository.as_ref();
-        let details = self
-            .octocrab
+        let details = account
+            .client()
             .repos(owner, name)
             .get()
             .await
@@ -431,7 +431,7 @@ impl WriteMachine for LocalMachine<'_> {
             .report
             .progress_bar(None, format!("cloning {repository}"));
         let cloned = RepoBuilder::new()
-            .fetch_options(self.fetch_options(&token, owner, &progress))
+            .fetch_options(self.fetch_options(account.token(), owner, &progress))
             .clone(url.as_str(), &directory_path)
             .map(|_| ())
             .map_err(|error| {

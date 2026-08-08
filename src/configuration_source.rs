@@ -161,16 +161,22 @@ impl ConfigurationSource {
         repository: &str,
         directory: &str,
     ) -> Vec<Result<(String, Configuration)>> {
-        let octocrab = match github::authenticated_client(owner) {
-            Ok(octocrab) => octocrab,
+        let account = match github::AuthenticatedAccount::authenticate_as(owner) {
+            Ok(account) => account,
             Err(refusal) => return vec![Err(refusal)],
         };
 
-        let file_paths =
-            match github::list_directory_files(owner, repository, directory, &octocrab).await {
-                Ok(file_paths) => file_paths,
-                Err(refusal) => return vec![Err(refusal)],
-            };
+        let file_paths = match github::list_directory_files(
+            owner,
+            repository,
+            directory,
+            account.client(),
+        )
+        .await
+        {
+            Ok(file_paths) => file_paths,
+            Err(refusal) => return vec![Err(refusal)],
+        };
 
         let mut loaded: Vec<Result<(String, Configuration)>> = Vec::new();
         for file_path in file_paths
@@ -178,7 +184,7 @@ impl ConfigurationSource {
             .filter(|file_path| is_configuration_file(file_path))
         {
             let source = format!("{owner}/{repository}/{file_path}");
-            match github::get_file_contents(owner, repository, file_path, &octocrab).await {
+            match github::get_file_contents(owner, repository, file_path, account.client()).await {
                 Err(refusal) => loaded.push(Err(refusal)),
                 Ok(documents) => loaded.extend(documents.into_iter().map(|contents| {
                     Ok((source.clone(), parse_configuration(&contents, &source)?))

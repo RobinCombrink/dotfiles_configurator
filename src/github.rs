@@ -6,17 +6,33 @@ use {
     std::sync::Arc,
 };
 
-pub fn create_octocrab(token: SecretString) -> Result<Arc<Octocrab>> {
-    let instance = Octocrab::builder().personal_token(token).build()?;
-
-    Ok(Arc::new(instance))
+pub struct AuthenticatedAccount {
+    token: SecretString,
+    client: Arc<Octocrab>,
 }
 
-pub fn authenticated_client(username: &str) -> Result<Arc<Octocrab>> {
-    let authentication = GitHubCliAuthentication::new(username.to_owned())
-        .with_context(|| format!("Could not authenticate as {username} through the GitHub CLI"))?;
+impl AuthenticatedAccount {
+    pub fn authenticate_as(account: &str) -> Result<Self> {
+        let authentication =
+            GitHubCliAuthentication::new(account.to_owned()).with_context(|| {
+                format!("Could not authenticate as {account} through the GitHub CLI")
+            })?;
+        let token = authentication.get_token();
+        let client = Octocrab::builder().personal_token(token.clone()).build()?;
 
-    create_octocrab(authentication.get_token())
+        Ok(Self {
+            token,
+            client: Arc::new(client),
+        })
+    }
+
+    pub fn client(&self) -> &Arc<Octocrab> {
+        &self.client
+    }
+
+    pub fn token(&self) -> &SecretString {
+        &self.token
+    }
 }
 
 /// Reads the decoded contents of a file held in a GitHub repository.
