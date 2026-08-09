@@ -125,7 +125,7 @@ impl Display for Application {
         match self {
             Application::Installer(installer) => Display::fmt(&installer.name, formatter),
             Application::ReleasedBinary(binary) => {
-                Display::fmt(&binary.entry.installed_name(), formatter)
+                Display::fmt(&binary.installed_name(), formatter)
             }
         }
     }
@@ -143,12 +143,12 @@ pub struct ReleasedBinary {
     pub repository: GitHubRepository,
     pub asset: AssetPattern,
     pub entry: ArchiveEntry,
-    #[serde(default = "asking_for_a_version")]
+    #[serde(default = "default_version_arguments")]
     pub version_arguments: Vec<String>,
     pub version_word: VersionWord,
 }
 
-fn asking_for_a_version() -> Vec<String> {
+fn default_version_arguments() -> Vec<String> {
     vec!["--version".to_owned()]
 }
 
@@ -200,7 +200,14 @@ pub struct ArchiveEntry(String);
 
 impl ArchiveEntry {
     pub fn installed_name(&self) -> BinaryName {
-        BinaryName::from(self.0.rsplit('/').next().unwrap_or(&self.0))
+        BinaryName::from(own_name(&self.0))
+    }
+}
+
+fn own_name(path: &str) -> &str {
+    match path.rsplit_once('/') {
+        Some((_, own_name)) => own_name,
+        None => path,
     }
 }
 
@@ -208,7 +215,7 @@ impl TryFrom<String> for ArchiveEntry {
     type Error = String;
 
     fn try_from(path: String) -> Result<Self, Self::Error> {
-        match path.rsplit('/').next().unwrap_or_default().is_empty() {
+        match own_name(&path).is_empty() {
             true => Err(format!(
                 "{path:?} names no file inside the archive to install"
             )),
