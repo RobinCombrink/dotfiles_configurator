@@ -120,6 +120,11 @@ pub async fn apply(
     let mut held: Vec<Held> = Vec::new();
     let mut passes = 0;
 
+    {
+        let _doing = report.doing("removing the binaries earlier runs replaced");
+        machine.sweep_superseded_images();
+    }
+
     let change_set = loop {
         let change_set: ChangeSet = plan(desired_state, machine, report)?;
         passes += 1;

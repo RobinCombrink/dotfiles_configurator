@@ -117,6 +117,13 @@ impl FakeMachine {
         );
     }
 
+    pub fn leave_superseded_image(&self, name: &str) {
+        self.state
+            .borrow_mut()
+            .superseded_images
+            .insert(self.cargo_binaries_directory.join(name));
+    }
+
     pub fn superseded_image_count(&self) -> usize {
         self.state.borrow().superseded_images.len()
     }
@@ -281,6 +288,15 @@ impl ReadMachine for FakeMachine {
 
     fn dotfiles_repository_path(&self) -> &Path {
         &self.dotfiles_repository_path
+    }
+
+    fn superseded_images(&self) -> Vec<PathBuf> {
+        self.state
+            .borrow()
+            .superseded_images
+            .iter()
+            .cloned()
+            .collect()
     }
 
     fn path_exists(&self, path: &Path) -> bool {
@@ -450,6 +466,20 @@ impl WriteMachine for FakeMachine {
         drop(state);
 
         self.write(invocation).map(Placement::Placed)
+    }
+
+    fn sweep_superseded_images(&self) {
+        let mut state = self.state.borrow_mut();
+        let held: BTreeSet<PathBuf> = state
+            .executing_binaries
+            .keys()
+            .map(|path| {
+                let mut name = path.clone().into_os_string();
+                name.push(".superseded");
+                PathBuf::from(name)
+            })
+            .collect();
+        state.superseded_images.retain(|image| held.contains(image));
     }
 
     fn run_declared_command(&self, _shell: Shell, args: &[String]) -> Result<CommandOutput> {

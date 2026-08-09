@@ -447,6 +447,11 @@ fn machine_will_not_release(world: &mut MachineWorld, binary_name: String) {
         .execute_binary_that_cannot_be_displaced(&binary_name);
 }
 
+#[given(expr = "an earlier run superseded the binary {string} on Alice's machine")]
+fn an_earlier_run_superseded(world: &mut MachineWorld, binary_name: String) {
+    world.machine.leave_superseded_image(&binary_name);
+}
+
 #[then(expr = "{int} resource(s) is/are reported as held")]
 fn resources_reported_as_held(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.outcome().held.len(), expected);

@@ -214,11 +214,20 @@ pub fn plan(
         }
     }
 
+    let mut notices = desired_state.notices.clone();
+    notices.extend(machine.superseded_images().iter().map(|path| {
+        Notice::from(format!(
+            "{} is a binary an earlier run replaced while it was executing; an apply removes it \
+             once nothing is running it",
+            path.display()
+        ))
+    }));
+
     Ok(ChangeSet {
         changes,
         blocked,
         converged,
-        notices: desired_state.notices.clone(),
+        notices,
         readings,
     })
 }

@@ -71,6 +71,8 @@ pub trait ReadMachine {
     /// against it, which is what makes cloning it a requirement of every symlink.
     fn dotfiles_repository_path(&self) -> &Path;
 
+    fn superseded_images(&self) -> Vec<PathBuf>;
+
     fn path_exists(&self, path: &Path) -> bool;
 
     /// The target of the link at `path`, or `None` when nothing is there or it is not a link.
@@ -120,6 +122,8 @@ pub trait WriteMachine: ReadMachine {
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;
 
     fn write_displacing(&self, invocation: &WriteInvocation) -> Result<Placement>;
+
+    fn sweep_superseded_images(&self);
 
     /// Runs a command the configuration declared, which is the escape hatch's whole point.
     fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput>;

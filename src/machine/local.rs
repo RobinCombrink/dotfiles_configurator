@@ -401,6 +401,26 @@ impl ReadMachine for LocalMachine<'_> {
         &self.dotfiles_repository_path
     }
 
+    fn superseded_images(&self) -> Vec<PathBuf> {
+        let mut images: Vec<PathBuf> = Vec::new();
+        for directory in [&self.cargo_binaries_directory] {
+            let Ok(entries) = fs::read_dir(directory) else {
+                continue;
+            };
+            images.extend(
+                entries
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| entry.path())
+                    .filter(|path| {
+                        path.to_string_lossy().ends_with(SUPERSEDED_SUFFIX) && path.is_file()
+                    }),
+            );
+        }
+        images.sort();
+
+        images
+    }
+
     fn path_exists(&self, path: &Path) -> bool {
         path.symlink_metadata().is_ok()
     }
@@ -560,6 +580,14 @@ impl WriteMachine for LocalMachine<'_> {
                 refused(invocation, &retried),
             )),
             Err(error) => Err(restoring(&superseded, &destination, error)),
+        }
+    }
+
+    fn sweep_superseded_images(&self) {
+        for image in self.superseded_images() {
+            if fs::remove_file(&image).is_ok() {
+                self.report.note(&format!("removed {}", image.display()));
+            }
         }
     }
 

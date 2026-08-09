@@ -91,6 +91,19 @@ Feature: Applying a change set
     Then Neovim is installed on Alice's machine
     And cargo was asked to install 1 time
 
+  Scenario: Applying removes the binary an earlier run moved aside
+    Given Alice declares the application "Neovim"
+    And Neovim is installed on Alice's machine
+    And an earlier run superseded the binary "claude-session" on Alice's machine
+    When Alice applies
+    Then 0 binaries are superseded on Alice's machine
+
+  Scenario: Planning reports the binary an earlier run moved aside and removes nothing
+    Given an earlier run superseded the binary "claude-session" on Alice's machine
+    When Alice plans
+    Then the change set mentions "claude-session"
+    And 1 binary is superseded on Alice's machine
+
   Scenario: A real file where a link should go is reported rather than deleted
     Given Alice declares the dotfiles repository
     And Alice declares the symlink "gitconfig/.gitconfig" at ".gitconfig"
