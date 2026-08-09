@@ -133,7 +133,7 @@ pub struct InferableBinary {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemberTree {
     pub holds_a_main_file: bool,
-    pub binaries_directory: Vec<InferableBinary>,
+    pub inferable_binaries: Vec<InferableBinary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,7 +153,7 @@ impl MemberManifest {
         let main_file = self.main_file_binary(tree);
         let inferable = main_file
             .iter()
-            .chain(&tree.binaries_directory)
+            .chain(&tree.inferable_binaries)
             .filter(|candidate| !self.already_declares(candidate))
             .map(|candidate| candidate.name.clone());
 
@@ -162,10 +162,6 @@ impl MemberManifest {
             .map(|declared| declared.name.clone())
             .chain(inferable)
             .collect()
-    }
-
-    pub fn builds_a_binary(&self, tree: &MemberTree) -> bool {
-        !self.binaries(tree).is_empty()
     }
 
     fn main_file_binary(&self, tree: &MemberTree) -> Option<InferableBinary> {
@@ -317,7 +313,7 @@ mod tests {
     fn under_binaries_directory(stems: &[&str]) -> MemberTree {
         MemberTree {
             holds_a_main_file: false,
-            binaries_directory: stems
+            inferable_binaries: stems
                 .iter()
                 .map(|stem| InferableBinary {
                     path: format!("src/bin/{stem}.rs"),
@@ -352,7 +348,7 @@ mod tests {
         "#;
         let tree = MemberTree {
             holds_a_main_file: true,
-            binaries_directory: Vec::new(),
+            inferable_binaries: Vec::new(),
         };
 
         assert_eq!(binaries_of(manifest, &tree), vec!["stop-gate".to_owned()]);
@@ -406,7 +402,7 @@ mod tests {
         "#;
         let tree = MemberTree {
             holds_a_main_file: true,
-            binaries_directory: Vec::new(),
+            inferable_binaries: Vec::new(),
         };
 
         assert_eq!(
@@ -441,11 +437,7 @@ mod tests {
             path = "src/lib.rs"
         "#;
 
-        assert!(
-            !read_member_manifest(manifest)
-                .unwrap()
-                .builds_a_binary(&MemberTree::default())
-        );
+        assert!(binaries_of(manifest, &MemberTree::default()).is_empty());
     }
 
     #[test]

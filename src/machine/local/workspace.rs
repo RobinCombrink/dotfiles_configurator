@@ -127,7 +127,7 @@ fn members_at(
         )?)?;
         let member_tree = MemberTree {
             holds_a_main_file: entry_hash(&tree, &format!("{path}/src/main.rs")).is_some(),
-            binaries_directory: binaries_directory_of(repository, &tree, &path),
+            inferable_binaries: inferable_binaries_in(repository, &tree, &path),
         };
 
         let binaries = member.binaries(&member_tree);
@@ -149,7 +149,7 @@ fn members_at(
     Ok(members)
 }
 
-fn binaries_directory_of(
+fn inferable_binaries_in(
     repository: &Repository,
     tree: &Tree,
     member_path: &str,
