@@ -20,8 +20,16 @@ with the disk. The state was escapable only by hand, with `cargo install --force
 
 Which binaries a member declares is resolved from the manifests at the tracked revision, from the
 same three places ADR 0007 already consults to decide whether a member builds a binary at all: the
-manifest's `[[bin]]` sections, `src/main.rs` named for the package, and the file stems under
-`src/bin/`. That reading changes from a question answered yes or no into one answered with names.
+manifest's `[[bin]]` sections, `src/main.rs` named for the package, and the files under `src/bin/`,
+each named for its stem or, where it is a directory holding `main.rs`, for that directory. That
+reading changes from a question answered yes or no into one answered with names.
+
+The three compose the way cargo composes them rather than as a union: a `[[bin]]` section suppresses
+the target that would otherwise be inferred at its name or at its path. Measured 2026-08-09 against
+the workspace this program installs from, `cargo metadata` resolves `session-mining` to `sweep` and
+`tool-use-statistics` and to nothing else. A union would have added `tool_use_statistics`, read off
+the file stem that the second section already claims, and drifted that crate forever on a binary no
+build has ever produced — the failure this decision exists to close, inverted.
 
 The unit of drift stays the crate. ADR 0007 chose per-crate fingerprints on cost, and repair is a
 crate-level act regardless; the absent names travel as the reason the crate drifts rather than as
