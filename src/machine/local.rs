@@ -568,7 +568,7 @@ impl WriteMachine for LocalMachine<'_> {
         &self,
         binary: &ReleasedBinary,
         asset: &ReleaseAsset,
-    ) -> Result<()> {
+    ) -> Result<Placement> {
         let archive_path = self.download_directory.join(&asset.name);
         self.download(&asset.download_url, &archive_path).await?;
 
@@ -579,11 +579,24 @@ impl WriteMachine for LocalMachine<'_> {
 
         fs::create_dir_all(self.binaries_directory())
             .with_context(|| format!("Could not create {}", self.binaries_directory().display()))?;
-        move_aside(&installed_path)?;
 
-        fs::write(&installed_path, contents)
-            .with_context(|| format!("Could not write {}", installed_path.display()))?;
-        make_executable(&installed_path)
+        // ADR 0022
+        let Err(refused) = place_executable(&installed_path, &contents) else {
+            return Ok(Placement::Placed);
+        };
+        let Ok(superseded) = displace(&installed_path) else {
+            return Ok(Placement::Held(installed_path));
+        };
+
+        place_executable(&installed_path, &contents)
+            .map(|()| Placement::Placed)
+            .map_err(|failure| restoring(&superseded, &installed_path, failure))
+            .with_context(|| {
+                format!(
+                    "{} could not be written: {refused:#}",
+                    installed_path.display()
+                )
+            })
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
@@ -708,42 +721,25 @@ fn read_archive_entry(archive_path: &Path, entry: &ArchiveEntry) -> Result<Vec<u
     Ok(contents)
 }
 
-// ADR 0008
-fn move_aside(installed_path: &Path) -> Result<()> {
-    if !installed_path.exists() {
-        return Ok(());
-    }
-
-    let displaced_path = displaced(installed_path);
-    let _ = fs::remove_file(&displaced_path);
-    fs::rename(installed_path, &displaced_path).with_context(|| {
-        format!(
-            "Could not move {} aside to {}",
-            installed_path.display(),
-            displaced_path.display()
-        )
-    })
-}
-
-fn displaced(installed_path: &Path) -> PathBuf {
-    let mut name = installed_path.as_os_str().to_os_string();
-    name.push(".displaced");
-    PathBuf::from(name)
+fn place_executable(destination: &Path, contents: &[u8]) -> Result<()> {
+    fs::write(destination, contents)
+        .with_context(|| format!("Could not write {}", destination.display()))?;
+    make_executable(destination)
 }
 
 #[cfg(target_family = "windows")]
-fn make_executable(_installed_path: &Path) -> Result<()> {
+fn make_executable(_destination: &Path) -> Result<()> {
     Ok(())
 }
 
 #[cfg(target_family = "unix")]
-fn make_executable(installed_path: &Path) -> Result<()> {
+fn make_executable(destination: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    let mut permissions = fs::metadata(installed_path)?.permissions();
+    let mut permissions = fs::metadata(destination)?.permissions();
     permissions.set_mode(0o755);
-    fs::set_permissions(installed_path, permissions)
-        .with_context(|| format!("Could not make {} executable", installed_path.display()))
+    fs::set_permissions(destination, permissions)
+        .with_context(|| format!("Could not make {} executable", destination.display()))
 }
 
 #[cfg(target_family = "windows")]
@@ -948,51 +944,14 @@ mod tests {
     }
 
     #[test]
-    fn replacing_a_binary_keeps_the_copy_it_replaces_rather_than_overwriting_it() {
+    fn a_binary_written_where_none_is_installed_needs_no_displacement() {
         let directory = tempfile::tempdir().unwrap();
-        let installed_path = directory.path().join("rg.exe");
-        fs::write(&installed_path, b"the running copy").unwrap();
+        let destination = directory.path().join("rg.exe");
 
-        move_aside(&installed_path).unwrap();
+        place_executable(&destination, b"the new copy").unwrap();
 
-        assert!(!installed_path.exists());
-        assert_eq!(
-            fs::read(directory.path().join("rg.exe.displaced")).unwrap(),
-            b"the running copy"
-        );
-    }
-
-    #[test]
-    fn a_displaced_binary_keeps_the_whole_name_it_had_rather_than_losing_its_extension() {
-        assert_eq!(
-            displaced(Path::new("/binaries/rg.exe")),
-            PathBuf::from("/binaries/rg.exe.displaced")
-        );
-    }
-
-    #[test]
-    fn moving_aside_a_second_time_discards_the_copy_displaced_by_the_first() {
-        let directory = tempfile::tempdir().unwrap();
-        let installed_path = directory.path().join("rg.exe");
-        fs::write(&installed_path, b"the oldest copy").unwrap();
-        move_aside(&installed_path).unwrap();
-        fs::write(&installed_path, b"the running copy").unwrap();
-
-        move_aside(&installed_path).unwrap();
-
-        assert_eq!(
-            fs::read(directory.path().join("rg.exe.displaced")).unwrap(),
-            b"the running copy"
-        );
-    }
-
-    #[test]
-    fn making_way_for_a_binary_where_none_is_installed_yet_does_nothing() {
-        let directory = tempfile::tempdir().unwrap();
-
-        move_aside(&directory.path().join("rg.exe")).unwrap();
-
-        assert!(!directory.path().join("rg.exe.displaced").exists());
+        assert_eq!(fs::read(&destination).unwrap(), b"the new copy");
+        assert!(!directory.path().join("rg.exe.superseded").exists());
     }
 
     #[test]

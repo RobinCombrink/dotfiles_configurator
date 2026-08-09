@@ -151,7 +151,7 @@ pub trait WriteMachine: ReadMachine {
         &self,
         binary: &crate::configuration::ReleasedBinary,
         asset: &release_reading::ReleaseAsset,
-    ) -> impl std::future::Future<Output = Result<()>>;
+    ) -> impl std::future::Future<Output = Result<Placement>>;
 
     /// Runs one of the invocations this crate defines for changing state.
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;

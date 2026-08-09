@@ -43,9 +43,10 @@ pub async fn converge(
             .await
             .with_context(|| format!("Could not install {}", installer.name)),
         Resource::Application(Application::ReleasedBinary(binary)) => {
-            converge_released_binary(binary, machine, readings)
+            return converge_released_binary(binary, machine, readings)
                 .await
-                .with_context(|| format!("Could not install {}", binary.installed_name()))
+                .map(Convergence::from)
+                .with_context(|| format!("Could not install {}", binary.installed_name()));
         }
         Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
         Resource::Symlink(symlink) => converge_symlink(symlink, machine),
@@ -73,7 +74,7 @@ async fn converge_released_binary(
     binary: &ReleasedBinary,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
-) -> Result<()> {
+) -> Result<Placement> {
     let released = readings
         .release_of(&binary.repository)
         .map_err(|reason| anyhow!("{reason}"))?;

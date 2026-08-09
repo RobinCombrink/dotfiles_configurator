@@ -493,7 +493,7 @@ impl WriteMachine for FakeMachine {
         &self,
         binary: &ReleasedBinary,
         _asset: &ReleaseAsset,
-    ) -> Result<()> {
+    ) -> Result<Placement> {
         let installed_path = self
             .binaries_directory()
             .join(binary.installed_name().as_ref());
@@ -508,7 +508,7 @@ impl WriteMachine for FakeMachine {
         state
             .version_output_by_binary_path
             .insert(installed_path, reported);
-        Ok(())
+        Ok(Placement::Placed)
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
