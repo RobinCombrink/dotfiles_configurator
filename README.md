@@ -45,7 +45,7 @@ cargo run -- apply --context work --source github:owner/repo/config --source loc
 
 A source is a directory: every `*.dotconfig.json` directly in it is loaded — subdirectories are not descended into — and each one applies only if it declares `everywhere` or the machine named.
 
-`plan` and `apply` exit non-zero when the machine is left unconverged — whether because something drifted, failed, or could not be read at all.
+`plan` and `apply` exit non-zero when the machine is left unconverged — whether because something drifted, failed, is held open by whatever is executing it, or could not be read at all.
 
 ## Design Decisions
 
