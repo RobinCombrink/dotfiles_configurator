@@ -1,4 +1,5 @@
 use {
+    crate::TOOL_DIRECTORY,
     anyhow::{Context, Result},
     chrono::Local,
     indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle},
@@ -19,9 +20,6 @@ use {
 const SILENCE_THRESHOLD: Duration = Duration::from_secs(600); // 10 minutes
 
 const RETAINED_RUNS: usize = 20;
-
-// ADR 0015
-const TOOL_DIRECTORY: &str = concat!(".", env!("CARGO_PKG_NAME"));
 
 const SILENCE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
