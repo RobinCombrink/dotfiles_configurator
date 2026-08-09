@@ -53,6 +53,11 @@ name!(
 );
 
 name!(
+    /// The account a configuration acts as, inherited by every resource it declares.
+    GitHubAccount
+);
+
+name!(
     /// The name an application is known by.
     ApplicationName
 );

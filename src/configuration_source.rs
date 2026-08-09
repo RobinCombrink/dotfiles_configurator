@@ -185,7 +185,7 @@ impl ConfigurationSource {
         repository: &str,
         directory: &str,
     ) -> Vec<Result<(String, Configuration), Unreadable>> {
-        let account = match github::AuthenticatedAccount::authenticate_as(owner) {
+        let account = match github::AuthenticatedAccount::authenticate_as(&owner.into()) {
             Ok(account) => account,
             Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
         };

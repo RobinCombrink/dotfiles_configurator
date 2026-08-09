@@ -30,8 +30,8 @@ pub use {
     generation::{BEYOND_BUILD_GENERATION, BUILD_GENERATION, Generation},
     identity::Identity,
     names::{
-        ApplicationName, BinaryName, CrateName, McpServerName, RepositoryName, RepositoryOwner,
-        WingetPackageId,
+        ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName, RepositoryName,
+        RepositoryOwner, WingetPackageId,
     },
     presence_check::PresenceCheck,
     resource::{
@@ -77,7 +77,7 @@ pub struct MachineSettings {
     /// Absolute path of the directory repositories are cloned into.
     pub repositories_directory_path: PathBuf,
     /// The username used when authenticating against GitHub.
-    pub github_username: String,
+    pub github_username: GitHubAccount,
     /// The repository holding the dotfiles themselves, cloned before any symlink can converge.
     pub dotfiles_repository: GitHubRepository,
 }
@@ -505,7 +505,7 @@ mod tests {
     fn configurations_disagreeing_on_machine_settings_are_rejected() {
         let everywhere = parse(r#""resources": []"#).unwrap();
         let mut personal = parse(r#""resources": []"#).unwrap();
-        personal.machine.github_username = "Bob".to_owned();
+        personal.machine.github_username = "Bob".into();
 
         let error = merge_configurations(vec![
             ("everywhere".to_owned(), everywhere),

@@ -760,10 +760,10 @@ dependencies = [
 [[package]]
 name = "github_authentication"
 version = "0.1.0"
-source = "git+https://github.com/RobinCombrink/GitHubAuthentication#bc378d5ae15f033de49cbd48013b17c52c18bcd4"
+source = "git+https://github.com/RobinCombrink/GitHubAuthentication#f7adbebb5e5c745b52bade2fdfd94a5e2d2b9962"
 dependencies = [
- "anyhow",
  "secrecy",
+ "thiserror",
 ]
 
 [[package]]

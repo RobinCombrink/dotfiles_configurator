@@ -1,8 +1,8 @@
 use {
     crate::{
         configuration::{
-            ApplicationSource, ArchiveEntry, AssetPattern, CrateName, GitHubRepository, Installer,
-            MachineSettings, PresenceCheck, ReleasedBinary, Shell,
+            ApplicationSource, ArchiveEntry, AssetPattern, CrateName, GitHubAccount,
+            GitHubRepository, Installer, MachineSettings, PresenceCheck, ReleasedBinary, Shell,
         },
         github::AuthenticatedAccount,
         machine::{
@@ -42,7 +42,7 @@ pub struct LocalMachine<'report> {
     dotfiles_repository_path: PathBuf,
     download_directory: PathBuf,
     cargo_binaries_directory: PathBuf,
-    github_account: String,
+    github_account: GitHubAccount,
     authenticated_account: OnceLock<AuthenticatedAccount>,
     http_client: Client,
     report: &'report RunReport,
@@ -530,7 +530,7 @@ impl WriteMachine for LocalMachine<'_> {
             .report
             .progress_bar(None, format!("cloning {repository}"));
         let cloned = RepoBuilder::new()
-            .fetch_options(self.fetch_options(account.token(), owner, &progress))
+            .fetch_options(self.fetch_options(account.token().secret(), owner, &progress))
             .clone(url.as_str(), &directory_path)
             .map(|_| ())
             .map_err(|error| {

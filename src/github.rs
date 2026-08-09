@@ -1,28 +1,26 @@
 use {
-    anyhow::{Context, Result, bail},
-    github_authentication::authentication::{Authentication, GitHubCliAuthentication},
+    crate::configuration::GitHubAccount,
+    anyhow::{Context, Result, anyhow},
+    github_authentication::{GitHubToken, cli},
     octocrab::Octocrab,
-    secrecy::SecretString,
     std::sync::Arc,
 };
 
 pub struct AuthenticatedAccount {
-    token: SecretString,
+    token: GitHubToken,
     client: Arc<Octocrab>,
 }
 
 impl AuthenticatedAccount {
-    pub fn authenticate_as(account: &str) -> Result<Self> {
-        if !GitHubCliAuthentication::is_github_cli_on_path()? {
-            bail!(GITHUB_CLI_IS_ABSENT);
-        }
-
-        let authentication =
-            GitHubCliAuthentication::new(account.to_owned()).with_context(|| {
-                format!("Could not authenticate as {account} through the GitHub CLI")
+    pub fn authenticate_as(account: &GitHubAccount) -> Result<Self> {
+        let token =
+            cli::token_for(account.as_ref()).map_err(|refusal| match remedy_for(&refusal) {
+                Some(remedy) => anyhow!("{refusal}. {remedy}"),
+                None => anyhow!("{refusal}"),
             })?;
-        let token = authentication.get_token();
-        let client = Octocrab::builder().personal_token(token.clone()).build()?;
+        let client = Octocrab::builder()
+            .personal_token(token.secret().clone())
+            .build()?;
 
         Ok(Self {
             token,
@@ -34,15 +32,23 @@ impl AuthenticatedAccount {
         &self.client
     }
 
-    pub fn token(&self) -> &SecretString {
+    pub fn token(&self) -> &GitHubToken {
         &self.token
     }
 }
 
-const GITHUB_CLI_IS_ABSENT: &str = concat!(
-    "The GitHub CLI (gh) is not on the path. ",
-    "Install it from https://cli.github.com, then authenticate with `gh auth login`."
-);
+fn remedy_for(refusal: &cli::Refusal) -> Option<String> {
+    match refusal {
+        cli::Refusal::ToolAbsent => Some(
+            "Install it from https://cli.github.com, then authenticate with `gh auth login`"
+                .to_owned(),
+        ),
+        cli::Refusal::AccountUnheld { account } => {
+            Some(format!("Run `gh auth login` and sign in as {account}"))
+        }
+        cli::Refusal::Failed { .. } => None,
+    }
+}
 
 /// Reads the decoded contents of a file held in a GitHub repository.
 pub async fn get_file_contents(
@@ -88,4 +94,41 @@ pub async fn list_directory_files(
         .collect();
     file_paths.sort();
     Ok(file_paths)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_absent_tool_is_answered_with_how_to_install_it() {
+        let remedy = remedy_for(&cli::Refusal::ToolAbsent);
+
+        assert_eq!(
+            remedy.as_deref(),
+            Some("Install it from https://cli.github.com, then authenticate with `gh auth login`")
+        );
+    }
+
+    #[test]
+    fn an_account_the_tool_does_not_hold_is_answered_with_how_to_sign_in_as_it() {
+        let remedy = remedy_for(&cli::Refusal::AccountUnheld {
+            account: "Alice".to_owned(),
+        });
+
+        assert_eq!(
+            remedy.as_deref(),
+            Some("Run `gh auth login` and sign in as Alice")
+        );
+    }
+
+    #[test]
+    fn a_failure_with_no_act_behind_it_is_answered_with_no_remedy() {
+        let remedy = remedy_for(&cli::Refusal::Failed {
+            account: "Alice".to_owned(),
+            reason: "the token it wrote is not valid UTF-8".to_owned(),
+        });
+
+        assert_eq!(remedy, None);
+    }
 }

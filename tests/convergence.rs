@@ -151,7 +151,7 @@ impl MachineWorld {
 fn machine_settings() -> MachineSettings {
     MachineSettings {
         repositories_directory_path: PathBuf::from("/repositories"),
-        github_username: "Alice".to_owned(),
+        github_username: "Alice".into(),
         dotfiles_repository: GitHubRepository {
             owner: RepositoryOwner::from("Alice"),
             repository: RepositoryName::from("dotfiles"),

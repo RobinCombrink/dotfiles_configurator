@@ -322,6 +322,10 @@
       "type": "string",
       "pattern": "^\\d+$"
     },
+    "GitHubAccount": {
+      "description": "The account a configuration acts as, inherited by every resource it declares.",
+      "type": "string"
+    },
     "GitHubRepository": {
       "description": "A repository on GitHub, named by the owner it belongs to and its own name.",
       "type": "object",
@@ -367,7 +371,7 @@
         },
         "github_username": {
           "description": "The username used when authenticating against GitHub.",
-          "type": "string"
+          "$ref": "#/$defs/GitHubAccount"
         },
         "repositories_directory_path": {
           "description": "Absolute path of the directory repositories are cloned into.",

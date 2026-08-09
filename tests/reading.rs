@@ -39,7 +39,7 @@ fn desired_state(resources: Vec<Resource>) -> DesiredState {
         notices: Vec::new(),
         machine: MachineSettings {
             repositories_directory_path: PathBuf::from("/repositories"),
-            github_username: "Alice".to_owned(),
+            github_username: "Alice".into(),
             dotfiles_repository: GitHubRepository {
                 owner: RepositoryOwner::from("Alice"),
                 repository: RepositoryName::from("dotfiles"),
