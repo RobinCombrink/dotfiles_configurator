@@ -7,6 +7,7 @@ pub mod convergence;
 pub mod github;
 pub mod machine;
 pub mod reporting;
+pub mod version;
 
 // ADR 0015
 pub const TOOL_DIRECTORY: &str = concat!(".", env!("CARGO_PKG_NAME"));

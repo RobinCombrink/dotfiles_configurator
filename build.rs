@@ -11,6 +11,10 @@ use std::{
 #[path = "src/configuration.rs"]
 mod configuration;
 
+#[allow(dead_code, unused_imports)]
+#[path = "src/version.rs"]
+mod version;
+
 fn main() -> io::Result<()> {
     write_configuration_schema()?;
     set_windows_icon()
