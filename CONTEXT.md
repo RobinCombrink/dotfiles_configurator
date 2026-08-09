@@ -64,6 +64,12 @@ discovered by reading that source when the change set is produced. Once the set 
 resolved resource is indistinguishable from a declared one.
 _Avoid_: generated, derived, implicit, expanded
 
+**Origin**:
+Which configuration a resource came from, carried by the resource itself: the account it acts as,
+and where its files and its clones live. Never handled as a value of its own — a resource answers
+the questions its origin decides, so no resource can be read against another configuration's.
+_Avoid_: settings, provenance, scope, context
+
 **Resource kind**:
 The category a resource belongs to, which determines how its actual state is read. Symlink,
 repository, application, package, environment variable, registration, notice, and command.
@@ -153,29 +159,45 @@ _Avoid_: manifest, profile, layer, tier
 
 **Generation**:
 The lowest build of this program that can read a given configuration, stated by the configuration
-itself. A build reads any configuration at or below its own generation, migrating older shapes
-forward as it reads them, and refuses one above. A floor belongs to each document rather than to
-the set, so configurations read together may state different ones.
+itself. A build reads its own generation and the one below it, migrating the older shape as it
+reads, and refuses anything above or further below. A floor belongs to each document rather than
+to the set, so configurations read together may state different ones.
 _Avoid_: schema version, format version, revision
 
 **Unreadable**:
-Describes a configuration a run could not turn into desired state, of which none is applied. Two
-causes with two closures: **malformed** is a fault in the repository it was read from and a person
-resolves it; **too new** is a fault in the build reading it and the program resolves it by
-updating itself.
+Describes a configuration a run could not turn into desired state, of which none is applied. Three
+causes with three closures: **malformed** is a fault in the repository it was read from and a
+person resolves it; **too new** is a fault in the build reading it and the program resolves it by
+updating itself; **too old** is a document this build has outgrown, and a person resolves it by
+running an intervening build once or by rewriting the document.
 _Avoid_: invalid, broken, corrupt
 
+**Migration**:
+The rewriting of a configuration from the generation below into the one this build reads. Neither
+a change nor a notice, and reported in its own right: it alters a configuration rather than the
+machine, and it is something the tool does rather than something it cannot. Written back to a
+local source when applied, and announced where the source cannot be written.
+_Avoid_: upgrade, conversion, transform
+
 **Context**:
-Which machine something is — `everywhere`, `personal` or `work`. An invocation names the one its
-machine is; a configuration declares the one it applies to, and applies when it declares
-`everywhere` or the machine the invocation named. One value rather than a set, so naming none and
-naming two that describe different machines are unexpressable rather than rejected.
-_Avoid_: machine class, environment, mode, tier
+Which machines a configuration is for — `everywhere`, `personal` or `work` — declared by the
+configuration itself, and applying when it declares `everywhere` or the class the invocation named.
+One value rather than a set, so naming none and naming two that describe different machines are
+unexpressable rather than rejected.
+_Avoid_: environment, mode, tier, scope
+
+**Machine class**:
+Which of the two kinds of machine this one is — `personal` or `work` — named by an invocation. Not
+a context: no machine is `everywhere`, so what an invocation can name and what a configuration can
+declare are different sets. A run reads one configuration for every machine and exactly one for
+this class, and refuses a set missing either.
+_Avoid_: context, machine type, environment, profile
 
 **Configuration source**:
 Where configurations are read from — a local directory, or a directory in a GitHub repository. Every
-`*.dotconfig.json` directly in it is read, subdirectories are not descended into, and it determines
-only where: which configurations apply is decided by the context each one declares.
+`*.dotconfig.json` directly in it is read and subdirectories are not descended into. It does not
+decide which configurations apply, which each one's context decides; it does decide where their
+files come from, a configuration's dotfiles being held by the repository it was written in.
 _Avoid_: config location, provider, backend
 
 **GitHub account**:
@@ -184,14 +206,28 @@ owner — an owner is an address, and a public repository is read by any account
 _Avoid_: identity, username, credential, login
 
 **Dotfile**:
-A configuration file or directory owned by the dotfiles repository and linked into place on
-the machine, rather than copied.
+A configuration file or directory owned by the dotfiles repository of the configuration that
+declares it, and linked into place on the machine rather than copied.
 _Avoid_: config file, rc file, setting
 
 **Dotfiles repository**:
-The repository holding the dotfiles themselves, cloned before any dotfile resource can
-converge.
+The repository holding the dotfiles a configuration declares, which is the repository that
+configuration was written in. One per configuration rather than one per machine, so a machine
+applying configurations from two repositories links from both.
 _Avoid_: config repo, source repo
+
+**Files root**:
+The directory a configuration's dotfiles are read from: the clone of its dotfiles repository, or
+the checkout it was read out of where its source is a local directory. The second needs no clone,
+which is why a symlink waits for one only in the first case.
+_Avoid_: source directory, base path, repo root
+
+**Repositories directory**:
+The directory a configuration's clones land in — a per-platform constant joined with a leaf that
+follows the configuration's context. `work` clones under `Work`; `personal` and `everywhere` both
+clone under `Personal`, a configuration for every machine being written in a personally-owned
+repository wherever it is applied.
+_Avoid_: clone directory, workspace, projects directory
 
 **Tool directory**:
 The directory this program owns on a machine, holding the binaries it installs and the log of
