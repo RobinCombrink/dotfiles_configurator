@@ -46,8 +46,10 @@ Feature: Planning what a machine needs
     And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
     And "rg.exe" is installed and reports "ripgrep version 15.1.0"
     When Alice plans
-    Then the change set reports 1 change
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
     And the change set mentions "not a version"
+    And the change set does not report the machine as converged
 
   Scenario: A released binary from a repository that has published nothing is a change
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"

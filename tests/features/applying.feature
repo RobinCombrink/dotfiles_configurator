@@ -27,6 +27,15 @@ Feature: Applying a change set
     Then "rg.exe" is installed in the tool directory
     And the machine is reported as converged
 
+  Scenario: A binary whose version cannot be read is left alone rather than installed over
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
+    And "rg.exe" is installed and reports "ripgrep version 15.1.0"
+    When Alice applies
+    Then "rg.exe" reports "ripgrep version 15.1.0"
+    And 1 resource is reported as blocked
+    And the machine is not reported as converged
+
   Scenario: A released binary behind the latest release is replaced by it
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
     And the latest release of "BurntSushi/ripgrep" is "v15.1.0"

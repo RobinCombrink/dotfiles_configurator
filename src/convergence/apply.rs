@@ -76,7 +76,7 @@ impl Display for ApplyOutcome {
             writeln!(
                 formatter,
                 "  BLOCKED   {} ({})",
-                blocked.resource, blocked.requirement
+                blocked.resource, blocked.impediment
             )?;
         }
         for change in &self.unverified {

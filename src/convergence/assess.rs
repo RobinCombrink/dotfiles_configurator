@@ -5,7 +5,7 @@ use {
             DesiredState, GitHubRepository, Installer, Package, Registration, ReleasedBinary,
             Resource, Symlink, WingetPackage,
         },
-        convergence::{Assessment, DriftReason, Requirement},
+        convergence::{Assessment, DriftReason, Impediment, Requirement},
         machine::{
             ReadInvocation, ReadMachine,
             release_reading::ReleaseReading,
@@ -167,7 +167,7 @@ pub fn assess(
     readings: &SourceReadings,
 ) -> Assessment {
     if let Some(unmet) = first_unmet_requirement(resource, machine) {
-        return Assessment::Unassessable(unmet);
+        return Assessment::Unassessable(Impediment::Absent(unmet));
     }
 
     match resource {
@@ -252,7 +252,7 @@ fn assess_released_binary(
     }
 
     match installed_version(binary, &installed_path, machine) {
-        Err(reason) => Assessment::Drifted(reason),
+        Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(reason)),
         Ok(installed) if installed == released.version => Assessment::Converged,
         Ok(installed) => Assessment::Drifted(
             format!(

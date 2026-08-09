@@ -25,9 +25,23 @@ pub use {
 pub enum Assessment {
     Converged,
     Drifted(DriftReason),
-    /// The resource's requirements are absent, so it can neither be read nor converged yet. It is
-    /// not failed; it says so and may become ready once something else has been applied.
-    Unassessable(Requirement),
+    Unassessable(Impediment),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Impediment {
+    // ADR 0004
+    Absent(Requirement),
+    ActualStateUnreadable(DriftReason),
+}
+
+impl Display for Impediment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Impediment::Absent(requirement) => Display::fmt(requirement, formatter),
+            Impediment::ActualStateUnreadable(reason) => Display::fmt(reason, formatter),
+        }
+    }
 }
 
 /// Why a resource is not in its desired state, phrased for the person reading a change set.
@@ -145,11 +159,11 @@ pub struct Change {
     pub reason: DriftReason,
 }
 
-/// One resource that could not be read, together with what is missing.
+/// One resource that could not be read, together with what stopped it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blocked {
     pub resource: Resource,
-    pub requirement: Requirement,
+    pub impediment: Impediment,
 }
 
 /// The ordered set of changes that would close every drift, inspectable without being enacted.
@@ -210,9 +224,9 @@ pub async fn plan(
         match assessment {
             Assessment::Converged => converged.push(resource),
             Assessment::Drifted(reason) => changes.push(Change { resource, reason }),
-            Assessment::Unassessable(requirement) => blocked.push(Blocked {
+            Assessment::Unassessable(impediment) => blocked.push(Blocked {
                 resource,
-                requirement,
+                impediment,
             }),
         }
     }
@@ -248,7 +262,7 @@ impl Display for ChangeSet {
             writeln!(
                 formatter,
                 "  blocked {} ({})",
-                blocked.resource, blocked.requirement
+                blocked.resource, blocked.impediment
             )?;
         }
         for notice in &self.notices {
