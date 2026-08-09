@@ -6,8 +6,8 @@ use {
         },
         github::AuthenticatedAccount,
         machine::{
-            CommandOutput, Placement, ReadInvocation, ReadMachine, Tool, WriteInvocation,
-            WriteMachine,
+            CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
+            SUPERSEDED_SUFFIX, Tool, WriteInvocation, WriteMachine, superseded_name,
             workspace_reading::{Revision, WorkspaceReading},
         },
         reporting::RunReport,
@@ -64,12 +64,8 @@ impl<'report> LocalMachine<'report> {
         })
     }
 
-    fn run(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        stream(
-            Path::new(invocation.tool().program()),
-            &invocation.arguments(),
-            self.report,
-        )
+    fn run(&self, tool: Tool, arguments: &[String]) -> Result<CommandOutput> {
+        stream(Path::new(tool.program()), arguments, self.report)
     }
 
     fn authenticated_account(&self) -> Result<&AuthenticatedAccount> {
@@ -319,15 +315,6 @@ fn decode_output(bytes: &[u8]) -> String {
     }
 }
 
-const SUPERSEDED_SUFFIX: &str = ".superseded";
-
-fn superseded_name(destination: &Path) -> PathBuf {
-    let mut name = destination.file_name().unwrap_or_default().to_os_string();
-    name.push(SUPERSEDED_SUFFIX);
-
-    destination.with_file_name(name)
-}
-
 fn displace(destination: &Path) -> Result<PathBuf> {
     let superseded = superseded_name(destination);
     let _ = fs::remove_file(&superseded);
@@ -353,11 +340,10 @@ fn restoring(superseded: &Path, destination: &Path, failure: anyhow::Error) -> a
     }
 }
 
-fn refused(invocation: &WriteInvocation, output: &CommandOutput) -> anyhow::Error {
+fn refused(tool: Tool, arguments: &[String], output: &CommandOutput) -> anyhow::Error {
     anyhow!(
-        "{} {} failed:\n{}\n{}",
-        invocation.tool(),
-        invocation.arguments().join(" "),
+        "{tool} {} failed:\n{}\n{}",
+        arguments.join(" "),
         output.standard_output.trim(),
         output.standard_error.trim()
     )
@@ -402,20 +388,15 @@ impl ReadMachine for LocalMachine<'_> {
     }
 
     fn superseded_images(&self) -> Vec<PathBuf> {
-        let mut images: Vec<PathBuf> = Vec::new();
-        for directory in [&self.cargo_binaries_directory] {
-            let Ok(entries) = fs::read_dir(directory) else {
-                continue;
-            };
-            images.extend(
-                entries
-                    .filter_map(|entry| entry.ok())
-                    .map(|entry| entry.path())
-                    .filter(|path| {
-                        path.to_string_lossy().ends_with(SUPERSEDED_SUFFIX) && path.is_file()
-                    }),
-            );
-        }
+        let Ok(entries) = fs::read_dir(&self.cargo_binaries_directory) else {
+            return Vec::new();
+        };
+
+        let mut images: Vec<PathBuf> = entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.to_string_lossy().ends_with(SUPERSEDED_SUFFIX) && path.is_file())
+            .collect();
         images.sort();
 
         images
@@ -549,21 +530,25 @@ impl WriteMachine for LocalMachine<'_> {
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        let output = self.run(invocation)?;
+        let arguments = invocation.arguments();
+        let output = self.run(invocation.tool(), &arguments)?;
         match output.succeeded {
             true => Ok(output),
-            false => Err(refused(invocation, &output)),
+            false => Err(refused(invocation.tool(), &arguments, &output)),
         }
     }
 
-    fn write_displacing(&self, invocation: &WriteInvocation) -> Result<Placement> {
-        let output = self.run(invocation)?;
+    fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
+        let tool = invocation.tool();
+        let arguments = invocation.arguments();
+
+        let output = self.run(tool, &arguments)?;
         if output.succeeded {
-            return Ok(Placement::Placed(output));
+            return Ok(Placement::Placed);
         }
 
         let Some(destination) = invocation.refused_destination(&output) else {
-            return Err(refused(invocation, &output));
+            return Err(refused(tool, &arguments, &output));
         };
 
         let Ok(superseded) = displace(&destination) else {
@@ -572,12 +557,12 @@ impl WriteMachine for LocalMachine<'_> {
         self.report
             .note(&format!("displaced {}", destination.display()));
 
-        match self.run(invocation) {
-            Ok(retried) if retried.succeeded => Ok(Placement::Placed(retried)),
+        match self.run(tool, &arguments) {
+            Ok(retried) if retried.succeeded => Ok(Placement::Placed),
             Ok(retried) => Err(restoring(
                 &superseded,
                 &destination,
-                refused(invocation, &retried),
+                refused(tool, &arguments, &retried),
             )),
             Err(error) => Err(restoring(&superseded, &destination, error)),
         }

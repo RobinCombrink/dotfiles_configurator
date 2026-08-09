@@ -14,7 +14,7 @@ pub mod invocation;
 pub mod local;
 pub mod workspace_reading;
 
-pub use invocation::{ReadInvocation, WriteInvocation};
+pub use invocation::{DisplacingInvocation, ReadInvocation, WriteInvocation};
 
 /// A program a resource kind needs in order to read or converge a resource. A tool's presence is
 /// probed on the machine, never declared, so a tool installed by hand counts exactly as much as
@@ -53,9 +53,18 @@ pub struct CommandOutput {
     pub standard_error: String,
 }
 
-#[derive(Debug)]
+pub const SUPERSEDED_SUFFIX: &str = ".superseded";
+
+pub fn superseded_name(destination: &Path) -> PathBuf {
+    let mut name = destination.file_name().unwrap_or_default().to_os_string();
+    name.push(SUPERSEDED_SUFFIX);
+
+    destination.with_file_name(name)
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum Placement {
-    Placed(CommandOutput),
+    Placed,
     Held(PathBuf),
 }
 
@@ -121,7 +130,7 @@ pub trait WriteMachine: ReadMachine {
     /// Runs one of the invocations this crate defines for changing state.
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;
 
-    fn write_displacing(&self, invocation: &WriteInvocation) -> Result<Placement>;
+    fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement>;
 
     fn sweep_superseded_images(&self);
 

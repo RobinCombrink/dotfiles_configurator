@@ -19,7 +19,6 @@ pub struct Failure {
     pub error: anyhow::Error,
 }
 
-/// One resource the machine is executing the file of, which displacing was refused for as well.
 #[derive(Debug)]
 pub struct Held {
     pub resource: Resource,
@@ -178,8 +177,7 @@ async fn attempt(
     let mut count = 0;
     for change in &change_set.changes {
         // A resource that failed on an earlier pass would otherwise be retried on every pass,
-        // and a command without a presence check would never stop being drifted. Nothing another
-        // resource converges can make a third party release a file, so a held one is settled too.
+        // and a command without a presence check would never stop being drifted.
         if failed
             .iter()
             .any(|failure| failure.resource == change.resource)

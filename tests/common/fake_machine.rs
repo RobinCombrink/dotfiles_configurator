@@ -14,8 +14,8 @@ use {
             WingetPackageId,
         },
         machine::{
-            CommandOutput, Placement, ReadInvocation, ReadMachine, Tool, WriteInvocation,
-            WriteMachine,
+            CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine, Tool,
+            WriteInvocation, WriteMachine, superseded_name,
             workspace_reading::{Revision, WorkspaceReading},
         },
     },
@@ -52,7 +52,6 @@ struct MachineState {
     reads: Vec<ReadInvocation>,
     cargo_workspaces: BTreeMap<PathBuf, WorkspaceReading>,
     workspace_reads: Vec<PathBuf>,
-    /// Destinations a write is refused at, and whether displacing them is refused too.
     executing_binaries: BTreeMap<PathBuf, Displacement>,
     superseded_images: BTreeSet<PathBuf>,
     cargo_installs: usize,
@@ -100,8 +99,6 @@ impl FakeMachine {
         &self.cargo_binaries_directory
     }
 
-    /// A binary the machine is executing, which a write to its path is refused at until it is
-    /// displaced.
     pub fn execute_binary(&self, name: &str) {
         self.state.borrow_mut().executing_binaries.insert(
             self.cargo_binaries_directory.join(name),
@@ -109,7 +106,6 @@ impl FakeMachine {
         );
     }
 
-    /// A binary the machine is executing and refuses to let go of at all, so displacing it fails.
     pub fn execute_binary_that_cannot_be_displaced(&self, name: &str) {
         self.state.borrow_mut().executing_binaries.insert(
             self.cargo_binaries_directory.join(name),
@@ -118,10 +114,8 @@ impl FakeMachine {
     }
 
     pub fn leave_superseded_image(&self, name: &str) {
-        self.state
-            .borrow_mut()
-            .superseded_images
-            .insert(self.cargo_binaries_directory.join(name));
+        let displaced = superseded_name(&self.cargo_binaries_directory.join(name));
+        self.state.borrow_mut().superseded_images.insert(displaced);
     }
 
     pub fn superseded_image_count(&self) -> usize {
@@ -130,6 +124,45 @@ impl FakeMachine {
 
     pub fn cargo_installs(&self) -> usize {
         self.state.borrow().cargo_installs
+    }
+
+    fn run_cargo(&self, invocation: &DisplacingInvocation) -> CommandOutput {
+        let mut state = self.state.borrow_mut();
+        state.cargo_installs += 1;
+
+        let crate_name = invocation
+            .arguments()
+            .last()
+            .map(|name| CrateName::from(name.as_str()));
+
+        if let Some(destination) = state.executing_binaries.keys().next().cloned() {
+            return CommandOutput {
+                succeeded: false,
+                standard_output: String::new(),
+                standard_error: format!(
+                    "error: failed to move `{}` to `{}`\n\nCaused by:\n  Access is denied. \
+                     (os error 5)",
+                    destination.with_extension("tmp").display(),
+                    destination.display()
+                ),
+            };
+        }
+
+        if let Some(crate_name) = crate_name {
+            for reading in state.cargo_workspaces.values_mut() {
+                let Some(member) = reading.members.get_mut(&crate_name) else {
+                    continue;
+                };
+                member.installed = Some(member.desired.clone());
+                member.absent_binaries.clear();
+            }
+        }
+
+        CommandOutput {
+            succeeded: true,
+            standard_output: String::new(),
+            standard_error: String::new(),
+        }
     }
 
     pub fn remove_tool(&self, tool: Tool) {
@@ -401,53 +434,21 @@ impl WriteMachine for FakeMachine {
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        let mut state = self.state.borrow_mut();
-        let mut installing: Option<CrateName> = None;
-        match invocation {
-            WriteInvocation::InstallWingetPackage { id } => {
-                state.winget_packages.insert(id.clone());
-            }
-            WriteInvocation::InstallCargoCrate { arguments } => {
-                state.cargo_installs += 1;
-                installing = arguments.last().map(|name| CrateName::from(name.as_str()));
-            }
-            WriteInvocation::RemoveClaudeMcpServer { .. }
-            | WriteInvocation::AddClaudeMcpServer { .. } => {}
+        if let WriteInvocation::InstallWingetPackage { id } = invocation {
+            self.state.borrow_mut().winget_packages.insert(id.clone());
         }
 
-        let Some(destination) = state.executing_binaries.keys().next().cloned() else {
-            if let Some(crate_name) = installing {
-                for reading in state.cargo_workspaces.values_mut() {
-                    let Some(member) = reading.members.get_mut(&crate_name) else {
-                        continue;
-                    };
-                    member.installed = Some(member.desired.clone());
-                    member.absent_binaries.clear();
-                }
-            }
-
-            return Ok(CommandOutput {
-                succeeded: true,
-                standard_output: String::new(),
-                standard_error: String::new(),
-            });
-        };
-
         Ok(CommandOutput {
-            succeeded: false,
+            succeeded: true,
             standard_output: String::new(),
-            standard_error: format!(
-                "error: failed to move `{}` to `{}`\n\nCaused by:\n  Access is denied. (os error 5)",
-                destination.with_extension("tmp").display(),
-                destination.display()
-            ),
+            standard_error: String::new(),
         })
     }
 
-    fn write_displacing(&self, invocation: &WriteInvocation) -> Result<Placement> {
-        let output = self.write(invocation)?;
+    fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
+        let output = self.run_cargo(invocation);
         if output.succeeded {
-            return Ok(Placement::Placed(output));
+            return Ok(Placement::Placed);
         }
 
         let Some(destination) = invocation.refused_destination(&output) else {
@@ -460,26 +461,27 @@ impl WriteMachine for FakeMachine {
         }
 
         state.executing_binaries.remove(&destination);
-        let mut superseded = destination.clone().into_os_string();
-        superseded.push(".superseded");
-        state.superseded_images.insert(PathBuf::from(superseded));
+        state
+            .superseded_images
+            .insert(superseded_name(&destination));
         drop(state);
 
-        self.write(invocation).map(Placement::Placed)
+        match self.run_cargo(invocation).succeeded {
+            true => Ok(Placement::Placed),
+            false => bail!("cargo failed once the image in its way had been displaced"),
+        }
     }
 
     fn sweep_superseded_images(&self) {
         let mut state = self.state.borrow_mut();
-        let held: BTreeSet<PathBuf> = state
+        let still_held: BTreeSet<PathBuf> = state
             .executing_binaries
             .keys()
-            .map(|path| {
-                let mut name = path.clone().into_os_string();
-                name.push(".superseded");
-                PathBuf::from(name)
-            })
+            .map(|path| superseded_name(path))
             .collect();
-        state.superseded_images.retain(|image| held.contains(image));
+        state
+            .superseded_images
+            .retain(|image| still_held.contains(image));
     }
 
     fn run_declared_command(&self, _shell: Shell, args: &[String]) -> Result<CommandOutput> {

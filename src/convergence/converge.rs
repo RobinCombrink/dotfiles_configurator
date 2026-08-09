@@ -5,7 +5,7 @@ use {
             Symlink, WingetPackage,
         },
         convergence::SourceReadings,
-        machine::{Placement, WriteInvocation, WriteMachine},
+        machine::{DisplacingInvocation, Placement, WriteInvocation, WriteMachine},
     },
     anyhow::{Context, Result, bail},
     std::path::PathBuf,
@@ -15,6 +15,15 @@ use {
 pub enum Convergence {
     Converged,
     Held(PathBuf),
+}
+
+impl From<Placement> for Convergence {
+    fn from(placement: Placement) -> Self {
+        match placement {
+            Placement::Placed => Convergence::Converged,
+            Placement::Held(path) => Convergence::Held(path),
+        }
+    }
 }
 
 /// Closes the drift on one resource. Only ever called for a resource a state reader has just
@@ -98,11 +107,9 @@ fn converge_cargo_package(
         }
     }
 
-    let placement = machine.write_displacing(&WriteInvocation::InstallCargoCrate { arguments })?;
-    Ok(match placement {
-        Placement::Placed(_) => Convergence::Converged,
-        Placement::Held(path) => Convergence::Held(path),
-    })
+    machine
+        .write_displacing(&DisplacingInvocation::InstallCargoCrate { arguments })
+        .map(Convergence::from)
 }
 
 fn converge_symlink(symlink: &Symlink, machine: &impl WriteMachine) -> Result<()> {

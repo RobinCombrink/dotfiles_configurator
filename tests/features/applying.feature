@@ -98,6 +98,15 @@ Feature: Applying a change set
     When Alice applies
     Then 0 binaries are superseded on Alice's machine
 
+  Scenario: A binary still being executed survives the sweep rather than failing the run
+    Given Alice declares the application "Neovim"
+    And Neovim is installed on Alice's machine
+    And Alice's machine is executing the binary "tool-use-statistics"
+    And an earlier run superseded the binary "tool-use-statistics" on Alice's machine
+    When Alice applies
+    Then 1 binary is superseded on Alice's machine
+    And the machine is reported as converged
+
   Scenario: Planning reports the binary an earlier run moved aside and removes nothing
     Given an earlier run superseded the binary "claude-session" on Alice's machine
     When Alice plans

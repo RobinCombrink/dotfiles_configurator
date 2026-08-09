@@ -62,9 +62,6 @@ pub enum WriteInvocation {
     InstallWingetPackage {
         id: WingetPackageId,
     },
-    InstallCargoCrate {
-        arguments: Vec<String>,
-    },
     RemoveClaudeMcpServer {
         name: McpServerName,
         scope: McpScope,
@@ -74,13 +71,24 @@ pub enum WriteInvocation {
     },
 }
 
-impl WriteInvocation {
+/// The closed set of invocations that write where the machine may be executing what they replace,
+/// which is what keeps a destination unreachable without displacing: no variant of the set above
+/// can name one. See ADR 0022.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DisplacingInvocation {
+    InstallCargoCrate { arguments: Vec<String> },
+}
+
+impl DisplacingInvocation {
     pub fn tool(&self) -> Tool {
         match self {
-            WriteInvocation::InstallWingetPackage { .. } => Tool::Winget,
-            WriteInvocation::InstallCargoCrate { .. } => Tool::Cargo,
-            WriteInvocation::RemoveClaudeMcpServer { .. }
-            | WriteInvocation::AddClaudeMcpServer { .. } => Tool::Claude,
+            DisplacingInvocation::InstallCargoCrate { .. } => Tool::Cargo,
+        }
+    }
+
+    pub fn arguments(&self) -> Vec<String> {
+        match self {
+            DisplacingInvocation::InstallCargoCrate { arguments } => arguments.clone(),
         }
     }
 
@@ -89,13 +97,21 @@ impl WriteInvocation {
             // 2026-08-06: cargo builds into a temporary directory beside the one it installs to
             // and moves the result over the old binary, naming both paths when that move is
             // denied. Observed on Windows 11 for claude-session.exe and tool-use-statistics.exe.
-            WriteInvocation::InstallCargoCrate { .. } => {
-                let said = [&output.standard_error, &output.standard_output];
-                said.into_iter().find_map(|text| destination_moved_to(text))
+            DisplacingInvocation::InstallCargoCrate { .. } => {
+                [&output.standard_error, &output.standard_output]
+                    .into_iter()
+                    .find_map(|text| destination_moved_to(text))
             }
-            WriteInvocation::InstallWingetPackage { .. }
-            | WriteInvocation::RemoveClaudeMcpServer { .. }
-            | WriteInvocation::AddClaudeMcpServer { .. } => None,
+        }
+    }
+}
+
+impl WriteInvocation {
+    pub fn tool(&self) -> Tool {
+        match self {
+            WriteInvocation::InstallWingetPackage { .. } => Tool::Winget,
+            WriteInvocation::RemoveClaudeMcpServer { .. }
+            | WriteInvocation::AddClaudeMcpServer { .. } => Tool::Claude,
         }
     }
 
@@ -110,7 +126,6 @@ impl WriteInvocation {
                 "--accept-source-agreements".to_owned(),
                 "--disable-interactivity".to_owned(),
             ],
-            WriteInvocation::InstallCargoCrate { arguments } => arguments.clone(),
             WriteInvocation::RemoveClaudeMcpServer { name, scope } => vec![
                 "mcp".to_owned(),
                 "remove".to_owned(),
@@ -160,8 +175,8 @@ mod tests {
         }
     }
 
-    fn installing_a_crate() -> WriteInvocation {
-        WriteInvocation::InstallCargoCrate {
+    fn installing_a_crate() -> DisplacingInvocation {
+        DisplacingInvocation::InstallCargoCrate {
             arguments: vec!["install".to_owned(), "claude-session".to_owned()],
         }
     }
@@ -204,16 +219,6 @@ mod tests {
             cargo_said("error: could not compile `claude-session` (bin \"claude-session\")");
 
         assert_eq!(installing_a_crate().refused_destination(&output), None);
-    }
-
-    #[test]
-    fn a_tool_that_does_not_name_what_it_could_not_write_offers_no_destination() {
-        let output = cargo_said("error: failed to move `a` to `b`");
-        let invocation = WriteInvocation::InstallWingetPackage {
-            id: WingetPackageId::from("Microsoft.PowerShell"),
-        };
-
-        assert_eq!(invocation.refused_destination(&output), None);
     }
 
     #[test]
