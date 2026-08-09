@@ -96,11 +96,15 @@ impl SourceReadings {
         }
     }
 
-    pub fn release(
+    pub fn release_of(
         &self,
         repository: &GitHubRepository,
-    ) -> Option<&Result<ReleaseReading, DriftReason>> {
-        self.releases.get(repository)
+    ) -> Result<&ReleaseReading, DriftReason> {
+        match self.releases.get(repository) {
+            Some(Ok(release)) => Ok(release),
+            Some(Err(reason)) => Err(reason.clone()),
+            None => Err(format!("{repository} was not read for its latest release").into()),
+        }
     }
 
     pub fn workspace(
@@ -227,14 +231,9 @@ fn assess_released_binary(
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Assessment {
-    let released = match readings.release(&binary.repository) {
-        Some(Ok(release)) => release,
-        Some(Err(reason)) => return Assessment::Drifted(reason.clone()),
-        None => {
-            return Assessment::Drifted(
-                format!("{} was not read for its latest release", binary.repository).into(),
-            );
-        }
+    let released = match readings.release_of(&binary.repository) {
+        Ok(release) => release,
+        Err(reason) => return Assessment::Drifted(reason),
     };
 
     let installed_path = machine

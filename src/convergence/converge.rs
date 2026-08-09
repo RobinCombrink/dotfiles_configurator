@@ -74,11 +74,9 @@ async fn converge_released_binary(
     machine: &impl WriteMachine,
     readings: &SourceReadings,
 ) -> Result<()> {
-    let released = match readings.release(&binary.repository) {
-        Some(Ok(release)) => release,
-        Some(Err(reason)) => bail!("{reason}"),
-        None => bail!("{} was not read for its latest release", binary.repository),
-    };
+    let released = readings
+        .release_of(&binary.repository)
+        .map_err(|reason| anyhow!("{reason}"))?;
     let asset = released
         .asset_matching(&binary.asset)
         .map_err(|refusal| anyhow!("{refusal}"))?;
