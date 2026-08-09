@@ -714,7 +714,7 @@ fn move_aside(installed_path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let displaced_path = installed_path.with_extension("displaced");
+    let displaced_path = displaced(installed_path);
     let _ = fs::remove_file(&displaced_path);
     fs::rename(installed_path, &displaced_path).with_context(|| {
         format!(
@@ -723,6 +723,12 @@ fn move_aside(installed_path: &Path) -> Result<()> {
             displaced_path.display()
         )
     })
+}
+
+fn displaced(installed_path: &Path) -> PathBuf {
+    let mut name = installed_path.as_os_str().to_os_string();
+    name.push(".displaced");
+    PathBuf::from(name)
 }
 
 #[cfg(target_family = "windows")]
@@ -951,8 +957,16 @@ mod tests {
 
         assert!(!installed_path.exists());
         assert_eq!(
-            fs::read(installed_path.with_extension("displaced")).unwrap(),
+            fs::read(directory.path().join("rg.exe.displaced")).unwrap(),
             b"the running copy"
+        );
+    }
+
+    #[test]
+    fn a_displaced_binary_keeps_the_whole_name_it_had_rather_than_losing_its_extension() {
+        assert_eq!(
+            displaced(Path::new("/binaries/rg.exe")),
+            PathBuf::from("/binaries/rg.exe.displaced")
         );
     }
 
@@ -967,7 +981,7 @@ mod tests {
         move_aside(&installed_path).unwrap();
 
         assert_eq!(
-            fs::read(installed_path.with_extension("displaced")).unwrap(),
+            fs::read(directory.path().join("rg.exe.displaced")).unwrap(),
             b"the running copy"
         );
     }
