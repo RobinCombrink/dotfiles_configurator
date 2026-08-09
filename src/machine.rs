@@ -53,6 +53,12 @@ pub struct CommandOutput {
     pub standard_error: String,
 }
 
+#[derive(Debug)]
+pub enum Placement {
+    Placed(CommandOutput),
+    Held(PathBuf),
+}
+
 /// The capabilities that can only read a machine. Plan holds exactly these, which is what makes
 /// "plan had no side effects" a property the compiler checks rather than a convention. See ADR
 /// 0006.
@@ -112,6 +118,8 @@ pub trait WriteMachine: ReadMachine {
 
     /// Runs one of the invocations this crate defines for changing state.
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;
+
+    fn write_displacing(&self, invocation: &WriteInvocation) -> Result<Placement>;
 
     /// Runs a command the configuration declared, which is the escape hatch's whole point.
     fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput>;

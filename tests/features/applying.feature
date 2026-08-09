@@ -61,6 +61,36 @@ Feature: Applying a change set
     Then the machine is not reported as converged
     And 1 resource is reported as not having taken
 
+  Scenario: A crate whose binary is being executed is installed over the image moved aside
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "claude-session"
+    And Alice's machine is executing the binary "claude-session"
+    When Alice applies
+    Then the machine is reported as converged
+    And 1 binary is superseded on Alice's machine
+
+  Scenario: A binary that will not be moved aside is reported as held rather than as failed
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "session-mining"
+    And Alice's machine is executing the binary "tool-use-statistics" and will not release it
+    When Alice applies
+    Then 1 resource is reported as held
+    And 0 resources are reported as failed
+    And the machine is not reported as converged
+
+  Scenario: A held resource is attempted once rather than again on every later pass
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "session-mining"
+    And Alice's machine is executing the binary "tool-use-statistics" and will not release it
+    And Alice declares the application "Neovim"
+    And Neovim is not installed on Alice's machine
+    When Alice applies
+    Then Neovim is installed on Alice's machine
+    And cargo was asked to install 1 time
+
   Scenario: A real file where a link should go is reported rather than deleted
     Given Alice declares the dotfiles repository
     And Alice declares the symlink "gitconfig/.gitconfig" at ".gitconfig"

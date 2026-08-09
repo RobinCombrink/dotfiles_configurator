@@ -1,11 +1,15 @@
 use {
     crate::{
         configuration::{DesiredState, Notice, Resource},
-        convergence::{Blocked, Change, ChangeSet, converge::converge, plan},
+        convergence::{
+            Blocked, Change, ChangeSet,
+            converge::{Convergence, converge},
+            plan,
+        },
         machine::WriteMachine,
         reporting::RunReport,
     },
-    std::fmt::Display,
+    std::{fmt::Display, path::PathBuf},
 };
 
 /// One resource whose convergence failed, together with what went wrong.
@@ -15,12 +19,20 @@ pub struct Failure {
     pub error: anyhow::Error,
 }
 
+/// One resource the machine is executing the file of, which displacing was refused for as well.
+#[derive(Debug)]
+pub struct Held {
+    pub resource: Resource,
+    pub path: PathBuf,
+}
+
 /// What an apply did, and what it could not do. Failures are collected rather than raised so that
 /// one broken resource does not hide the state of every resource after it.
 #[derive(Debug)]
 pub struct ApplyOutcome {
     pub converged: Vec<Resource>,
     pub failed: Vec<Failure>,
+    pub held: Vec<Held>,
     pub blocked: Vec<Blocked>,
     /// Resources that were converged without error and still read as drifted afterwards — an
     /// installer that exits zero without installing anything looks exactly like this.
@@ -34,7 +46,10 @@ impl ApplyOutcome {
     /// change that could be read back reads as done. A run that ends otherwise should not imply
     /// the machine is converged.
     pub fn is_converged(&self) -> bool {
-        self.failed.is_empty() && self.blocked.is_empty() && self.unverified.is_empty()
+        self.failed.is_empty()
+            && self.held.is_empty()
+            && self.blocked.is_empty()
+            && self.unverified.is_empty()
     }
 }
 
@@ -48,6 +63,14 @@ impl Display for ApplyOutcome {
                 formatter,
                 "  FAILED    {}: {:#}",
                 failure.resource, failure.error
+            )?;
+        }
+        for held in &self.held {
+            writeln!(
+                formatter,
+                "  HELD      {} ({} is being executed)",
+                held.resource,
+                held.path.display()
             )?;
         }
         for blocked in &self.blocked {
@@ -69,9 +92,11 @@ impl Display for ApplyOutcome {
         }
         write!(
             formatter,
-            "\n{} converged, {} failed, {} still blocked, {} did not take, over {} pass(es)",
+            "\n{} converged, {} failed, {} held, {} still blocked, {} did not take, over {} \
+             pass(es)",
             self.converged.len(),
             self.failed.len(),
+            self.held.len(),
             self.blocked.len(),
             self.unverified.len(),
             self.passes
@@ -92,13 +117,22 @@ pub async fn apply(
 ) -> anyhow::Result<ApplyOutcome> {
     let mut converged: Vec<Resource> = Vec::new();
     let mut failed: Vec<Failure> = Vec::new();
+    let mut held: Vec<Held> = Vec::new();
     let mut passes = 0;
 
     let change_set = loop {
         let change_set: ChangeSet = plan(desired_state, machine, report)?;
         passes += 1;
 
-        let attempted = attempt(&change_set, machine, report, &mut converged, &mut failed).await;
+        let attempted = attempt(
+            &change_set,
+            machine,
+            report,
+            &mut converged,
+            &mut failed,
+            &mut held,
+        )
+        .await;
         report.note(&format!("pass {passes} converged {attempted} resource(s)"));
 
         if attempted == 0 {
@@ -118,6 +152,7 @@ pub async fn apply(
     Ok(ApplyOutcome {
         converged,
         failed,
+        held,
         blocked: change_set.blocked,
         unverified,
         notices: change_set.notices,
@@ -133,14 +168,17 @@ async fn attempt(
     report: &RunReport,
     converged: &mut Vec<Resource>,
     failed: &mut Vec<Failure>,
+    held: &mut Vec<Held>,
 ) -> usize {
     let mut count = 0;
     for change in &change_set.changes {
         // A resource that failed on an earlier pass would otherwise be retried on every pass,
-        // and a command without a presence check would never stop being drifted.
+        // and a command without a presence check would never stop being drifted. Nothing another
+        // resource converges can make a third party release a file, so a held one is settled too.
         if failed
             .iter()
             .any(|failure| failure.resource == change.resource)
+            || held.iter().any(|entry| entry.resource == change.resource)
             || converged.contains(&change.resource)
         {
             continue;
@@ -152,10 +190,21 @@ async fn attempt(
         };
 
         match outcome {
-            Ok(()) => {
+            Ok(Convergence::Converged) => {
                 report.note(&format!("converged {}", change.resource));
                 converged.push(change.resource.clone());
                 count += 1;
+            }
+            Ok(Convergence::Held(path)) => {
+                report.note(&format!(
+                    "HELD {}: {} is being executed",
+                    change.resource,
+                    path.display()
+                ));
+                held.push(Held {
+                    resource: change.resource.clone(),
+                    path,
+                });
             }
             Err(error) => {
                 report.note(&format!("FAILED {}: {error:#}", change.resource));

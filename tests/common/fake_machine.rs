@@ -14,7 +14,8 @@ use {
             WingetPackageId,
         },
         machine::{
-            CommandOutput, ReadInvocation, ReadMachine, Tool, WriteInvocation, WriteMachine,
+            CommandOutput, Placement, ReadInvocation, ReadMachine, Tool, WriteInvocation,
+            WriteMachine,
             workspace_reading::{Revision, WorkspaceReading},
         },
     },
@@ -51,6 +52,16 @@ struct MachineState {
     reads: Vec<ReadInvocation>,
     cargo_workspaces: BTreeMap<PathBuf, WorkspaceReading>,
     workspace_reads: Vec<PathBuf>,
+    /// Destinations a write is refused at, and whether displacing them is refused too.
+    executing_binaries: BTreeMap<PathBuf, Displacement>,
+    superseded_images: BTreeSet<PathBuf>,
+    cargo_installs: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Displacement {
+    Succeeds,
+    Refused,
 }
 
 impl Default for FakeMachine {
@@ -83,6 +94,35 @@ impl FakeMachine {
 
     pub fn cargo_workspace_reads(&self) -> Vec<PathBuf> {
         self.state.borrow().workspace_reads.clone()
+    }
+
+    pub fn cargo_binaries_directory(&self) -> &Path {
+        &self.cargo_binaries_directory
+    }
+
+    /// A binary the machine is executing, which a write to its path is refused at until it is
+    /// displaced.
+    pub fn execute_binary(&self, name: &str) {
+        self.state.borrow_mut().executing_binaries.insert(
+            self.cargo_binaries_directory.join(name),
+            Displacement::Succeeds,
+        );
+    }
+
+    /// A binary the machine is executing and refuses to let go of at all, so displacing it fails.
+    pub fn execute_binary_that_cannot_be_displaced(&self, name: &str) {
+        self.state.borrow_mut().executing_binaries.insert(
+            self.cargo_binaries_directory.join(name),
+            Displacement::Refused,
+        );
+    }
+
+    pub fn superseded_image_count(&self) -> usize {
+        self.state.borrow().superseded_images.len()
+    }
+
+    pub fn cargo_installs(&self) -> usize {
+        self.state.borrow().cargo_installs
     }
 
     pub fn remove_tool(&self, tool: Tool) {
@@ -345,15 +385,71 @@ impl WriteMachine for FakeMachine {
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        if let WriteInvocation::InstallWingetPackage { id } = invocation {
-            self.state.borrow_mut().winget_packages.insert(id.clone());
+        let mut state = self.state.borrow_mut();
+        let mut installing: Option<CrateName> = None;
+        match invocation {
+            WriteInvocation::InstallWingetPackage { id } => {
+                state.winget_packages.insert(id.clone());
+            }
+            WriteInvocation::InstallCargoCrate { arguments } => {
+                state.cargo_installs += 1;
+                installing = arguments.last().map(|name| CrateName::from(name.as_str()));
+            }
+            WriteInvocation::RemoveClaudeMcpServer { .. }
+            | WriteInvocation::AddClaudeMcpServer { .. } => {}
         }
 
+        let Some(destination) = state.executing_binaries.keys().next().cloned() else {
+            if let Some(crate_name) = installing {
+                for reading in state.cargo_workspaces.values_mut() {
+                    let Some(member) = reading.members.get_mut(&crate_name) else {
+                        continue;
+                    };
+                    member.installed = Some(member.desired.clone());
+                    member.absent_binaries.clear();
+                }
+            }
+
+            return Ok(CommandOutput {
+                succeeded: true,
+                standard_output: String::new(),
+                standard_error: String::new(),
+            });
+        };
+
         Ok(CommandOutput {
-            succeeded: true,
+            succeeded: false,
             standard_output: String::new(),
-            standard_error: String::new(),
+            standard_error: format!(
+                "error: failed to move `{}` to `{}`\n\nCaused by:\n  Access is denied. (os error 5)",
+                destination.with_extension("tmp").display(),
+                destination.display()
+            ),
         })
+    }
+
+    fn write_displacing(&self, invocation: &WriteInvocation) -> Result<Placement> {
+        let output = self.write(invocation)?;
+        if output.succeeded {
+            return Ok(Placement::Placed(output));
+        }
+
+        let Some(destination) = invocation.refused_destination(&output) else {
+            bail!("{} failed", invocation.tool());
+        };
+
+        let mut state = self.state.borrow_mut();
+        if state.executing_binaries.get(&destination) == Some(&Displacement::Refused) {
+            return Ok(Placement::Held(destination));
+        }
+
+        state.executing_binaries.remove(&destination);
+        let mut superseded = destination.clone().into_os_string();
+        superseded.push(".superseded");
+        state.superseded_images.insert(PathBuf::from(superseded));
+        drop(state);
+
+        self.write(invocation).map(Placement::Placed)
     }
 
     fn run_declared_command(&self, _shell: Shell, args: &[String]) -> Result<CommandOutput> {

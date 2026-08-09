@@ -6,7 +6,8 @@ use {
         },
         github::AuthenticatedAccount,
         machine::{
-            CommandOutput, ReadInvocation, ReadMachine, Tool, WriteInvocation, WriteMachine,
+            CommandOutput, Placement, ReadInvocation, ReadMachine, Tool, WriteInvocation,
+            WriteMachine,
             workspace_reading::{Revision, WorkspaceReading},
         },
         reporting::RunReport,
@@ -61,6 +62,14 @@ impl<'report> LocalMachine<'report> {
             http_client: Client::default(),
             report,
         })
+    }
+
+    fn run(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
+        stream(
+            Path::new(invocation.tool().program()),
+            &invocation.arguments(),
+            self.report,
+        )
     }
 
     fn authenticated_account(&self) -> Result<&AuthenticatedAccount> {
@@ -310,6 +319,50 @@ fn decode_output(bytes: &[u8]) -> String {
     }
 }
 
+const SUPERSEDED_SUFFIX: &str = ".superseded";
+
+fn superseded_name(destination: &Path) -> PathBuf {
+    let mut name = destination.file_name().unwrap_or_default().to_os_string();
+    name.push(SUPERSEDED_SUFFIX);
+
+    destination.with_file_name(name)
+}
+
+fn displace(destination: &Path) -> Result<PathBuf> {
+    let superseded = superseded_name(destination);
+    let _ = fs::remove_file(&superseded);
+    fs::rename(destination, &superseded)?;
+
+    Ok(superseded)
+}
+
+fn restore(superseded: &Path, destination: &Path) -> Result<()> {
+    fs::rename(superseded, destination).with_context(|| {
+        format!(
+            "Could not put {} back at {}",
+            superseded.display(),
+            destination.display()
+        )
+    })
+}
+
+fn restoring(superseded: &Path, destination: &Path, failure: anyhow::Error) -> anyhow::Error {
+    match restore(superseded, destination) {
+        Ok(()) => failure,
+        Err(unrestored) => failure.context(format!("{unrestored:#}")),
+    }
+}
+
+fn refused(invocation: &WriteInvocation, output: &CommandOutput) -> anyhow::Error {
+    anyhow!(
+        "{} {} failed:\n{}\n{}",
+        invocation.tool(),
+        invocation.arguments().join(" "),
+        output.standard_output.trim(),
+        output.standard_error.trim()
+    )
+}
+
 fn cargo_binaries_directory(home_directory: &Path) -> PathBuf {
     match env::var_os("CARGO_HOME") {
         Some(cargo_home) => PathBuf::from(cargo_home).join("bin"),
@@ -476,20 +529,37 @@ impl WriteMachine for LocalMachine<'_> {
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        let output = stream(
-            Path::new(invocation.tool().program()),
-            &invocation.arguments(),
-            self.report,
-        )?;
+        let output = self.run(invocation)?;
         match output.succeeded {
             true => Ok(output),
-            false => bail!(
-                "{} {} failed:\n{}\n{}",
-                invocation.tool(),
-                invocation.arguments().join(" "),
-                output.standard_output.trim(),
-                output.standard_error.trim()
-            ),
+            false => Err(refused(invocation, &output)),
+        }
+    }
+
+    fn write_displacing(&self, invocation: &WriteInvocation) -> Result<Placement> {
+        let output = self.run(invocation)?;
+        if output.succeeded {
+            return Ok(Placement::Placed(output));
+        }
+
+        let Some(destination) = invocation.refused_destination(&output) else {
+            return Err(refused(invocation, &output));
+        };
+
+        let Ok(superseded) = displace(&destination) else {
+            return Ok(Placement::Held(destination));
+        };
+        self.report
+            .note(&format!("displaced {}", destination.display()));
+
+        match self.run(invocation) {
+            Ok(retried) if retried.succeeded => Ok(Placement::Placed(retried)),
+            Ok(retried) => Err(restoring(
+                &superseded,
+                &destination,
+                refused(invocation, &retried),
+            )),
+            Err(error) => Err(restoring(&superseded, &destination, error)),
         }
     }
 
@@ -563,6 +633,63 @@ fn create_link(link_path: &Path, target_path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use {super::*, crate::reporting::RunKind};
+
+    fn a_binary_at(directory: &Path, name: &str, contents: &str) -> PathBuf {
+        let path = directory.join(name);
+        fs::write(&path, contents).unwrap();
+        path
+    }
+
+    #[test]
+    fn what_is_left_behind_keeps_its_extension_so_the_search_path_cannot_invoke_it() {
+        let superseded = superseded_name(Path::new("C:\\cargo\\bin\\claude-session.exe"));
+
+        assert_eq!(
+            superseded,
+            PathBuf::from("C:\\cargo\\bin\\claude-session.exe.superseded")
+        );
+    }
+
+    #[test]
+    fn displacing_a_binary_frees_its_name_and_keeps_the_image_beside_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = a_binary_at(directory.path(), "claude-session.exe", "the old image");
+
+        let superseded = displace(&destination).unwrap();
+
+        assert!(!destination.exists(), "the name should be free to write");
+        assert_eq!(fs::read_to_string(&superseded).unwrap(), "the old image");
+    }
+
+    #[test]
+    fn displacing_a_binary_reaps_the_image_an_earlier_run_left_under_that_exact_name() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = a_binary_at(directory.path(), "claude-session.exe", "the current image");
+        a_binary_at(
+            directory.path(),
+            "claude-session.exe.superseded",
+            "an image from an earlier run",
+        );
+
+        let superseded = displace(&destination).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&superseded).unwrap(),
+            "the current image"
+        );
+    }
+
+    #[test]
+    fn restoring_puts_the_moved_image_back_under_the_name_it_had() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = a_binary_at(directory.path(), "claude-session.exe", "the old image");
+        let superseded = displace(&destination).unwrap();
+
+        restore(&superseded, &destination).unwrap();
+
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "the old image");
+        assert!(!superseded.exists());
+    }
 
     #[cfg(target_family = "windows")]
     const A_SHELL_EVERY_MACHINE_HAS: Shell = Shell::CommandPrompt;

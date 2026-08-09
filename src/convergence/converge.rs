@@ -5,10 +5,17 @@ use {
             Symlink, WingetPackage,
         },
         convergence::SourceReadings,
-        machine::{WriteInvocation, WriteMachine},
+        machine::{Placement, WriteInvocation, WriteMachine},
     },
     anyhow::{Context, Result, bail},
+    std::path::PathBuf,
 };
+
+#[derive(Debug)]
+pub enum Convergence {
+    Converged,
+    Held(PathBuf),
+}
 
 /// Closes the drift on one resource. Only ever called for a resource a state reader has just
 /// reported as drifted.
@@ -16,17 +23,17 @@ pub async fn converge(
     resource: &Resource,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
-) -> Result<()> {
-    match resource {
+) -> Result<Convergence> {
+    let closed = match resource {
+        Resource::Package(Package::Cargo(package)) => {
+            return converge_cargo_package(package, machine, readings);
+        }
         Resource::Repository(repository) => converge_repository(repository, machine).await,
         Resource::Application(application) => machine
             .install_application(application)
             .await
             .with_context(|| format!("Could not install {}", application.name)),
         Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
-        Resource::Package(Package::Cargo(package)) => {
-            converge_cargo_package(package, machine, readings)
-        }
         Resource::Symlink(symlink) => converge_symlink(symlink, machine),
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
             let removal = WriteInvocation::RemoveClaudeMcpServer {
@@ -43,7 +50,9 @@ pub async fn converge(
                 .map(|_| ())
         }
         Resource::Command(command) => converge_command(command, machine),
-    }
+    };
+
+    closed.map(|()| Convergence::Converged)
 }
 
 async fn converge_repository(
@@ -65,7 +74,7 @@ fn converge_cargo_package(
     package: &CargoPackage,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
-) -> Result<()> {
+) -> Result<Convergence> {
     let mut arguments = vec![
         "install".to_owned(),
         "--locked".to_owned(),
@@ -89,9 +98,11 @@ fn converge_cargo_package(
         }
     }
 
-    machine
-        .write(&WriteInvocation::InstallCargoCrate { arguments })
-        .map(|_| ())
+    let placement = machine.write_displacing(&WriteInvocation::InstallCargoCrate { arguments })?;
+    Ok(match placement {
+        Placement::Placed(_) => Convergence::Converged,
+        Placement::Held(path) => Convergence::Held(path),
+    })
 }
 
 fn converge_symlink(symlink: &Symlink, machine: &impl WriteMachine) -> Result<()> {

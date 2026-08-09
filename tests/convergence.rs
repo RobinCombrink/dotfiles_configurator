@@ -435,6 +435,33 @@ fn binary_is_gone(world: &mut MachineWorld, binary_name: String, crate_name: Str
         .insert(BinaryName::from(binary_name.as_str()));
 }
 
+#[given(expr = "Alice's machine is executing the binary {string}")]
+fn machine_is_executing(world: &mut MachineWorld, binary_name: String) {
+    world.machine.execute_binary(&binary_name);
+}
+
+#[given(expr = "Alice's machine is executing the binary {string} and will not release it")]
+fn machine_will_not_release(world: &mut MachineWorld, binary_name: String) {
+    world
+        .machine
+        .execute_binary_that_cannot_be_displaced(&binary_name);
+}
+
+#[then(expr = "{int} resource(s) is/are reported as held")]
+fn resources_reported_as_held(world: &mut MachineWorld, expected: usize) {
+    assert_eq!(world.outcome().held.len(), expected);
+}
+
+#[then(expr = "{int} binary/binaries is/are superseded on Alice's machine")]
+fn binaries_superseded(world: &mut MachineWorld, expected: usize) {
+    assert_eq!(world.machine.superseded_image_count(), expected);
+}
+
+#[then(expr = "cargo was asked to install {int} time(s)")]
+fn cargo_asked_to_install(world: &mut MachineWorld, expected: usize) {
+    assert_eq!(world.machine.cargo_installs(), expected);
+}
+
 #[given(expr = "cargo installed {string} from content the workspace has since changed")]
 fn installed_from_older_content(world: &mut MachineWorld, crate_name: String) {
     world.member(&crate_name).installed = Some(content_named("what it held before"));

@@ -1,6 +1,9 @@
-use crate::{
-    configuration::{ClaudeMcpServer, McpScope, McpServerName, WingetPackageId},
-    machine::Tool,
+use {
+    crate::{
+        configuration::{ClaudeMcpServer, McpScope, McpServerName, WingetPackageId},
+        machine::{CommandOutput, Tool},
+    },
+    std::path::PathBuf,
 };
 
 /// The closed set of invocations this crate defines for reading state.
@@ -81,6 +84,21 @@ impl WriteInvocation {
         }
     }
 
+    pub fn refused_destination(&self, output: &CommandOutput) -> Option<PathBuf> {
+        match self {
+            // 2026-08-06: cargo builds into a temporary directory beside the one it installs to
+            // and moves the result over the old binary, naming both paths when that move is
+            // denied. Observed on Windows 11 for claude-session.exe and tool-use-statistics.exe.
+            WriteInvocation::InstallCargoCrate { .. } => {
+                let said = [&output.standard_error, &output.standard_output];
+                said.into_iter().find_map(|text| destination_moved_to(text))
+            }
+            WriteInvocation::InstallWingetPackage { .. }
+            | WriteInvocation::RemoveClaudeMcpServer { .. }
+            | WriteInvocation::AddClaudeMcpServer { .. } => None,
+        }
+    }
+
     pub fn arguments(&self) -> Vec<String> {
         match self {
             WriteInvocation::InstallWingetPackage { id } => vec![
@@ -121,10 +139,82 @@ impl WriteInvocation {
     }
 }
 
+fn destination_moved_to(text: &str) -> Option<PathBuf> {
+    let (_, refusal) = text.split_once("failed to move ")?;
+    let mut quoted = refusal.split('`').skip(1).step_by(2);
+    let _source = quoted.next()?;
+
+    quoted.next().map(PathBuf::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    fn cargo_said(standard_error: &str) -> CommandOutput {
+        CommandOutput {
+            succeeded: false,
+            standard_output: String::new(),
+            standard_error: standard_error.to_owned(),
+        }
+    }
+
+    fn installing_a_crate() -> WriteInvocation {
+        WriteInvocation::InstallCargoCrate {
+            arguments: vec!["install".to_owned(), "claude-session".to_owned()],
+        }
+    }
+
+    #[test]
+    fn a_denied_move_is_read_as_the_destination_rather_than_the_file_it_was_built_into() {
+        let output = cargo_said(
+            "   Replacing C:\\Users\\Alice\\.cargo\\bin\\claude-session.exe\n\
+             error: failed to move `C:\\Users\\Alice\\.cargo\\bin\\cargo-installpDjhGc\\claude-session.exe` \
+             to `C:\\Users\\Alice\\.cargo\\bin\\claude-session.exe`\n\n\
+             Caused by:\n  Access is denied. (os error 5)\n",
+        );
+
+        assert_eq!(
+            installing_a_crate().refused_destination(&output),
+            Some(PathBuf::from(
+                "C:\\Users\\Alice\\.cargo\\bin\\claude-session.exe"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_denied_move_whose_paths_wrapped_across_lines_still_names_its_destination() {
+        let output = cargo_said(
+            "error: failed to move `C:\\temp\\claude-session.exe`\n       \
+             to `C:\\Users\\Alice\\.cargo\\bin\\claude-session.exe`\n",
+        );
+
+        assert_eq!(
+            installing_a_crate().refused_destination(&output),
+            Some(PathBuf::from(
+                "C:\\Users\\Alice\\.cargo\\bin\\claude-session.exe"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_failure_that_names_no_path_it_could_not_write_is_not_recovered_from_by_displacing() {
+        let output =
+            cargo_said("error: could not compile `claude-session` (bin \"claude-session\")");
+
+        assert_eq!(installing_a_crate().refused_destination(&output), None);
+    }
+
+    #[test]
+    fn a_tool_that_does_not_name_what_it_could_not_write_offers_no_destination() {
+        let output = cargo_said("error: failed to move `a` to `b`");
+        let invocation = WriteInvocation::InstallWingetPackage {
+            id: WingetPackageId::from("Microsoft.PowerShell"),
+        };
+
+        assert_eq!(invocation.refused_destination(&output), None);
+    }
 
     #[test]
     fn adding_an_mcp_server_passes_its_environment_before_the_command() {
