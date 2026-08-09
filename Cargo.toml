@@ -27,6 +27,7 @@ serde_path_to_error = "0.1.17"
 strum = { version = "0.28.0", features = ["derive"] }
 futures = "0.3.31"
 toml = "0.8.23"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 cucumber = "0.23.0"

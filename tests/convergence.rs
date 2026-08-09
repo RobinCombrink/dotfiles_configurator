@@ -7,25 +7,28 @@ use {
     cucumber::{World, given, then, when},
     dotfiles_configurator::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, BEYOND_BUILD_GENERATION,
-            BUILD_GENERATION, CargoWorkspace, Context, CrateName, DesiredState, GitHubRepository,
-            MachineSettings, Notice, PresenceCheck, RepositoryName, RepositoryOwner, Resource,
-            Shell, Symlink,
+            Application, ApplicationName, ApplicationSource, ArchiveEntry, AssetPattern,
+            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, Context, CrateName,
+            DesiredState, GitHubRepository, Installer, MachineSettings, Notice, PresenceCheck,
+            ReleasedBinary, RepositoryName, RepositoryOwner, Resource, Shell, Symlink, VersionWord,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
         machine::{
             ReadMachine, Tool,
+            release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
                 BinaryName, Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
         reporting::{RunKind, RunReport},
+        version::Version,
     },
     fake_machine::FakeMachine,
     std::{
         collections::{BTreeMap, BTreeSet},
         env, fs,
+        num::NonZeroUsize,
         path::{Path, PathBuf},
         sync::atomic::{AtomicUsize, Ordering},
     },
@@ -157,7 +160,7 @@ fn machine_settings() -> MachineSettings {
 /// An application whose presence is read as "a program of that name is on the path", which is
 /// what most of the live declarations use.
 fn application(name: &str) -> Application {
-    Application {
+    Application::Installer(Installer {
         name: ApplicationName::from(name),
         source: ApplicationSource::Uri {
             uri: Url::parse("https://example.invalid/installer.exe").unwrap(),
@@ -166,7 +169,7 @@ fn application(name: &str) -> Application {
         presence_check: PresenceCheck::CommandOnPath {
             command: name.to_owned(),
         },
-    }
+    })
 }
 
 #[given(expr = "Alice declares the application {string}")]
@@ -174,6 +177,78 @@ fn declare_application(world: &mut MachineWorld, name: String) {
     world
         .resources
         .push(Resource::Application(application(&name)));
+}
+
+fn named_repository(owner_and_name: &str) -> GitHubRepository {
+    let (owner, repository) = owner_and_name
+        .split_once('/')
+        .expect("a repository is written owner/name");
+    GitHubRepository {
+        owner: RepositoryOwner::from(owner),
+        repository: RepositoryName::from(repository),
+    }
+}
+
+fn released_binary(entry: &str, owner_and_name: &str) -> ReleasedBinary {
+    ReleasedBinary {
+        repository: named_repository(owner_and_name),
+        asset: AssetPattern::EndsWith(".zip".to_owned()),
+        entry: ArchiveEntry::try_from(entry.to_owned()).unwrap(),
+        version_arguments: vec!["--version".to_owned()],
+        version_word: VersionWord::from(NonZeroUsize::new(2).unwrap()),
+    }
+}
+
+#[given(expr = "Alice declares the released binary {string} from {string}")]
+fn declare_released_binary(world: &mut MachineWorld, entry: String, owner_and_name: String) {
+    world
+        .resources
+        .push(Resource::Application(Application::ReleasedBinary(
+            released_binary(&entry, &owner_and_name),
+        )));
+}
+
+#[given(expr = "the latest release of {string} is {string}")]
+fn latest_release_is(world: &mut MachineWorld, owner_and_name: String, tag: String) {
+    let repository = named_repository(&owner_and_name);
+    world.machine.publish_release(
+        repository.clone(),
+        ReleaseReading {
+            version: Version::try_from(tag.as_str()).unwrap(),
+            assets: vec![ReleaseAsset {
+                name: format!("{}-windows-x86_64.zip", repository.repository),
+                download_url: Url::parse("https://example.invalid/release.zip").unwrap(),
+            }],
+        },
+    );
+}
+
+#[given(expr = "{string} is installed and reports {string}")]
+fn binary_is_installed_reporting(world: &mut MachineWorld, name: String, printed: String) {
+    let path = world.machine.binaries_directory().join(&name);
+    world.machine.hold_binary(path, printed);
+}
+
+#[then(expr = "{string} is installed in the tool directory")]
+fn binary_is_installed(world: &mut MachineWorld, name: String) {
+    let path = world.machine.binaries_directory().join(&name);
+
+    assert!(
+        world.machine.path_exists(&path),
+        "nothing is installed at {}",
+        path.display()
+    );
+}
+
+#[then(expr = "{string} reports {string}")]
+fn binary_reports(world: &mut MachineWorld, name: String, expected: String) {
+    let path = world.machine.binaries_directory().join(&name);
+    let printed = world
+        .machine
+        .binary_reports(&path)
+        .unwrap_or_else(|| panic!("nothing is installed at {}", path.display()));
+
+    assert!(printed.contains(&expected), "{name} reports {printed:?}");
 }
 
 #[given(expr = "Alice declares the winget package {string}")]
@@ -481,23 +556,35 @@ fn content_named(content: &str) -> Fingerprint {
 }
 
 #[when(expr = "Alice plans")]
-fn alice_plans(world: &mut MachineWorld) {
+async fn alice_plans(world: &mut MachineWorld) {
     world.publish_workspace();
     world.fingerprint_before = Some(world.machine.fingerprint());
 
     let report = world.open_a_report(RunKind::Plan);
-    world.change_set = Some(plan(&world.desired_state(), &world.machine, &report).unwrap());
+    world.change_set = Some(
+        plan(&world.desired_state(), &world.machine, &report)
+            .await
+            .unwrap(),
+    );
     world.report = Some(report);
 }
 
 #[when(expr = "Alice plans twice")]
-fn alice_plans_twice(world: &mut MachineWorld) {
+async fn alice_plans_twice(world: &mut MachineWorld) {
     world.publish_workspace();
     world.fingerprint_before = Some(world.machine.fingerprint());
 
     let report = world.open_a_report(RunKind::Plan);
-    world.change_set = Some(plan(&world.desired_state(), &world.machine, &report).unwrap());
-    world.second_change_set = Some(plan(&world.desired_state(), &world.machine, &report).unwrap());
+    world.change_set = Some(
+        plan(&world.desired_state(), &world.machine, &report)
+            .await
+            .unwrap(),
+    );
+    world.second_change_set = Some(
+        plan(&world.desired_state(), &world.machine, &report)
+            .await
+            .unwrap(),
+    );
     world.report = Some(report);
 }
 
@@ -535,7 +622,7 @@ async fn alice_applies_twice(world: &mut MachineWorld) {
 fn withdraw_declaration(world: &mut MachineWorld, name: String) {
     let withdrawn = ApplicationName::from(name.as_str());
     world.resources.retain(|resource| match resource {
-        Resource::Application(application) => application.name != withdrawn,
+        Resource::Application(Application::Installer(installer)) => installer.name != withdrawn,
         _ => true,
     });
 }

@@ -1,14 +1,17 @@
 use {
-    crate::configuration::{
-        names::{
-            ApplicationName, CrateName, McpServerName, RepositoryName, RepositoryOwner,
-            WingetPackageId,
+    crate::{
+        configuration::{
+            names::{
+                ApplicationName, BinaryName, CrateName, McpServerName, RepositoryName,
+                RepositoryOwner, WingetPackageId,
+            },
+            presence_check::PresenceCheck,
         },
-        presence_check::PresenceCheck,
+        version::Version,
     },
     schemars::JsonSchema,
     serde::{Deserialize, Serialize},
-    std::{collections::BTreeMap, fmt::Display, path::PathBuf},
+    std::{collections::BTreeMap, fmt::Display, num::NonZeroUsize, path::PathBuf},
     url::Url,
 };
 
@@ -72,9 +75,7 @@ impl Display for Resource {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Resource::Repository(name) => write!(formatter, "repository {name}"),
-            Resource::Application(application) => {
-                write!(formatter, "application {}", application.name)
-            }
+            Resource::Application(application) => write!(formatter, "application {application}"),
             Resource::Package(package) => write!(formatter, "package {package}"),
             Resource::Symlink(symlink) => write!(
                 formatter,
@@ -111,13 +112,159 @@ impl Display for GitHubRepository {
     }
 }
 
-/// A program installed by downloading and running an installer, whose presence the machine cannot
-/// be asked about directly and which therefore declares a presence check.
+// ADR 0016
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-pub struct Application {
+#[serde(tag = "shape", rename_all = "snake_case")]
+pub enum Application {
+    Installer(Installer),
+    ReleasedBinary(ReleasedBinary),
+}
+
+impl Display for Application {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Application::Installer(installer) => Display::fmt(&installer.name, formatter),
+            Application::ReleasedBinary(binary) => {
+                Display::fmt(&binary.entry.installed_name(), formatter)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct Installer {
     pub name: ApplicationName,
     pub source: ApplicationSource,
     pub presence_check: PresenceCheck,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct ReleasedBinary {
+    pub repository: GitHubRepository,
+    pub asset: AssetPattern,
+    pub entry: ArchiveEntry,
+    #[serde(default = "asking_for_a_version")]
+    pub version_arguments: Vec<String>,
+    pub version_word: VersionWord,
+}
+
+fn asking_for_a_version() -> Vec<String> {
+    vec!["--version".to_owned()]
+}
+
+impl ReleasedBinary {
+    pub fn installed_name(&self) -> BinaryName {
+        self.entry.installed_name()
+    }
+
+    pub fn rendered_version_invocation(&self) -> String {
+        format!(
+            "{} {}",
+            self.installed_name(),
+            self.version_arguments.join(" ")
+        )
+        .trim_end()
+        .to_owned()
+    }
+
+    pub fn reported_version(&self, output: &str) -> Result<Version, String> {
+        let word = self.version_word.select(output).ok_or_else(|| {
+            format!(
+                "`{}` printed no {} word to read a version from",
+                self.rendered_version_invocation(),
+                self.version_word
+            )
+        })?;
+
+        Version::try_from(word).map_err(|fault| {
+            format!(
+                "the {} word `{}` printed is {fault}",
+                self.version_word,
+                self.rendered_version_invocation()
+            )
+        })
+    }
+}
+
+/// ```
+/// use dotfiles_configurator::configuration::ArchiveEntry;
+///
+/// let nested = ArchiveEntry::try_from("bin/rg.exe".to_owned()).unwrap();
+///
+/// assert_eq!(nested.installed_name().to_string(), "rg.exe");
+/// assert!(ArchiveEntry::try_from("bin/".to_owned()).is_err());
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(try_from = "String", into = "String")]
+pub struct ArchiveEntry(String);
+
+impl ArchiveEntry {
+    pub fn installed_name(&self) -> BinaryName {
+        BinaryName::from(self.0.rsplit('/').next().unwrap_or(&self.0))
+    }
+}
+
+impl TryFrom<String> for ArchiveEntry {
+    type Error = String;
+
+    fn try_from(path: String) -> Result<Self, Self::Error> {
+        match path.rsplit('/').next().unwrap_or_default().is_empty() {
+            true => Err(format!(
+                "{path:?} names no file inside the archive to install"
+            )),
+            false => Ok(Self(path)),
+        }
+    }
+}
+
+impl From<ArchiveEntry> for String {
+    fn from(entry: ArchiveEntry) -> Self {
+        entry.0
+    }
+}
+
+impl Display for ArchiveEntry {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(transparent)]
+#[repr(transparent)]
+pub struct VersionWord(NonZeroUsize);
+
+impl VersionWord {
+    /// ```
+    /// use {dotfiles_configurator::configuration::VersionWord, std::num::NonZeroUsize};
+    ///
+    /// let third = VersionWord::from(NonZeroUsize::new(3).unwrap());
+    ///
+    /// assert_eq!(third.select("gh version 2.80.0 (2025-09-23)"), Some("2.80.0"));
+    /// assert_eq!(third.select("ripgrep 15.1.0"), None);
+    /// ```
+    pub fn select<'output>(&self, output: &'output str) -> Option<&'output str> {
+        output.split_whitespace().nth(self.0.get() - 1)
+    }
+}
+
+impl From<NonZeroUsize> for VersionWord {
+    fn from(position: NonZeroUsize) -> Self {
+        Self(position)
+    }
+}
+
+impl Display for VersionWord {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let suffix = match (self.0.get() % 10, self.0.get() % 100) {
+            (_, 11..=13) => "th",
+            (1, _) => "st",
+            (2, _) => "nd",
+            (3, _) => "rd",
+            _ => "th",
+        };
+        write!(formatter, "{}{suffix}", self.0)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -143,6 +290,18 @@ pub enum AssetPattern {
     Exact(String),
     Contains(String),
     EndsWith(String),
+}
+
+impl Display for AssetPattern {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AssetPattern::Exact(exact) => write!(formatter, "the asset named {exact:?}"),
+            AssetPattern::Contains(fragment) => {
+                write!(formatter, "an asset holding {fragment:?}")
+            }
+            AssetPattern::EndsWith(suffix) => write!(formatter, "an asset ending in {suffix:?}"),
+        }
+    }
 }
 
 impl AssetPattern {

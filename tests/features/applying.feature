@@ -20,6 +20,21 @@ Feature: Applying a change set
     And the link ".gitconfig" points into the dotfiles repository
     And the machine is reported as converged
 
+  Scenario: A released binary is installed under the name its archive entry carries
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
+    When Alice applies
+    Then "rg.exe" is installed in the tool directory
+    And the machine is reported as converged
+
+  Scenario: A released binary behind the latest release is replaced by it
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
+    And "rg.exe" is installed and reports "ripgrep 14.0.0"
+    When Alice applies
+    Then "rg.exe" reports "15.1.0"
+    And the machine is reported as converged
+
   Scenario: A resource that fails to converge does not stop the ones declared after it
     Given Alice declares the application "Broken"
     And Alice declares the application "Discord"

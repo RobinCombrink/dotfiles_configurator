@@ -4,7 +4,7 @@ use {
     std::{borrow::Cow, fmt::Display},
 };
 
-pub const BUILD_GENERATION: Generation = Generation(3);
+pub const BUILD_GENERATION: Generation = Generation(4);
 
 pub const BEYOND_BUILD_GENERATION: Generation = Generation(BUILD_GENERATION.0 + 1);
 

@@ -10,20 +10,23 @@ mod fake_machine;
 use {
     dotfiles_configurator::{
         configuration::{
-            CargoPackage, CargoSource, CargoWorkspace, CrateName, DesiredState, GitHubRepository,
-            MachineSettings, Package, RepositoryName, RepositoryOwner, Resource, WingetPackage,
+            Application, ArchiveEntry, AssetPattern, CargoPackage, CargoSource, CargoWorkspace,
+            CrateName, DesiredState, GitHubRepository, MachineSettings, Package, ReleasedBinary,
+            RepositoryName, RepositoryOwner, Resource, VersionWord, WingetPackage,
         },
         convergence::plan,
         machine::{
             ReadInvocation,
+            release_reading::ReleaseReading,
             workspace_reading::{
                 Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
         reporting::RunReport,
+        version::Version,
     },
     fake_machine::FakeMachine,
-    std::{collections::BTreeSet, path::PathBuf},
+    std::{collections::BTreeSet, num::NonZeroUsize, path::PathBuf},
 };
 
 fn desired_state(resources: Vec<Resource>) -> DesiredState {
@@ -53,8 +56,8 @@ fn cargo_package(crate_name: &str) -> Resource {
     }))
 }
 
-#[test]
-fn many_packages_from_one_manager_ask_it_once() {
+#[tokio::test]
+async fn many_packages_from_one_manager_ask_it_once() {
     let machine = FakeMachine::default();
     let desired_state = desired_state(vec![
         winget_package("Microsoft.PowerShell"),
@@ -62,7 +65,9 @@ fn many_packages_from_one_manager_ask_it_once() {
         winget_package("Neovim.Neovim"),
     ]);
 
-    plan(&desired_state, &machine, &RunReport::discarded()).unwrap();
+    plan(&desired_state, &machine, &RunReport::discarded())
+        .await
+        .unwrap();
 
     assert_eq!(
         machine.times_read(&ReadInvocation::WingetInstalledPackages),
@@ -70,8 +75,8 @@ fn many_packages_from_one_manager_ask_it_once() {
     );
 }
 
-#[test]
-fn each_manager_is_asked_once_when_several_are_declared_against() {
+#[tokio::test]
+async fn each_manager_is_asked_once_when_several_are_declared_against() {
     let machine = FakeMachine::default();
     let desired_state = desired_state(vec![
         winget_package("Microsoft.PowerShell"),
@@ -80,7 +85,9 @@ fn each_manager_is_asked_once_when_several_are_declared_against() {
         cargo_package("stop-gate"),
     ]);
 
-    plan(&desired_state, &machine, &RunReport::discarded()).unwrap();
+    plan(&desired_state, &machine, &RunReport::discarded())
+        .await
+        .unwrap();
 
     assert_eq!(
         machine.times_read(&ReadInvocation::WingetInstalledPackages),
@@ -89,23 +96,27 @@ fn each_manager_is_asked_once_when_several_are_declared_against() {
     assert_eq!(machine.times_read(&ReadInvocation::CargoInstalledCrates), 1);
 }
 
-#[test]
-fn a_manager_nothing_is_declared_against_is_never_asked() {
+#[tokio::test]
+async fn a_manager_nothing_is_declared_against_is_never_asked() {
     let machine = FakeMachine::default();
     let desired_state = desired_state(vec![winget_package("Microsoft.PowerShell")]);
 
-    plan(&desired_state, &machine, &RunReport::discarded()).unwrap();
+    plan(&desired_state, &machine, &RunReport::discarded())
+        .await
+        .unwrap();
 
     assert_eq!(machine.times_read(&ReadInvocation::CargoInstalledCrates), 0);
 }
 
-#[test]
-fn a_package_whose_manager_is_absent_leaves_that_manager_unasked() {
+#[tokio::test]
+async fn a_package_whose_manager_is_absent_leaves_that_manager_unasked() {
     let machine = FakeMachine::default();
     machine.remove_tool(dotfiles_configurator::machine::Tool::Winget);
     let desired_state = desired_state(vec![winget_package("Microsoft.PowerShell")]);
 
-    plan(&desired_state, &machine, &RunReport::discarded()).unwrap();
+    plan(&desired_state, &machine, &RunReport::discarded())
+        .await
+        .unwrap();
 
     assert_eq!(
         machine.times_read(&ReadInvocation::WingetInstalledPackages),
@@ -136,8 +147,8 @@ fn workspace_holding(crate_names: &[&str]) -> WorkspaceReading {
     }
 }
 
-#[test]
-fn every_crate_in_one_workspace_opens_its_repository_once() {
+#[tokio::test]
+async fn every_crate_in_one_workspace_opens_its_repository_once() {
     let machine = FakeMachine::default();
     machine.clone_dotfiles_repository();
     machine.hold_cargo_workspace(
@@ -157,18 +168,73 @@ fn every_crate_in_one_workspace_opens_its_repository_once() {
         },
     }];
 
-    let change_set = plan(&desired_state, &machine, &RunReport::discarded()).unwrap();
+    let change_set = plan(&desired_state, &machine, &RunReport::discarded())
+        .await
+        .unwrap();
 
     assert_eq!(change_set.changes.len(), 4);
     assert_eq!(machine.cargo_workspace_reads().len(), 1);
 }
 
-#[test]
-fn a_configuration_declaring_no_workspace_never_opens_a_repository() {
+#[tokio::test]
+async fn a_configuration_declaring_no_workspace_never_opens_a_repository() {
     let machine = FakeMachine::default();
     let desired_state = desired_state(vec![cargo_package("committed")]);
 
-    plan(&desired_state, &machine, &RunReport::discarded()).unwrap();
+    plan(&desired_state, &machine, &RunReport::discarded())
+        .await
+        .unwrap();
 
     assert!(machine.cargo_workspace_reads().is_empty());
+}
+
+fn ripgrep() -> GitHubRepository {
+    GitHubRepository {
+        owner: RepositoryOwner::from("BurntSushi"),
+        repository: RepositoryName::from("ripgrep"),
+    }
+}
+
+fn released_binary(entry: &str) -> Resource {
+    Resource::Application(Application::ReleasedBinary(ReleasedBinary {
+        repository: ripgrep(),
+        asset: AssetPattern::EndsWith(".zip".to_owned()),
+        entry: ArchiveEntry::try_from(entry.to_owned()).unwrap(),
+        version_arguments: vec!["--version".to_owned()],
+        version_word: VersionWord::from(NonZeroUsize::new(2).unwrap()),
+    }))
+}
+
+#[tokio::test]
+async fn several_binaries_out_of_one_repository_ask_it_for_its_release_once() {
+    let machine = FakeMachine::default();
+    machine.publish_release(
+        ripgrep(),
+        ReleaseReading {
+            version: Version::try_from("15.1.0").unwrap(),
+            assets: Vec::new(),
+        },
+    );
+    let desired_state = desired_state(vec![
+        released_binary("rg.exe"),
+        released_binary("rg-imports.exe"),
+    ]);
+
+    plan(&desired_state, &machine, &RunReport::discarded())
+        .await
+        .unwrap();
+
+    assert_eq!(machine.release_reads(&ripgrep()), 1);
+}
+
+#[tokio::test]
+async fn a_configuration_declaring_no_released_binary_never_asks_for_a_release() {
+    let machine = FakeMachine::default();
+    let desired_state = desired_state(vec![winget_package("Microsoft.PowerShell")]);
+
+    plan(&desired_state, &machine, &RunReport::discarded())
+        .await
+        .unwrap();
+
+    assert_eq!(machine.release_reads(&ripgrep()), 0);
 }

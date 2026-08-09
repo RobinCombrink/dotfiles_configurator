@@ -17,6 +17,44 @@ Feature: Planning what a machine needs
     Then the change set reports 0 changes
     And the change set reports the machine as converged
 
+  Scenario: A released binary the machine does not have is reported as a change
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "15.1.0"
+
+  Scenario: A released binary at the version of the latest release is reported as converged
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
+    And "rg.exe" is installed and reports "ripgrep 15.1.0"
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A released binary behind the latest release is a change naming both versions
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
+    And "rg.exe" is installed and reports "ripgrep 14.0.0"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "14.0.0"
+    And the change set mentions "15.1.0"
+
+  Scenario: A binary printing its version somewhere else than declared is refused, not misread
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
+    And "rg.exe" is installed and reports "ripgrep version 15.1.0"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "not a version"
+
+  Scenario: A released binary from a repository that has published nothing is a change
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "no release"
+
   Scenario: A declared package that the manager already holds is reported as converged
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget holds "Microsoft.PowerShell" on Alice's machine

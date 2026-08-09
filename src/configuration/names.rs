@@ -57,6 +57,8 @@ name!(
     ApplicationName
 );
 
+name!(BinaryName);
+
 name!(
     /// The identifier winget knows a package by.
     WingetPackageId

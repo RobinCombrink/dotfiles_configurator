@@ -1,16 +1,19 @@
 use {
     crate::{
         configuration::{
-            Application, ApplicationSource, AssetPattern, CrateName, GitHubRepository,
-            MachineSettings, PresenceCheck, Shell,
+            ApplicationSource, ArchiveEntry, AssetPattern, CrateName, GitHubRepository, Installer,
+            MachineSettings, PresenceCheck, ReleasedBinary, Shell,
         },
         github::AuthenticatedAccount,
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
-            SUPERSEDED_SUFFIX, Tool, WriteInvocation, WriteMachine, superseded_name,
+            SUPERSEDED_SUFFIX, Tool, WriteInvocation, WriteMachine,
+            release_reading::{ReleaseAsset, ReleaseReading},
+            superseded_name,
             workspace_reading::{Revision, WorkspaceReading},
         },
         reporting::RunReport,
+        version::Version,
     },
     anyhow::{Context, Result, anyhow, bail},
     futures::StreamExt,
@@ -447,6 +450,38 @@ impl ReadMachine for LocalMachine<'_> {
             }
         }
     }
+
+    async fn latest_release(&self, repository: &GitHubRepository) -> Result<ReleaseReading> {
+        let owner = repository.owner.as_ref();
+        let name = repository.repository.as_ref();
+        let release = self
+            .authenticated_account()?
+            .client()
+            .repos(owner, name)
+            .releases()
+            .get_latest()
+            .await
+            .with_context(|| format!("Could not read the latest release of {repository}"))?;
+
+        let version = Version::try_from(release.tag_name.as_str())
+            .map_err(|fault| anyhow!("the latest release of {repository} is tagged {fault}"))?;
+
+        Ok(ReleaseReading {
+            version,
+            assets: release
+                .assets
+                .into_iter()
+                .map(|asset| ReleaseAsset {
+                    name: asset.name,
+                    download_url: asset.browser_download_url,
+                })
+                .collect(),
+        })
+    }
+
+    fn report_version(&self, binary_path: &Path, arguments: &[String]) -> Result<CommandOutput> {
+        capture(binary_path, arguments, self.report)
+    }
 }
 
 impl WriteMachine for LocalMachine<'_> {
@@ -508,8 +543,8 @@ impl WriteMachine for LocalMachine<'_> {
         cloned
     }
 
-    async fn install_application(&self, application: &Application) -> Result<()> {
-        let (url, file_name) = match &application.source {
+    async fn install_application(&self, installer: &Installer) -> Result<()> {
+        let (url, file_name) = match &installer.source {
             ApplicationSource::Uri {
                 uri,
                 installer_file_name,
@@ -527,6 +562,28 @@ impl WriteMachine for LocalMachine<'_> {
         let installer_path = self.download_directory.join(file_name);
         self.download(&url, &installer_path).await?;
         self.run_installer(&installer_path)
+    }
+
+    async fn install_released_binary(
+        &self,
+        binary: &ReleasedBinary,
+        asset: &ReleaseAsset,
+    ) -> Result<()> {
+        let archive_path = self.download_directory.join(&asset.name);
+        self.download(&asset.download_url, &archive_path).await?;
+
+        let contents = read_archive_entry(&archive_path, &binary.entry)?;
+        let installed_path = self
+            .binaries_directory()
+            .join(binary.installed_name().as_ref());
+
+        fs::create_dir_all(self.binaries_directory())
+            .with_context(|| format!("Could not create {}", self.binaries_directory().display()))?;
+        move_aside(&installed_path)?;
+
+        fs::write(&installed_path, contents)
+            .with_context(|| format!("Could not write {}", installed_path.display()))?;
+        make_executable(&installed_path)
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
@@ -627,6 +684,60 @@ fn replace_existing_link(link_path: &Path) -> Result<()> {
         false => fs::remove_file(link_path),
     }
     .with_context(|| format!("Could not remove the link at {}", link_path.display()))
+}
+
+fn read_archive_entry(archive_path: &Path, entry: &ArchiveEntry) -> Result<Vec<u8>> {
+    let file = fs::File::open(archive_path)
+        .with_context(|| format!("Could not open {}", archive_path.display()))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .with_context(|| format!("Could not read {} as a zip archive", archive_path.display()))?;
+
+    let held: Vec<String> = archive.file_names().map(str::to_owned).collect();
+    let mut held_entry = archive.by_name(&entry.to_string()).map_err(|_| {
+        anyhow!(
+            "{} holds no entry {entry}. It holds {}",
+            archive_path.display(),
+            held.join(", ")
+        )
+    })?;
+
+    let mut contents = Vec::new();
+    held_entry
+        .read_to_end(&mut contents)
+        .with_context(|| format!("Could not read {entry} out of {}", archive_path.display()))?;
+    Ok(contents)
+}
+
+// ADR 0008
+fn move_aside(installed_path: &Path) -> Result<()> {
+    if !installed_path.exists() {
+        return Ok(());
+    }
+
+    let displaced_path = installed_path.with_extension("displaced");
+    let _ = fs::remove_file(&displaced_path);
+    fs::rename(installed_path, &displaced_path).with_context(|| {
+        format!(
+            "Could not move {} aside to {}",
+            installed_path.display(),
+            displaced_path.display()
+        )
+    })
+}
+
+#[cfg(target_family = "windows")]
+fn make_executable(_installed_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(target_family = "unix")]
+fn make_executable(installed_path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(installed_path)?.permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(installed_path, permissions)
+        .with_context(|| format!("Could not make {} executable", installed_path.display()))
 }
 
 #[cfg(target_family = "windows")]
@@ -786,6 +897,88 @@ mod tests {
 
         assert_eq!(program, "cmd");
         assert_eq!(arguments, vec!["/C", "echo hello world"]);
+    }
+
+    fn archive_holding(directory: &Path, entries: &[(&str, &[u8])]) -> PathBuf {
+        let archive_path = directory.join("release.zip");
+        let mut writer = zip::ZipWriter::new(fs::File::create(&archive_path).unwrap());
+        for (name, contents) in entries {
+            writer
+                .start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut writer, contents).unwrap();
+        }
+        writer.finish().unwrap();
+        archive_path
+    }
+
+    fn entry(path: &str) -> ArchiveEntry {
+        ArchiveEntry::try_from(path.to_owned()).unwrap()
+    }
+
+    #[test]
+    fn the_entry_read_out_of_an_archive_is_the_one_the_configuration_named() {
+        let directory = tempfile::tempdir().unwrap();
+        let archive_path = archive_holding(
+            directory.path(),
+            &[("notes.txt", b"read me"), ("bin/rg.exe", b"the binary")],
+        );
+
+        let contents = read_archive_entry(&archive_path, &entry("bin/rg.exe")).unwrap();
+
+        assert_eq!(contents, b"the binary");
+    }
+
+    #[test]
+    fn an_archive_holding_no_such_entry_is_refused_by_naming_what_it_does_hold() {
+        let directory = tempfile::tempdir().unwrap();
+        let archive_path = archive_holding(directory.path(), &[("rg.exe", b"the binary")]);
+
+        let error = read_archive_entry(&archive_path, &entry("bin/rg.exe"))
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("rg.exe"), "{error}");
+    }
+
+    #[test]
+    fn replacing_a_binary_keeps_the_copy_it_replaces_rather_than_overwriting_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let installed_path = directory.path().join("rg.exe");
+        fs::write(&installed_path, b"the running copy").unwrap();
+
+        move_aside(&installed_path).unwrap();
+
+        assert!(!installed_path.exists());
+        assert_eq!(
+            fs::read(installed_path.with_extension("displaced")).unwrap(),
+            b"the running copy"
+        );
+    }
+
+    #[test]
+    fn moving_aside_a_second_time_discards_the_copy_displaced_by_the_first() {
+        let directory = tempfile::tempdir().unwrap();
+        let installed_path = directory.path().join("rg.exe");
+        fs::write(&installed_path, b"the oldest copy").unwrap();
+        move_aside(&installed_path).unwrap();
+        fs::write(&installed_path, b"the running copy").unwrap();
+
+        move_aside(&installed_path).unwrap();
+
+        assert_eq!(
+            fs::read(installed_path.with_extension("displaced")).unwrap(),
+            b"the running copy"
+        );
+    }
+
+    #[test]
+    fn making_way_for_a_binary_where_none_is_installed_yet_does_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+
+        move_aside(&directory.path().join("rg.exe")).unwrap();
+
+        assert!(!directory.path().join("rg.exe.displaced").exists());
     }
 
     #[test]

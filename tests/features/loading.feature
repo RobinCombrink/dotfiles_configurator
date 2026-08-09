@@ -50,7 +50,7 @@ Feature: Loading a configuration
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "0.1.0"
-    And the refusal mentions "3"
+    And the refusal mentions "4"
 
   Scenario: A configuration stating a generation this build has passed is read
     Given Alice has a configuration for every machine declaring version "2" linking ".gitconfig" to "gitconfig/.gitconfig"

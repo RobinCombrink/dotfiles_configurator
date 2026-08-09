@@ -85,7 +85,7 @@ async fn run(task: Task) -> Result<ExitCode> {
         Task::Plan(arguments) => {
             let report = RunReport::open(RunKind::Plan)?;
             let (desired_state, machine) = prepare(&arguments, &report).await?;
-            let change_set = plan(&desired_state, &machine, &report)?;
+            let change_set = plan(&desired_state, &machine, &report).await?;
             println!("{change_set}");
             Ok(exit_code_for(change_set.is_converged()))
         }

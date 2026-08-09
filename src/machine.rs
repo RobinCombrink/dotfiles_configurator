@@ -1,7 +1,11 @@
 use {
     crate::{
-        configuration::{CrateName, PresenceCheck, Shell},
-        machine::workspace_reading::{Revision, WorkspaceReading},
+        TOOL_DIRECTORY,
+        configuration::{CrateName, GitHubRepository, PresenceCheck, Shell},
+        machine::{
+            release_reading::ReleaseReading,
+            workspace_reading::{Revision, WorkspaceReading},
+        },
     },
     anyhow::Result,
     std::{
@@ -12,6 +16,7 @@ use {
 
 pub mod invocation;
 pub mod local;
+pub mod release_reading;
 pub mod workspace_reading;
 
 pub use invocation::{DisplacingInvocation, ReadInvocation, WriteInvocation};
@@ -103,12 +108,26 @@ pub trait ReadMachine {
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<bool>;
 
+    // ADR 0010
+    fn latest_release(
+        &self,
+        repository: &GitHubRepository,
+    ) -> impl std::future::Future<Output = Result<ReleaseReading>>;
+
+    // ADR 0016
+    fn report_version(&self, binary_path: &Path, arguments: &[String]) -> Result<CommandOutput>;
+
     /// Resolves a path declared relative to the home directory. Absolute paths are left alone.
     fn resolve_against_home(&self, path: &Path) -> PathBuf {
         match path.is_absolute() {
             true => path.to_path_buf(),
             false => self.home_directory().join(path),
         }
+    }
+
+    // ADR 0015
+    fn binaries_directory(&self) -> PathBuf {
+        self.home_directory().join(TOOL_DIRECTORY).join("bin")
     }
 }
 
@@ -124,7 +143,14 @@ pub trait WriteMachine: ReadMachine {
 
     fn install_application(
         &self,
-        application: &crate::configuration::Application,
+        installer: &crate::configuration::Installer,
+    ) -> impl std::future::Future<Output = Result<()>>;
+
+    // ADR 0016
+    fn install_released_binary(
+        &self,
+        binary: &crate::configuration::ReleasedBinary,
+        asset: &release_reading::ReleaseAsset,
     ) -> impl std::future::Future<Output = Result<()>>;
 
     /// Runs one of the invocations this crate defines for changing state.

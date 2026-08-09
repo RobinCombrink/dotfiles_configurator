@@ -7,15 +7,17 @@
 #![allow(dead_code)]
 
 use {
-    anyhow::{Result, bail},
+    anyhow::{Result, anyhow, bail},
     dotfiles_configurator::{
         configuration::{
-            Application, ApplicationName, CrateName, GitHubRepository, PresenceCheck, Shell,
-            WingetPackageId,
+            ApplicationName, CrateName, GitHubRepository, Installer, PresenceCheck, ReleasedBinary,
+            Shell, WingetPackageId,
         },
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine, Tool,
-            WriteInvocation, WriteMachine, superseded_name,
+            WriteInvocation, WriteMachine,
+            release_reading::{ReleaseAsset, ReleaseReading},
+            superseded_name,
             workspace_reading::{Revision, WorkspaceReading},
         },
     },
@@ -55,6 +57,9 @@ struct MachineState {
     executing_binaries: BTreeMap<PathBuf, Displacement>,
     superseded_images: BTreeSet<PathBuf>,
     cargo_installs: usize,
+    releases: BTreeMap<GitHubRepository, ReleaseReading>,
+    release_reads: Vec<GitHubRepository>,
+    version_output_by_binary_path: BTreeMap<PathBuf, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,6 +168,35 @@ impl FakeMachine {
             standard_output: String::new(),
             standard_error: String::new(),
         }
+    }
+
+    pub fn publish_release(&self, repository: GitHubRepository, reading: ReleaseReading) {
+        self.state.borrow_mut().releases.insert(repository, reading);
+    }
+
+    pub fn release_reads(&self, repository: &GitHubRepository) -> usize {
+        self.state
+            .borrow()
+            .release_reads
+            .iter()
+            .filter(|read| *read == repository)
+            .count()
+    }
+
+    pub fn hold_binary(&self, path: PathBuf, version_output: String) {
+        let mut state = self.state.borrow_mut();
+        state.paths.insert(path.clone());
+        state
+            .version_output_by_binary_path
+            .insert(path, version_output);
+    }
+
+    pub fn binary_reports(&self, path: &Path) -> Option<String> {
+        self.state
+            .borrow()
+            .version_output_by_binary_path
+            .get(path)
+            .cloned()
     }
 
     pub fn remove_tool(&self, tool: Tool) {
@@ -393,6 +427,30 @@ impl ReadMachine for FakeMachine {
             PresenceCheck::CommandOutputContains { .. } => Ok(false),
         }
     }
+
+    async fn latest_release(&self, repository: &GitHubRepository) -> Result<ReleaseReading> {
+        let mut state = self.state.borrow_mut();
+        state.release_reads.push(repository.clone());
+
+        state
+            .releases
+            .get(repository)
+            .cloned()
+            .ok_or_else(|| anyhow!("{repository} has published no release"))
+    }
+
+    fn report_version(&self, binary_path: &Path, _arguments: &[String]) -> Result<CommandOutput> {
+        let state = self.state.borrow();
+        let Some(printed) = state.version_output_by_binary_path.get(binary_path) else {
+            bail!("{} is not a program on this machine", binary_path.display());
+        };
+
+        Ok(CommandOutput {
+            succeeded: true,
+            standard_output: printed.clone(),
+            standard_error: String::new(),
+        })
+    }
 }
 
 impl WriteMachine for FakeMachine {
@@ -413,23 +471,43 @@ impl WriteMachine for FakeMachine {
         Ok(())
     }
 
-    async fn install_application(&self, application: &Application) -> Result<()> {
+    async fn install_application(&self, installer: &Installer) -> Result<()> {
         let mut state = self.state.borrow_mut();
         *state
             .install_attempts
-            .entry(application.name.clone())
+            .entry(installer.name.clone())
             .or_default() += 1;
 
-        if state.failing_applications.contains(&application.name) {
-            bail!("the installer for {} exited non-zero", application.name);
+        if state.failing_applications.contains(&installer.name) {
+            bail!("the installer for {} exited non-zero", installer.name);
         }
-        if state.silent_applications.contains(&application.name) {
+        if state.silent_applications.contains(&installer.name) {
             return Ok(());
         }
 
+        state.installed_applications.insert(installer.name.clone());
+        Ok(())
+    }
+
+    async fn install_released_binary(
+        &self,
+        binary: &ReleasedBinary,
+        _asset: &ReleaseAsset,
+    ) -> Result<()> {
+        let installed_path = self
+            .binaries_directory()
+            .join(binary.installed_name().as_ref());
+        let mut state = self.state.borrow_mut();
+
+        let Some(release) = state.releases.get(&binary.repository) else {
+            bail!("{} has published no release", binary.repository);
+        };
+        let reported = format!("{} {}", binary.installed_name(), release.version);
+
+        state.paths.insert(installed_path.clone());
         state
-            .installed_applications
-            .insert(application.name.clone());
+            .version_output_by_binary_path
+            .insert(installed_path, reported);
         Ok(())
     }
 

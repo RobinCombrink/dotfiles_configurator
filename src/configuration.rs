@@ -30,13 +30,14 @@ pub use {
     generation::{BEYOND_BUILD_GENERATION, BUILD_GENERATION, Generation},
     identity::Identity,
     names::{
-        ApplicationName, CrateName, McpServerName, RepositoryName, RepositoryOwner, WingetPackageId,
+        ApplicationName, BinaryName, CrateName, McpServerName, RepositoryName, RepositoryOwner,
+        WingetPackageId,
     },
     presence_check::PresenceCheck,
     resource::{
-        Application, ApplicationSource, AssetPattern, CargoPackage, CargoSource, ClaudeMcpServer,
-        Command, GitHubRepository, McpScope, Package, Registration, Resource, ResourceKind, Shell,
-        Symlink, WingetPackage,
+        Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,
+        ClaudeMcpServer, Command, GitHubRepository, Installer, McpScope, Package, Registration,
+        ReleasedBinary, Resource, ResourceKind, Shell, Symlink, VersionWord, WingetPackage,
     },
     unreadable::Unreadable,
     workspace::CargoWorkspace,
@@ -326,7 +327,7 @@ mod tests {
     #[test]
     fn a_missing_machine_setting_is_reported_by_the_object_it_belongs_to() {
         let without_a_repositories_directory_path = r#"{
-            "version": "3",
+            "version": "4",
             "applies_to": "everywhere",
             "machine": {
                 "github_username": "Alice",
@@ -531,6 +532,80 @@ mod tests {
                 repository: RepositoryName::from("dotfiles"),
             })]
         );
+    }
+
+    fn released_binary(entry: &str, owner: &str) -> String {
+        format!(
+            r#""resources": [{{
+                "kind": "application", "shape": "released_binary",
+                "repository": {{ "owner": "{owner}", "repository": "ripgrep" }},
+                "asset": {{ "match": "ends_with", "value": ".zip" }},
+                "entry": "{entry}",
+                "version_word": 2
+            }}]"#
+        )
+    }
+
+    #[test]
+    fn a_released_binary_naming_no_version_arguments_is_asked_the_usual_way() {
+        let configuration = parse(&released_binary("rg.exe", "BurntSushi")).unwrap();
+
+        let Resource::Application(Application::ReleasedBinary(binary)) =
+            &configuration.resources[0]
+        else {
+            panic!("the configuration declared no released binary");
+        };
+        assert_eq!(binary.version_arguments, vec!["--version".to_owned()]);
+    }
+
+    #[test]
+    fn a_released_binary_claims_the_name_its_entry_carries_rather_than_the_whole_path() {
+        let configuration = parse(&released_binary("bin/rg.exe", "BurntSushi")).unwrap();
+
+        assert_eq!(
+            configuration.resources[0].identity(),
+            Some(Identity::InstalledBinary(BinaryName::from("rg.exe")))
+        );
+    }
+
+    #[test]
+    fn two_released_binaries_installing_under_one_name_are_refused() {
+        let loaded = vec![
+            (
+                "everywhere".to_owned(),
+                parse(&released_binary("rg.exe", "BurntSushi")).unwrap(),
+            ),
+            (
+                "personal".to_owned(),
+                parse(&released_binary("rg.exe", "Someone")).unwrap(),
+            ),
+        ];
+
+        let error = merge_configurations(loaded).unwrap_err();
+
+        assert!(error.to_string().contains("conflicting claims"));
+    }
+
+    #[test]
+    fn an_installer_and_a_released_binary_of_one_name_claim_different_facts() {
+        let installer = parse(
+            r#""resources": [{
+                "kind": "application", "shape": "installer", "name": "rg.exe",
+                "source": { "source": "uri", "uri": "https://example.invalid/rg.exe",
+                            "installer_file_name": "rg.exe" },
+                "presence_check": { "check": "command_on_path", "command": "rg" }
+            }]"#,
+        )
+        .unwrap();
+        let loaded = vec![
+            ("everywhere".to_owned(), installer),
+            (
+                "personal".to_owned(),
+                parse(&released_binary("rg.exe", "BurntSushi")).unwrap(),
+            ),
+        ];
+
+        assert_eq!(merge_configurations(loaded).unwrap().resources.len(), 2);
     }
 
     #[test]

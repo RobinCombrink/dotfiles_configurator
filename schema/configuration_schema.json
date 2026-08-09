@@ -44,23 +44,33 @@
   ],
   "$defs": {
     "Application": {
-      "description": "A program installed by downloading and running an installer, whose presence the machine cannot\nbe asked about directly and which therefore declares a presence check.",
-      "type": "object",
-      "properties": {
-        "name": {
-          "$ref": "#/$defs/ApplicationName"
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "shape": {
+              "type": "string",
+              "const": "installer"
+            }
+          },
+          "$ref": "#/$defs/Installer",
+          "required": [
+            "shape"
+          ]
         },
-        "presence_check": {
-          "$ref": "#/$defs/PresenceCheck"
-        },
-        "source": {
-          "$ref": "#/$defs/ApplicationSource"
+        {
+          "type": "object",
+          "properties": {
+            "shape": {
+              "type": "string",
+              "const": "released_binary"
+            }
+          },
+          "$ref": "#/$defs/ReleasedBinary",
+          "required": [
+            "shape"
+          ]
         }
-      },
-      "required": [
-        "name",
-        "source",
-        "presence_check"
       ]
     },
     "ApplicationName": {
@@ -117,6 +127,10 @@
           ]
         }
       ]
+    },
+    "ArchiveEntry": {
+      "description": "```\nuse dotfiles_configurator::configuration::ArchiveEntry;\n\nlet nested = ArchiveEntry::try_from(\"bin/rg.exe\".to_owned()).unwrap();\n\nassert_eq!(nested.installed_name().to_string(), \"rg.exe\");\nassert!(ArchiveEntry::try_from(\"bin/\".to_owned()).is_err());\n```",
+      "type": "string"
     },
     "AssetPattern": {
       "description": "How the wanted asset is picked out of a release's assets.",
@@ -324,6 +338,25 @@
         "repository"
       ]
     },
+    "Installer": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/ApplicationName"
+        },
+        "presence_check": {
+          "$ref": "#/$defs/PresenceCheck"
+        },
+        "source": {
+          "$ref": "#/$defs/ApplicationSource"
+        }
+      },
+      "required": [
+        "name",
+        "source",
+        "presence_check"
+      ]
+    },
     "MachineSettings": {
       "description": "The settings every resource in a configuration is read against.",
       "type": "object",
@@ -477,6 +510,40 @@
             "registry"
           ]
         }
+      ]
+    },
+    "ReleasedBinary": {
+      "type": "object",
+      "properties": {
+        "asset": {
+          "$ref": "#/$defs/AssetPattern"
+        },
+        "entry": {
+          "$ref": "#/$defs/ArchiveEntry"
+        },
+        "repository": {
+          "$ref": "#/$defs/GitHubRepository"
+        },
+        "version_arguments": {
+          "type": "array",
+          "default": [
+            "--version"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "version_word": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "repository",
+        "asset",
+        "entry",
+        "version_word"
       ]
     },
     "RepositoryName": {

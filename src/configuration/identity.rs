@@ -1,6 +1,8 @@
 use {
     crate::configuration::{
-        names::{ApplicationName, CrateName, McpServerName, RepositoryName, WingetPackageId},
+        names::{
+            ApplicationName, BinaryName, CrateName, McpServerName, RepositoryName, WingetPackageId,
+        },
         resource::{
             Application, ClaudeMcpServer, GitHubRepository, Package, Registration, Resource,
             Symlink,
@@ -21,6 +23,7 @@ pub enum Identity {
     /// because every configuration shares one repositories directory.
     ClonedRepository(RepositoryName),
     Application(ApplicationName),
+    InstalledBinary(BinaryName),
     WingetPackage(WingetPackageId),
     CargoCrate(CrateName),
     /// The path of the link itself, as declared.
@@ -35,6 +38,9 @@ impl Display for Identity {
                 write!(formatter, "the clone directory for {repository}")
             }
             Identity::Application(name) => write!(formatter, "the application {name}"),
+            Identity::InstalledBinary(name) => {
+                write!(formatter, "the binary {name} in the tool directory")
+            }
             Identity::WingetPackage(id) => write!(formatter, "the winget package {id}"),
             Identity::CargoCrate(name) => write!(formatter, "the cargo crate {name}"),
             Identity::Symlink(path) => write!(formatter, "the link at {}", path.display()),
@@ -52,8 +58,11 @@ impl Resource {
             Resource::Repository(GitHubRepository { repository, .. }) => {
                 Some(Identity::ClonedRepository(repository.clone()))
             }
-            Resource::Application(Application { name, .. }) => {
-                Some(Identity::Application(name.clone()))
+            Resource::Application(Application::Installer(installer)) => {
+                Some(Identity::Application(installer.name.clone()))
+            }
+            Resource::Application(Application::ReleasedBinary(binary)) => {
+                Some(Identity::InstalledBinary(binary.installed_name()))
             }
             Resource::Package(Package::Winget(package)) => {
                 Some(Identity::WingetPackage(package.id.clone()))

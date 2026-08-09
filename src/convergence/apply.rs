@@ -125,7 +125,7 @@ pub async fn apply(
     }
 
     let change_set = loop {
-        let change_set: ChangeSet = plan(desired_state, machine, report)?;
+        let change_set: ChangeSet = plan(desired_state, machine, report).await?;
         passes += 1;
 
         let attempted = attempt(

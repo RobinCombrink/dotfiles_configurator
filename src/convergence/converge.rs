@@ -1,13 +1,13 @@
 use {
     crate::{
         configuration::{
-            CargoPackage, CargoSource, Command, GitHubRepository, Package, Registration, Resource,
-            Symlink, WingetPackage,
+            Application, CargoPackage, CargoSource, Command, GitHubRepository, Package,
+            Registration, ReleasedBinary, Resource, Symlink, WingetPackage,
         },
         convergence::SourceReadings,
         machine::{DisplacingInvocation, Placement, WriteInvocation, WriteMachine},
     },
-    anyhow::{Context, Result, bail},
+    anyhow::{Context, Result, anyhow, bail},
     std::path::PathBuf,
 };
 
@@ -38,10 +38,15 @@ pub async fn converge(
             return converge_cargo_package(package, machine, readings);
         }
         Resource::Repository(repository) => converge_repository(repository, machine).await,
-        Resource::Application(application) => machine
-            .install_application(application)
+        Resource::Application(Application::Installer(installer)) => machine
+            .install_application(installer)
             .await
-            .with_context(|| format!("Could not install {}", application.name)),
+            .with_context(|| format!("Could not install {}", installer.name)),
+        Resource::Application(Application::ReleasedBinary(binary)) => {
+            converge_released_binary(binary, machine, readings)
+                .await
+                .with_context(|| format!("Could not install {}", binary.installed_name()))
+        }
         Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
         Resource::Symlink(symlink) => converge_symlink(symlink, machine),
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
@@ -62,6 +67,23 @@ pub async fn converge(
     };
 
     closed.map(|()| Convergence::Converged)
+}
+
+async fn converge_released_binary(
+    binary: &ReleasedBinary,
+    machine: &impl WriteMachine,
+    readings: &SourceReadings,
+) -> Result<()> {
+    let released = match readings.release(&binary.repository) {
+        Some(Ok(release)) => release,
+        Some(Err(reason)) => bail!("{reason}"),
+        None => bail!("{} was not read for its latest release", binary.repository),
+    };
+    let asset = released
+        .asset_matching(&binary.asset)
+        .map_err(|refusal| anyhow!("{refusal}"))?;
+
+    machine.install_released_binary(binary, asset).await
 }
 
 async fn converge_repository(

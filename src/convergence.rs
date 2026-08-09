@@ -95,8 +95,11 @@ impl Resource {
     pub fn requirements(&self) -> Vec<Requirement> {
         let mut requirements = match self {
             Resource::Repository(_) => Vec::new(),
-            Resource::Application(application) => {
-                check_requirements(Some(&application.presence_check))
+            Resource::Application(crate::configuration::Application::Installer(installer)) => {
+                check_requirements(Some(&installer.presence_check))
+            }
+            Resource::Application(crate::configuration::Application::ReleasedBinary(_)) => {
+                Vec::new()
             }
             Resource::Package(crate::configuration::Package::Winget(_)) => {
                 vec![Requirement::Tool(Tool::Winget)]
@@ -173,14 +176,14 @@ impl ChangeSet {
 ///
 /// Every source that can answer about a whole set of resources is read before any resource is
 /// assessed, so one is read once per change set rather than once per resource. See ADR 0010.
-pub fn plan(
+pub async fn plan(
     desired_state: &DesiredState,
     machine: &impl crate::machine::ReadMachine,
     report: &RunReport,
 ) -> anyhow::Result<ChangeSet> {
     let readings = {
         let _doing = report.doing("reading what the machine already has");
-        SourceReadings::read_for(desired_state, machine)
+        SourceReadings::read_for(desired_state, machine).await
     };
     let resources = resolve(desired_state, &readings)?;
 

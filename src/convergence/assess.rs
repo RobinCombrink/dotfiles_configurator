@@ -2,16 +2,21 @@ use {
     crate::{
         configuration::{
             Application, CargoPackage, CargoSource, ClaudeMcpServer, Command, CrateName,
-            DesiredState, GitHubRepository, Package, Registration, Resource, Symlink,
-            WingetPackage,
+            DesiredState, GitHubRepository, Installer, Package, Registration, ReleasedBinary,
+            Resource, Symlink, WingetPackage,
         },
         convergence::{Assessment, DriftReason, Requirement},
         machine::{
             ReadInvocation, ReadMachine,
+            release_reading::ReleaseReading,
             workspace_reading::{Revision, WorkspaceReading},
         },
+        version::Version,
     },
-    std::collections::BTreeMap,
+    std::{
+        collections::{BTreeMap, BTreeSet},
+        path::Path,
+    },
 };
 
 /// Every source that answers about a whole set of resources at once, read once for one change
@@ -26,19 +31,36 @@ pub struct SourceReadings {
     winget_packages: Option<Result<String, DriftReason>>,
     cargo_crates: Option<Result<String, DriftReason>>,
     workspaces: BTreeMap<GitHubRepository, Result<Option<WorkspaceReading>, DriftReason>>,
+    releases: BTreeMap<GitHubRepository, Result<ReleaseReading, DriftReason>>,
 }
 
 impl SourceReadings {
-    pub fn read_for(desired_state: &DesiredState, machine: &impl ReadMachine) -> Self {
+    pub async fn read_for(desired_state: &DesiredState, machine: &impl ReadMachine) -> Self {
         let mut winget_is_needed = false;
         let mut cargo_is_needed = !desired_state.workspaces.is_empty();
+        let mut released_from: BTreeSet<GitHubRepository> = BTreeSet::new();
         for resource in &desired_state.resources {
-            if let Resource::Package(package) = resource {
-                match package {
-                    Package::Winget(_) => winget_is_needed = true,
-                    Package::Cargo(_) => cargo_is_needed = true,
+            match resource {
+                Resource::Package(Package::Winget(_)) => winget_is_needed = true,
+                Resource::Package(Package::Cargo(_)) => cargo_is_needed = true,
+                Resource::Application(Application::ReleasedBinary(binary)) => {
+                    released_from.insert(binary.repository.clone());
                 }
+                Resource::Application(Application::Installer(_))
+                | Resource::Repository(_)
+                | Resource::Symlink(_)
+                | Resource::Registration(_)
+                | Resource::Command(_) => {}
             }
+        }
+
+        let mut releases = BTreeMap::new();
+        for repository in released_from {
+            let reading = machine
+                .latest_release(&repository)
+                .await
+                .map_err(|error| DriftReason::from(format!("{error:#}")));
+            releases.insert(repository, reading);
         }
 
         let cargo_crates = read_listing(
@@ -70,7 +92,15 @@ impl SourceReadings {
             ),
             cargo_crates,
             workspaces,
+            releases,
         }
+    }
+
+    pub fn release(
+        &self,
+        repository: &GitHubRepository,
+    ) -> Option<&Result<ReleaseReading, DriftReason>> {
+        self.releases.get(repository)
     }
 
     pub fn workspace(
@@ -138,7 +168,12 @@ pub fn assess(
 
     match resource {
         Resource::Repository(repository) => assess_repository(repository, machine),
-        Resource::Application(application) => assess_application(application, machine),
+        Resource::Application(Application::Installer(installer)) => {
+            assess_installer(installer, machine)
+        }
+        Resource::Application(Application::ReleasedBinary(binary)) => {
+            assess_released_binary(binary, machine, readings)
+        }
         Resource::Package(Package::Winget(package)) => assess_winget_package(package, readings),
         Resource::Package(Package::Cargo(package)) => assess_cargo_package(package, readings),
         Resource::Symlink(symlink) => assess_symlink(symlink, machine),
@@ -177,14 +212,80 @@ fn assess_repository(repository: &GitHubRepository, machine: &impl ReadMachine) 
     }
 }
 
-fn assess_application(application: &Application, machine: &impl ReadMachine) -> Assessment {
-    match machine.check_presence(&application.presence_check) {
+fn assess_installer(installer: &Installer, machine: &impl ReadMachine) -> Assessment {
+    match machine.check_presence(&installer.presence_check) {
         Ok(true) => Assessment::Converged,
         Ok(false) => {
-            Assessment::Drifted(format!("not installed — {}", application.presence_check).into())
+            Assessment::Drifted(format!("not installed — {}", installer.presence_check).into())
         }
         Err(error) => Assessment::Drifted(format!("presence could not be read: {error}").into()),
     }
+}
+
+fn assess_released_binary(
+    binary: &ReleasedBinary,
+    machine: &impl ReadMachine,
+    readings: &SourceReadings,
+) -> Assessment {
+    let released = match readings.release(&binary.repository) {
+        Some(Ok(release)) => release,
+        Some(Err(reason)) => return Assessment::Drifted(reason.clone()),
+        None => {
+            return Assessment::Drifted(
+                format!("{} was not read for its latest release", binary.repository).into(),
+            );
+        }
+    };
+
+    let installed_path = machine
+        .binaries_directory()
+        .join(binary.installed_name().as_ref());
+    if !machine.path_exists(&installed_path) {
+        return Assessment::Drifted(
+            format!(
+                "not installed — nothing at {}, and the latest release of {} is {}",
+                installed_path.display(),
+                binary.repository,
+                released.version
+            )
+            .into(),
+        );
+    }
+
+    match installed_version(binary, &installed_path, machine) {
+        Err(reason) => Assessment::Drifted(reason),
+        Ok(installed) if installed == released.version => Assessment::Converged,
+        Ok(installed) => Assessment::Drifted(
+            format!(
+                "{installed} is installed, and the latest release of {} is {}",
+                binary.repository, released.version
+            )
+            .into(),
+        ),
+    }
+}
+
+fn installed_version(
+    binary: &ReleasedBinary,
+    installed_path: &Path,
+    machine: &impl ReadMachine,
+) -> Result<Version, DriftReason> {
+    let output = machine
+        .report_version(installed_path, &binary.version_arguments)
+        .map_err(|error| DriftReason::from(format!("{error:#}")))?;
+
+    if !output.succeeded {
+        return Err(format!(
+            "`{}` failed: {}",
+            binary.rendered_version_invocation(),
+            output.standard_error.trim()
+        )
+        .into());
+    }
+
+    binary
+        .reported_version(&output.standard_output)
+        .map_err(DriftReason::from)
 }
 
 fn assess_winget_package(package: &WingetPackage, readings: &SourceReadings) -> Assessment {
