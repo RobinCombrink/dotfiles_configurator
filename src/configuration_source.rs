@@ -1,13 +1,14 @@
 use {
     crate::{
         configuration::{
-            Configuration, Context, DesiredState, RepositoryName, RepositoryOwner,
+            Configuration, Context, DesiredState, RepositoryName, RepositoryOwner, Unreadable,
             merge_configurations, parse_configuration,
         },
         github,
     },
     anyhow::{Context as _, Error, Result, anyhow},
     std::{
+        fmt::{Display, Formatter},
         fs,
         path::{Path, PathBuf},
         str::FromStr,
@@ -67,18 +68,18 @@ pub async fn load_desired_state(
     context: Context,
 ) -> Result<DesiredState> {
     let mut loaded: Vec<(String, Configuration)> = Vec::new();
-    let mut refusals: Vec<Error> = Vec::new();
+    let mut unreadable: Vec<Unreadable> = Vec::new();
     for source in sources {
         for attempt in source.load().await {
             match attempt {
                 Ok(configuration) => loaded.push(configuration),
-                Err(refusal) => refusals.push(refusal),
+                Err(refusal) => unreadable.push(refusal),
             }
         }
     }
 
-    if let Some(refusal) = combined_refusal(refusals) {
-        return Err(refusal);
+    if let Some(refusal) = Refusal::of(unreadable) {
+        return Err(refusal.into());
     }
 
     if loaded.is_empty() {
@@ -102,22 +103,44 @@ pub async fn load_desired_state(
     Ok(merge_configurations(applicable)?.with_dotfiles_repository())
 }
 
-fn combined_refusal(mut refusals: Vec<Error>) -> Option<Error> {
-    match refusals.len() {
-        0 => None,
-        1 => refusals.pop(),
-        count => {
-            let listed: String = refusals
-                .iter()
-                .map(|refusal| format!("\n  {refusal:#}"))
-                .collect();
-            Some(anyhow!("{count} configurations could not be read:{listed}"))
+#[derive(Debug)]
+pub struct Refusal(Vec<Unreadable>);
+
+impl Refusal {
+    pub fn of(unreadable: Vec<Unreadable>) -> Option<Self> {
+        match unreadable.is_empty() {
+            true => None,
+            false => Some(Self(unreadable)),
+        }
+    }
+
+    pub fn unreadable(&self) -> &[Unreadable] {
+        &self.0
+    }
+}
+
+impl Display for Refusal {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.0.as_slice() {
+            [only] => write!(formatter, "{only}"),
+            several => {
+                write!(
+                    formatter,
+                    "{} configurations could not be read:",
+                    several.len()
+                )?;
+                several
+                    .iter()
+                    .try_for_each(|refusal| write!(formatter, "\n  {refusal}"))
+            }
         }
     }
 }
 
+impl std::error::Error for Refusal {}
+
 impl ConfigurationSource {
-    async fn load(&self) -> Vec<Result<(String, Configuration)>> {
+    async fn load(&self) -> Vec<Result<(String, Configuration), Unreadable>> {
         match self {
             ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory),
             ConfigurationSource::GitHubRepository {
@@ -128,13 +151,13 @@ impl ConfigurationSource {
         }
     }
 
-    fn load_local(directory: &Path) -> Vec<Result<(String, Configuration)>> {
+    fn load_local(directory: &Path) -> Vec<Result<(String, Configuration), Unreadable>> {
         let entries = match fs::read_dir(directory) {
             Ok(entries) => entries,
             Err(failure) => {
-                return vec![Err(
-                    Error::new(failure).context(format!("Could not read {}", directory.display()))
-                )];
+                return vec![Err(Unreadable::Malformed(
+                    Error::new(failure).context(format!("Could not read {}", directory.display())),
+                ))];
             }
         };
 
@@ -150,7 +173,8 @@ impl ConfigurationSource {
             .map(|path| {
                 let source = path.display().to_string();
                 let contents = fs::read_to_string(&path)
-                    .with_context(|| format!("Could not read {source}"))?;
+                    .with_context(|| format!("Could not read {source}"))
+                    .map_err(Unreadable::Malformed)?;
                 Ok((source.clone(), parse_configuration(&contents, &source)?))
             })
             .collect()
@@ -160,10 +184,10 @@ impl ConfigurationSource {
         owner: &str,
         repository: &str,
         directory: &str,
-    ) -> Vec<Result<(String, Configuration)>> {
+    ) -> Vec<Result<(String, Configuration), Unreadable>> {
         let account = match github::AuthenticatedAccount::authenticate_as(owner) {
             Ok(account) => account,
-            Err(refusal) => return vec![Err(refusal)],
+            Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
         };
 
         let file_paths = match github::list_directory_files(
@@ -175,17 +199,17 @@ impl ConfigurationSource {
         .await
         {
             Ok(file_paths) => file_paths,
-            Err(refusal) => return vec![Err(refusal)],
+            Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
         };
 
-        let mut loaded: Vec<Result<(String, Configuration)>> = Vec::new();
+        let mut loaded: Vec<Result<(String, Configuration), Unreadable>> = Vec::new();
         for file_path in file_paths
             .iter()
             .filter(|file_path| is_configuration_file(file_path))
         {
             let source = format!("{owner}/{repository}/{file_path}");
             match github::get_file_contents(owner, repository, file_path, account.client()).await {
-                Err(refusal) => loaded.push(Err(refusal)),
+                Err(refusal) => loaded.push(Err(Unreadable::Malformed(refusal))),
                 Ok(documents) => loaded.extend(documents.into_iter().map(|contents| {
                     Ok((source.clone(), parse_configuration(&contents, &source)?))
                 })),
@@ -198,7 +222,30 @@ impl ConfigurationSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::configuration::{BUILD_GENERATION, Generation};
     use std::{env, fs::File, io::Write};
+
+    #[test]
+    fn the_cause_of_each_refusal_survives_being_combined_with_the_others() {
+        let refusal = Refusal::of(vec![
+            Unreadable::Malformed(anyhow!("personal.dotconfig.json is not valid JSON")),
+            Unreadable::TooNew {
+                source: "everywhere.dotconfig.json".to_owned(),
+                required: Generation::try_from("4").unwrap(),
+                available: BUILD_GENERATION,
+            },
+        ])
+        .unwrap();
+
+        let [_, needing_a_newer_build] = refusal.unreadable() else {
+            panic!("expected both refusals to be kept");
+        };
+
+        let Unreadable::TooNew { required, .. } = needing_a_newer_build else {
+            panic!("expected the build to still be named as the fault");
+        };
+        assert_eq!(*required, Generation::try_from("4").unwrap());
+    }
 
     fn temporary_directory(name: &str) -> PathBuf {
         let directory = env::temp_dir()
@@ -212,7 +259,7 @@ mod tests {
     fn write_configuration(directory: &Path, file_name: &str, applies_to: &str, resources: &str) {
         let contents = format!(
             r#"{{
-                "version": "3",
+                "version": "{BUILD_GENERATION}",
                 "applies_to": "{applies_to}",
                 "machine": {{
                     "repositories_directory_path": "C:\\Repositories",

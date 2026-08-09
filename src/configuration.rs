@@ -10,6 +10,8 @@ use {
 // after it. Naming each child outright resolves the same way from both roots.
 #[path = "configuration/context.rs"]
 pub mod context;
+#[path = "configuration/generation.rs"]
+pub mod generation;
 #[path = "configuration/identity.rs"]
 pub mod identity;
 #[path = "configuration/names.rs"]
@@ -18,11 +20,14 @@ pub mod names;
 pub mod presence_check;
 #[path = "configuration/resource.rs"]
 pub mod resource;
+#[path = "configuration/unreadable.rs"]
+pub mod unreadable;
 #[path = "configuration/workspace.rs"]
 pub mod workspace;
 
 pub use {
     context::Context,
+    generation::{BUILD_GENERATION, Generation},
     identity::Identity,
     names::{
         ApplicationName, CrateName, McpServerName, RepositoryName, RepositoryOwner, WingetPackageId,
@@ -33,13 +38,9 @@ pub use {
         Command, GitHubRepository, McpScope, Package, Registration, Resource, ResourceKind, Shell,
         Symlink, WingetPackage,
     },
+    unreadable::Unreadable,
     workspace::CargoWorkspace,
 };
-
-/// The only configuration format version this build understands. `Configuration.version` was
-/// parsed and discarded until the model took a breaking revision; it is now the gate that rejects
-/// the old shape with a real message.
-pub const SUPPORTED_VERSION: &str = "3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[schemars(
@@ -48,8 +49,12 @@ pub const SUPPORTED_VERSION: &str = "3";
                           machines it is for."
 )]
 pub struct Configuration {
-    #[schemars(description = "The configuration format version. Must be \"3\".")]
-    pub version: String,
+    #[schemars(
+        description = "The lowest generation of dotfiles_configurator that can read this \
+                       configuration, written as a whole number. A build reads any configuration \
+                       at or below its own generation and refuses one above."
+    )]
+    pub version: Generation,
     #[schemars(
         description = "Which machines this configuration is for. One declaring \"everywhere\" \
                        applies to every machine; any other applies only to a machine an \
@@ -132,28 +137,44 @@ impl DesiredState {
     }
 }
 
-/// Reads a configuration from JSON, rejecting any version this build does not understand before
-/// attempting to interpret the shape.
-pub fn parse_configuration(contents: &str, source: &str) -> Result<Configuration> {
+pub fn parse_configuration(contents: &str, source: &str) -> Result<Configuration, Unreadable> {
     let document: serde_json::Value =
         serde_json::from_str(contents).with_context(|| format!("{source} is not valid JSON"))?;
 
-    let version = document
-        .get("version")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| anyhow!("{source} declares no version; expected \"{SUPPORTED_VERSION}\""))?;
+    let stated = match document.get("version") {
+        None => Err(anyhow!(
+            "{source} declares no version. A configuration's version is the lowest generation of \
+             dotfiles_configurator that can read it, written as a quoted whole number, and this \
+             build is generation {BUILD_GENERATION}."
+        )),
+        Some(unquoted) => unquoted.as_str().ok_or_else(|| {
+            anyhow!(
+                "{source} declares the version {unquoted}, which a configuration writes as a \
+                 quoted whole number. This build is generation {BUILD_GENERATION}."
+            )
+        }),
+    }?;
 
-    if version != SUPPORTED_VERSION {
-        bail!(
-            "{source} declares configuration version \"{version}\", but this build understands \
-             only \"{SUPPORTED_VERSION}\". Migrate the configuration to the declarative resource \
-             format before running it."
-        );
+    let required = Generation::try_from(stated).map_err(|fault| {
+        anyhow!(
+            "{source}: {fault}. This build reads generation {BUILD_GENERATION}, so rewrite the \
+             configuration as a generation {BUILD_GENERATION} document."
+        )
+    })?;
+
+    if !required.is_met_by(BUILD_GENERATION) {
+        return Err(Unreadable::TooNew {
+            source: source.to_owned(),
+            required,
+            available: BUILD_GENERATION,
+        });
     }
 
-    serde_path_to_error::deserialize(document).with_context(|| {
-        format!("{source} is not a valid version {SUPPORTED_VERSION} configuration")
-    })
+    serde_path_to_error::deserialize(document)
+        .with_context(|| {
+            format!("{source} is not a valid generation {BUILD_GENERATION} configuration")
+        })
+        .map_err(Unreadable::Malformed)
 }
 
 /// Merges loaded configurations into one desired state, collapsing identical claims and rejecting
@@ -233,23 +254,60 @@ mod tests {
         )
     }
 
-    fn parse(body: &str) -> Result<Configuration> {
+    fn parse(body: &str) -> Result<Configuration, Unreadable> {
         parse_configuration(
-            &configuration_json(SUPPORTED_VERSION, body),
+            &configuration_json(&BUILD_GENERATION.to_string(), body),
             "the test configuration",
         )
     }
 
     #[test]
-    fn a_configuration_declaring_an_older_format_version_is_rejected_by_name() {
-        let older = configuration_json("0.1.0", r#""resources": []"#);
+    fn a_configuration_whose_version_is_not_a_generation_is_rejected_by_name() {
+        let superseded = configuration_json("0.1.0", r#""resources": []"#);
 
-        let error = parse_configuration(&older, "everywhere.dotconfig.json").unwrap_err();
+        let error = parse_configuration(&superseded, "everywhere.dotconfig.json").unwrap_err();
 
         let message = error.to_string();
         assert!(
-            message.contains("0.1.0") && message.contains(SUPPORTED_VERSION),
-            "expected the message to name both versions, got: {message}"
+            message.contains("0.1.0") && message.contains(&BUILD_GENERATION.to_string()),
+            "expected the message to name the version and this build's generation, got: {message}"
+        );
+    }
+
+    #[test]
+    fn a_configuration_stating_a_generation_this_build_has_passed_is_read() {
+        let earlier = configuration_json("2", r#""resources": []"#);
+
+        let configuration = parse_configuration(&earlier, "everywhere.dotconfig.json").unwrap();
+
+        assert_eq!(configuration.version, Generation::try_from("2").unwrap());
+    }
+
+    #[test]
+    fn a_configuration_stating_a_generation_beyond_this_build_is_a_fault_in_the_build() {
+        let newer = configuration_json("4", r#""resources": []"#);
+
+        let error = parse_configuration(&newer, "everywhere.dotconfig.json").unwrap_err();
+
+        let Unreadable::TooNew { required, .. } = error else {
+            panic!("expected the refusal to name the build as the fault, got: {error}");
+        };
+        assert_eq!(required, Generation::try_from("4").unwrap());
+    }
+
+    #[test]
+    fn a_version_written_as_a_bare_number_is_refused_as_unquoted_rather_than_absent() {
+        let unquoted = format!(
+            r#"{{ "version": 3, "applies_to": "everywhere", {}, "resources": [] }}"#,
+            machine_settings_json()
+        );
+
+        let error = parse_configuration(&unquoted, "everywhere.dotconfig.json").unwrap_err();
+
+        let message = error.to_string();
+        assert!(
+            message.contains("quoted") && !message.contains("declares no version"),
+            "expected the message to say the version must be quoted, got: {message}"
         );
     }
 
@@ -293,7 +351,7 @@ mod tests {
     #[test]
     fn a_fault_inside_a_resource_is_reported_by_its_position_in_the_list() {
         let with_an_unknown_shell = configuration_json(
-            SUPPORTED_VERSION,
+            &BUILD_GENERATION.to_string(),
             r#""resources": [
                 { "kind": "command", "shell": "bash", "args": ["first"] },
                 { "kind": "command", "shell": "nonesuch", "args": ["second"] }
@@ -313,7 +371,7 @@ mod tests {
     #[test]
     fn resources_and_notices_both_default_to_empty_when_absent() {
         let configuration = parse_configuration(
-            &configuration_json(SUPPORTED_VERSION, r#""notices": []"#),
+            &configuration_json(&BUILD_GENERATION.to_string(), r#""notices": []"#),
             "test",
         )
         .unwrap();

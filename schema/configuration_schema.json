@@ -26,8 +26,8 @@
       }
     },
     "version": {
-      "description": "The configuration format version. Must be \"3\".",
-      "type": "string"
+      "description": "The lowest generation of dotfiles_configurator that can read this configuration, written as a whole number. A build reads any configuration at or below its own generation and refuses one above.",
+      "$ref": "#/$defs/Generation"
     },
     "workspaces": {
       "type": "array",
@@ -303,6 +303,10 @@
     "CrateName": {
       "description": "The name Cargo knows a crate by.",
       "type": "string"
+    },
+    "Generation": {
+      "type": "string",
+      "pattern": "^\\d+$"
     },
     "GitHubRepository": {
       "description": "A repository on GitHub, named by the owner it belongs to and its own name.",

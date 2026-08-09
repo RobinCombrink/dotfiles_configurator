@@ -7,9 +7,9 @@ use {
     cucumber::{World, given, then, when},
     dotfiles_configurator::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, CargoWorkspace, Context, CrateName,
-            DesiredState, GitHubRepository, MachineSettings, Notice, PresenceCheck, RepositoryName,
-            RepositoryOwner, Resource, Shell, Symlink,
+            Application, ApplicationName, ApplicationSource, BUILD_GENERATION, CargoWorkspace,
+            Context, CrateName, DesiredState, GitHubRepository, MachineSettings, Notice,
+            PresenceCheck, RepositoryName, RepositoryOwner, Resource, Shell, Symlink,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
@@ -272,14 +272,31 @@ fn dotfiles_repository_is_not_cloned(_world: &mut MachineWorld) {
     // A fresh machine holds no clone; the step is here so the scenario says so.
 }
 
-#[given(expr = "Alice has a configuration declaring format version {string}")]
+#[given(expr = "Alice has a configuration declaring version {string}")]
 fn configuration_with_version(world: &mut MachineWorld, version: String) {
     world.documents.push(document(&version, "everywhere", "[]"));
 }
 
-#[given(expr = "Alice has a configuration for work machines declaring format version {string}")]
+#[given(expr = "Alice has a configuration for work machines declaring version {string}")]
 fn work_configuration_with_version(world: &mut MachineWorld, version: String) {
     world.documents.push(document(&version, "work", "[]"));
+}
+
+#[given(
+    expr = "Alice has a configuration for every machine declaring version {string} linking \
+            {string} to {string}"
+)]
+fn configuration_for_every_machine_with_version_linking(
+    world: &mut MachineWorld,
+    version: String,
+    link_path: String,
+    source_path: String,
+) {
+    world.documents.push(document(
+        &version,
+        "everywhere",
+        &symlink(&link_path, &source_path),
+    ));
 }
 
 #[given(expr = "Alice keeps a {string} alongside her configurations")]
@@ -289,36 +306,34 @@ fn stray_file_alongside_configurations(world: &mut MachineWorld, file_name: Stri
 
 #[given(expr = "Alice has a configuration that declares no machines it is for")]
 fn configuration_without_a_context(world: &mut MachineWorld) {
-    world.documents.push(
-        r#"{
-            "version": "3",
-            "machine": {
+    world.documents.push(format!(
+        r#"{{
+            "version": "{BUILD_GENERATION}",
+            "machine": {{
                 "repositories_directory_path": "/repositories",
                 "github_username": "Alice",
-                "dotfiles_repository": { "owner": "Alice", "repository": "dotfiles" }
-            },
+                "dotfiles_repository": {{ "owner": "Alice", "repository": "dotfiles" }}
+            }},
             "resources": []
-        }"#
-        .to_owned(),
-    );
+        }}"#
+    ));
 }
 
 #[given(
     expr = "Alice has a configuration whose machine settings omit the repositories directory path"
 )]
 fn configuration_without_a_repositories_directory_path(world: &mut MachineWorld) {
-    world.documents.push(
-        r#"{
-            "version": "3",
+    world.documents.push(format!(
+        r#"{{
+            "version": "{BUILD_GENERATION}",
             "applies_to": "everywhere",
-            "machine": {
+            "machine": {{
                 "github_username": "Alice",
-                "dotfiles_repository": { "owner": "Alice", "repository": "dotfiles" }
-            },
+                "dotfiles_repository": {{ "owner": "Alice", "repository": "dotfiles" }}
+            }},
             "resources": []
-        }"#
-        .to_owned(),
-    );
+        }}"#
+    ));
 }
 
 #[given(expr = "Alice has a configuration for every machine linking {string} to {string}")]
@@ -328,7 +343,7 @@ fn configuration_for_every_machine_linking(
     source_path: String,
 ) {
     world.documents.push(document(
-        "3",
+        &BUILD_GENERATION.to_string(),
         "everywhere",
         &symlink(&link_path, &source_path),
     ));
@@ -341,7 +356,7 @@ fn personal_configuration_linking(
     source_path: String,
 ) {
     world.documents.push(document(
-        "3",
+        &BUILD_GENERATION.to_string(),
         "personal",
         &symlink(&link_path, &source_path),
     ));
@@ -349,9 +364,11 @@ fn personal_configuration_linking(
 
 #[given(expr = "Alice has a configuration for work machines linking {string} to {string}")]
 fn work_configuration_linking(world: &mut MachineWorld, link_path: String, source_path: String) {
-    world
-        .documents
-        .push(document("3", "work", &symlink(&link_path, &source_path)));
+    world.documents.push(document(
+        &BUILD_GENERATION.to_string(),
+        "work",
+        &symlink(&link_path, &source_path),
+    ));
 }
 
 fn symlink(link_path: &str, source_path: &str) -> String {

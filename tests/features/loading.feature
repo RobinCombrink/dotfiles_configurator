@@ -40,17 +40,29 @@ Feature: Loading a configuration
 
   Scenario: A configuration for another machine is refused when it cannot be read
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
-    And Alice has a configuration for work machines declaring format version "0.1.0"
+    And Alice has a configuration for work machines declaring version "0.1.0"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "0.1.0"
 
-  Scenario: A configuration written for the superseded format is refused by version
-    Given Alice has a configuration declaring format version "0.1.0"
+  Scenario: A configuration whose version is not a generation is refused by version
+    Given Alice has a configuration declaring version "0.1.0"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "0.1.0"
     And the refusal mentions "3"
+
+  Scenario: A configuration stating a generation this build has passed is read
+    Given Alice has a configuration for every machine declaring version "2" linking ".gitconfig" to "gitconfig/.gitconfig"
+    When Alice loads her configurations for a personal machine
+    Then the desired state links ".gitconfig"
+
+  Scenario: A configuration needing a newer build names the generation it needs
+    Given Alice has a configuration declaring version "4"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "generation 4"
+    And the refusal mentions "generation 3"
 
   Scenario: Two configurations claiming the same link differently are refused
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
@@ -60,8 +72,8 @@ Feature: Loading a configuration
     And the refusal mentions "conflicting claims"
 
   Scenario: A run reports every configuration it could not read
-    Given Alice has a configuration declaring format version "0.1.0"
-    And Alice has a configuration declaring format version "0.2.0"
+    Given Alice has a configuration declaring version "0.1.0"
+    And Alice has a configuration declaring version "0.2.0"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "0.1.0"
@@ -69,7 +81,7 @@ Feature: Loading a configuration
 
   Scenario: A configuration Alice can read is refused alongside one she cannot
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
-    And Alice has a configuration declaring format version "0.1.0"
+    And Alice has a configuration declaring version "0.1.0"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And no desired state is loaded
