@@ -7,9 +7,10 @@ use {
     cucumber::{World, given, then, when},
     dotfiles_configurator::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, BUILD_GENERATION, CargoWorkspace,
-            Context, CrateName, DesiredState, GitHubRepository, MachineSettings, Notice,
-            PresenceCheck, RepositoryName, RepositoryOwner, Resource, Shell, Symlink,
+            Application, ApplicationName, ApplicationSource, BEYOND_BUILD_GENERATION,
+            BUILD_GENERATION, CargoWorkspace, Context, CrateName, DesiredState, GitHubRepository,
+            MachineSettings, Notice, PresenceCheck, RepositoryName, RepositoryOwner, Resource,
+            Shell, Symlink,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
@@ -280,6 +281,15 @@ fn configuration_with_version(world: &mut MachineWorld, version: String) {
 #[given(expr = "Alice has a configuration for work machines declaring version {string}")]
 fn work_configuration_with_version(world: &mut MachineWorld, version: String) {
     world.documents.push(document(&version, "work", "[]"));
+}
+
+#[given(expr = "Alice has a configuration declaring a generation beyond this build")]
+fn configuration_beyond_this_build(world: &mut MachineWorld) {
+    world.documents.push(document(
+        &BEYOND_BUILD_GENERATION.to_string(),
+        "everywhere",
+        "[]",
+    ));
 }
 
 #[given(
@@ -729,6 +739,16 @@ fn refusal_mentions(world: &mut MachineWorld, text: String) {
         error.contains(&text),
         "expected the refusal to mention {text:?}, got: {error}"
     );
+}
+
+#[then(expr = "the refusal mentions the generation the configuration needs")]
+fn refusal_mentions_the_generation_needed(world: &mut MachineWorld) {
+    refusal_mentions(world, format!("generation {BEYOND_BUILD_GENERATION}"));
+}
+
+#[then(expr = "the refusal mentions the generation this build is")]
+fn refusal_mentions_the_generation_of_this_build(world: &mut MachineWorld) {
+    refusal_mentions(world, format!("generation {BUILD_GENERATION}"));
 }
 
 #[then(expr = "the desired state holds {int} symlink(s)")]

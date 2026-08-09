@@ -58,11 +58,11 @@ Feature: Loading a configuration
     Then the desired state links ".gitconfig"
 
   Scenario: A configuration needing a newer build names the generation it needs
-    Given Alice has a configuration declaring version "4"
+    Given Alice has a configuration declaring a generation beyond this build
     When Alice loads her configurations for a personal machine
     Then loading is refused
-    And the refusal mentions "generation 4"
-    And the refusal mentions "generation 3"
+    And the refusal mentions the generation the configuration needs
+    And the refusal mentions the generation this build is
 
   Scenario: Two configurations claiming the same link differently are refused
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"

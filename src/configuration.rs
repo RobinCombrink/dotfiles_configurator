@@ -27,7 +27,7 @@ pub mod workspace;
 
 pub use {
     context::Context,
-    generation::{BUILD_GENERATION, Generation},
+    generation::{BEYOND_BUILD_GENERATION, BUILD_GENERATION, Generation},
     identity::Identity,
     names::{
         ApplicationName, CrateName, McpServerName, RepositoryName, RepositoryOwner, WingetPackageId,
@@ -285,14 +285,14 @@ mod tests {
 
     #[test]
     fn a_configuration_stating_a_generation_beyond_this_build_is_a_fault_in_the_build() {
-        let newer = configuration_json("4", r#""resources": []"#);
+        let newer = configuration_json(&BEYOND_BUILD_GENERATION.to_string(), r#""resources": []"#);
 
         let error = parse_configuration(&newer, "everywhere.dotconfig.json").unwrap_err();
 
         let Unreadable::TooNew { required, .. } = error else {
             panic!("expected the refusal to name the build as the fault, got: {error}");
         };
-        assert_eq!(required, Generation::try_from("4").unwrap());
+        assert_eq!(required, BEYOND_BUILD_GENERATION);
     }
 
     #[test]

@@ -222,7 +222,7 @@ impl ConfigurationSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::configuration::{BUILD_GENERATION, Generation};
+    use crate::configuration::{BEYOND_BUILD_GENERATION, BUILD_GENERATION};
     use std::{env, fs::File, io::Write};
 
     #[test]
@@ -231,7 +231,7 @@ mod tests {
             Unreadable::Malformed(anyhow!("personal.dotconfig.json is not valid JSON")),
             Unreadable::TooNew {
                 source: "everywhere.dotconfig.json".to_owned(),
-                required: Generation::try_from("4").unwrap(),
+                required: BEYOND_BUILD_GENERATION,
                 available: BUILD_GENERATION,
             },
         ])
@@ -244,7 +244,7 @@ mod tests {
         let Unreadable::TooNew { required, .. } = needing_a_newer_build else {
             panic!("expected the build to still be named as the fault");
         };
-        assert_eq!(*required, Generation::try_from("4").unwrap());
+        assert_eq!(*required, BEYOND_BUILD_GENERATION);
     }
 
     fn temporary_directory(name: &str) -> PathBuf {

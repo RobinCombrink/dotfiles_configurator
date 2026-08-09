@@ -40,22 +40,25 @@ impl From<anyhow::Error> for Unreadable {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::{super::generation::BEYOND_BUILD_GENERATION, *},
+        crate::configuration::BUILD_GENERATION,
+    };
 
     #[test]
     fn a_configuration_needing_a_newer_build_is_reported_by_source_and_both_generations() {
         let unreadable = Unreadable::TooNew {
             source: "everywhere.dotconfig.json".to_owned(),
-            required: Generation::try_from("4").unwrap(),
-            available: Generation::try_from("3").unwrap(),
+            required: BEYOND_BUILD_GENERATION,
+            available: BUILD_GENERATION,
         };
 
         let reported = unreadable.to_string();
 
         assert!(
             reported.contains("everywhere.dotconfig.json")
-                && reported.contains("generation 4")
-                && reported.contains("generation 3"),
+                && reported.contains(&format!("generation {BEYOND_BUILD_GENERATION}"))
+                && reported.contains(&format!("generation {BUILD_GENERATION}")),
             "{reported}"
         );
     }

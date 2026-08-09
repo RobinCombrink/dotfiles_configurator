@@ -6,6 +6,8 @@ use {
 
 pub const BUILD_GENERATION: Generation = Generation(3);
 
+pub const BEYOND_BUILD_GENERATION: Generation = Generation(BUILD_GENERATION.0 + 1);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Generation(u32);
@@ -88,11 +90,7 @@ mod tests {
 
     #[test]
     fn a_generation_beyond_this_build_is_not_met_by_it() {
-        assert!(
-            !Generation::try_from("4")
-                .unwrap()
-                .is_met_by(BUILD_GENERATION)
-        );
+        assert!(!BEYOND_BUILD_GENERATION.is_met_by(BUILD_GENERATION));
     }
 
     #[test]
