@@ -89,9 +89,8 @@ claims no fact and so has no identity, which is part of what makes it the last r
 _Avoid_: key, id, name
 
 **Package**:
-A resource whose installation is owned by a package manager, which is consequently also what
-can be asked whether it is installed. Which manager owns it is part of what the resource is,
-not a setting on it.
+A resource whose installation is owned by a package manager. Which manager owns it is part of
+what the resource is, not a setting on it.
 _Avoid_: dependency, library, install
 
 **Tool**:
