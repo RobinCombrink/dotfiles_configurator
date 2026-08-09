@@ -1,16 +1,19 @@
 #![allow(clippy::disallowed_macros)]
 
+#[path = "common/declarations.rs"]
+mod declarations;
 #[path = "common/fake_machine.rs"]
 mod fake_machine;
 
 use {
     cucumber::{World, given, then, when},
+    declarations::{named_repository, reporting_its_version_in_the_second_word},
     dotfiles_configurator::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, ArchiveEntry, AssetPattern,
-            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, Context, CrateName,
-            DesiredState, GitHubRepository, Installer, MachineSettings, Notice, PresenceCheck,
-            ReleasedBinary, RepositoryName, RepositoryOwner, Resource, Shell, Symlink, VersionWord,
+            Application, ApplicationName, ApplicationSource, BEYOND_BUILD_GENERATION,
+            BUILD_GENERATION, CargoWorkspace, Context, CrateName, DesiredState, GitHubRepository,
+            Installer, MachineSettings, Notice, PresenceCheck, RepositoryName, RepositoryOwner,
+            Resource, Shell, Symlink,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
@@ -28,7 +31,6 @@ use {
     std::{
         collections::{BTreeMap, BTreeSet},
         env, fs,
-        num::NonZeroUsize,
         path::{Path, PathBuf},
         sync::atomic::{AtomicUsize, Ordering},
     },
@@ -179,32 +181,12 @@ fn declare_application(world: &mut MachineWorld, name: String) {
         .push(Resource::Application(application(&name)));
 }
 
-fn named_repository(owner_and_name: &str) -> GitHubRepository {
-    let (owner, repository) = owner_and_name
-        .split_once('/')
-        .expect("a repository is written owner/name");
-    GitHubRepository {
-        owner: RepositoryOwner::from(owner),
-        repository: RepositoryName::from(repository),
-    }
-}
-
-fn released_binary(entry: &str, owner_and_name: &str) -> ReleasedBinary {
-    ReleasedBinary {
-        repository: named_repository(owner_and_name),
-        asset: AssetPattern::EndsWith(".zip".to_owned()),
-        entry: ArchiveEntry::try_from(entry.to_owned()).unwrap(),
-        version_arguments: vec!["--version".to_owned()],
-        version_word: VersionWord::from(NonZeroUsize::new(2).unwrap()),
-    }
-}
-
 #[given(expr = "Alice declares the released binary {string} from {string}")]
 fn declare_released_binary(world: &mut MachineWorld, entry: String, owner_and_name: String) {
     world
         .resources
         .push(Resource::Application(Application::ReleasedBinary(
-            released_binary(&entry, &owner_and_name),
+            reporting_its_version_in_the_second_word(&entry, &owner_and_name),
         )));
 }
 

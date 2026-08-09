@@ -4,15 +4,18 @@
 
 #![allow(clippy::disallowed_macros)]
 
+#[path = "common/declarations.rs"]
+mod declarations;
 #[path = "common/fake_machine.rs"]
 mod fake_machine;
 
 use {
+    declarations::{named_repository, reporting_its_version_in_the_second_word},
     dotfiles_configurator::{
         configuration::{
-            Application, ArchiveEntry, AssetPattern, CargoPackage, CargoSource, CargoWorkspace,
-            CrateName, DesiredState, GitHubRepository, MachineSettings, Package, ReleasedBinary,
-            RepositoryName, RepositoryOwner, Resource, VersionWord, WingetPackage,
+            Application, CargoPackage, CargoSource, CargoWorkspace, CrateName, DesiredState,
+            GitHubRepository, MachineSettings, Package, RepositoryName, RepositoryOwner, Resource,
+            WingetPackage,
         },
         convergence::plan,
         machine::{
@@ -26,7 +29,7 @@ use {
         version::Version,
     },
     fake_machine::FakeMachine,
-    std::{collections::BTreeSet, num::NonZeroUsize, path::PathBuf},
+    std::{collections::BTreeSet, path::PathBuf},
 };
 
 fn desired_state(resources: Vec<Resource>) -> DesiredState {
@@ -188,28 +191,19 @@ async fn a_configuration_declaring_no_workspace_never_opens_a_repository() {
     assert!(machine.cargo_workspace_reads().is_empty());
 }
 
-fn ripgrep() -> GitHubRepository {
-    GitHubRepository {
-        owner: RepositoryOwner::from("BurntSushi"),
-        repository: RepositoryName::from("ripgrep"),
-    }
-}
+const RIPGREP: &str = "BurntSushi/ripgrep";
 
 fn released_binary(entry: &str) -> Resource {
-    Resource::Application(Application::ReleasedBinary(ReleasedBinary {
-        repository: ripgrep(),
-        asset: AssetPattern::EndsWith(".zip".to_owned()),
-        entry: ArchiveEntry::try_from(entry.to_owned()).unwrap(),
-        version_arguments: vec!["--version".to_owned()],
-        version_word: VersionWord::from(NonZeroUsize::new(2).unwrap()),
-    }))
+    Resource::Application(Application::ReleasedBinary(
+        reporting_its_version_in_the_second_word(entry, RIPGREP),
+    ))
 }
 
 #[tokio::test]
 async fn several_binaries_out_of_one_repository_ask_it_for_its_release_once() {
     let machine = FakeMachine::default();
     machine.publish_release(
-        ripgrep(),
+        named_repository(RIPGREP),
         ReleaseReading {
             version: Version::try_from("15.1.0").unwrap(),
             assets: Vec::new(),
@@ -224,7 +218,7 @@ async fn several_binaries_out_of_one_repository_ask_it_for_its_release_once() {
         .await
         .unwrap();
 
-    assert_eq!(machine.release_reads(&ripgrep()), 1);
+    assert_eq!(machine.release_reads(&named_repository(RIPGREP)), 1);
 }
 
 #[tokio::test]
@@ -236,5 +230,5 @@ async fn a_configuration_declaring_no_released_binary_never_asks_for_a_release()
         .await
         .unwrap();
 
-    assert_eq!(machine.release_reads(&ripgrep()), 0);
+    assert_eq!(machine.release_reads(&named_repository(RIPGREP)), 0);
 }
