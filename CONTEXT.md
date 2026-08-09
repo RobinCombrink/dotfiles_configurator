@@ -39,6 +39,18 @@ makes undeclared things false, so withdrawing a declaration ends the tool's inte
 resource rather than undoing it.
 _Avoid_: in sync, up to date, provisioned
 
+**Displace**:
+To move a running image aside so that its name is free to be written, leaving whatever holds it
+running on the moved file. The alternative to stopping that process, which this program never does.
+_Avoid_: evict, rename aside, unlock, replace
+
+**Held**:
+Describes a resource that could not converge because the machine is executing the file it must
+replace, and displacing that file was refused as well. Neither blocked, where something is missing
+rather than in use, nor failed, which is a fault rather than an obstruction. A held resource leaves
+the machine unconverged.
+_Avoid_: locked, busy, in use, pinned
+
 ### Resources
 
 **Resource**:
@@ -74,6 +86,12 @@ name it carries inside that archive. Its desired state is the version of the lat
 its actual state is the version the installed binary reports, so it is the one application shape
 that can be assessed for currency rather than for presence.
 _Avoid_: download, artifact, portable app
+
+**Superseded image**:
+The file a displacement leaves behind, holding the program that was replaced for as long as
+something is still executing it. Not a resource — nothing declares it, and it is deleted when it
+can be rather than converged.
+_Avoid_: residue, backup, old binary, orphan, tombstone
 
 **Environment variable**:
 A resource kind in two shapes. A variable's desired state is its whole value; a search path
