@@ -17,14 +17,14 @@ use {
         machine::{
             ReadMachine, Tool,
             workspace_reading::{
-                Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
+                BinaryName, Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
         reporting::{RunKind, RunReport},
     },
     fake_machine::FakeMachine,
     std::{
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         env, fs,
         path::{Path, PathBuf},
         sync::atomic::{AtomicUsize, Ordering},
@@ -416,6 +416,7 @@ fn workspace_holds_crate(world: &mut MachineWorld, crate_name: String) {
         MemberReading {
             desired: content_named("what the workspace holds now"),
             installed: None,
+            absent_binaries: BTreeSet::new(),
         },
     );
 }
@@ -424,6 +425,14 @@ fn workspace_holds_crate(world: &mut MachineWorld, crate_name: String) {
 fn installed_from_current_content(world: &mut MachineWorld, crate_name: String) {
     let member = world.member(&crate_name);
     member.installed = Some(member.desired.clone());
+}
+
+#[given(expr = "the binary {string} of {string} is gone from where cargo installs it")]
+fn binary_is_gone(world: &mut MachineWorld, binary_name: String, crate_name: String) {
+    world
+        .member(&crate_name)
+        .absent_binaries
+        .insert(BinaryName::from(binary_name.as_str()));
 }
 
 #[given(expr = "cargo installed {string} from content the workspace has since changed")]

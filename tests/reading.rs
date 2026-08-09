@@ -23,7 +23,7 @@ use {
         reporting::RunReport,
     },
     fake_machine::FakeMachine,
-    std::path::PathBuf,
+    std::{collections::BTreeSet, path::PathBuf},
 };
 
 fn desired_state(resources: Vec<Resource>) -> DesiredState {
@@ -128,6 +128,7 @@ fn workspace_holding(crate_names: &[&str]) -> WorkspaceReading {
                             lockfile: ObjectHash::from("the lockfile"),
                         },
                         installed: None,
+                        absent_binaries: BTreeSet::new(),
                     },
                 )
             })

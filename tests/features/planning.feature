@@ -105,6 +105,16 @@ Feature: Planning what a machine needs
     Then the change set reports 1 change
     And the change set mentions "stop-gate"
 
+  Scenario: A workspace crate cargo records as installed is a change once its binary is gone
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "session-mining"
+    And cargo installed "session-mining" from the content the workspace holds now
+    And the binary "tool-use-statistics" of "session-mining" is gone from where cargo installs it
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "tool-use-statistics"
+
   Scenario: A crate added to the workspace is planned without the configuration changing
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine

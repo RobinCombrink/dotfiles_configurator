@@ -2,7 +2,10 @@ use {
     crate::configuration::CrateName,
     anyhow::{Result, anyhow, bail},
     serde::Deserialize,
-    std::{collections::BTreeMap, fmt::Display},
+    std::{
+        collections::{BTreeMap, BTreeSet},
+        fmt::Display,
+    },
 };
 
 macro_rules! object_identifier {
@@ -39,6 +42,13 @@ macro_rules! object_identifier {
 
 object_identifier!(Revision);
 object_identifier!(ObjectHash);
+object_identifier!(BinaryName);
+
+impl BinaryName {
+    pub fn file_name(&self) -> String {
+        format!("{self}{}", std::env::consts::EXE_SUFFIX)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fingerprint {
@@ -69,6 +79,43 @@ impl Fingerprint {
 pub struct MemberReading {
     pub desired: Fingerprint,
     pub installed: Option<Fingerprint>,
+    pub absent_binaries: BTreeSet<BinaryName>,
+}
+
+impl MemberReading {
+    pub fn difference(&self) -> Option<String> {
+        let Some(installed) = &self.installed else {
+            return Some("cargo has not installed it".to_owned());
+        };
+
+        let differences: Vec<String> = self
+            .desired
+            .difference_from(installed)
+            .into_iter()
+            .chain(absence_of(&self.absent_binaries))
+            .collect();
+
+        match differences.is_empty() {
+            true => None,
+            false => Some(differences.join(", and ")),
+        }
+    }
+}
+
+fn absence_of(binaries: &BTreeSet<BinaryName>) -> Option<String> {
+    let names: Vec<String> = binaries.iter().map(BinaryName::to_string).collect();
+    let (subject, verb) = match names.len() {
+        0 => return None,
+        1 => (names.join(""), "is"),
+        _ => (
+            names[..names.len() - 1].join(", ") + " and " + &names[names.len() - 1],
+            "are",
+        ),
+    };
+
+    Some(format!(
+        "{subject} {verb} missing from the directory cargo installs into"
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,21 +124,61 @@ pub struct WorkspaceReading {
     pub members: BTreeMap<CrateName, MemberReading>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InferableBinary {
+    pub path: String,
+    pub name: BinaryName,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemberTree {
     pub holds_a_main_file: bool,
-    pub holds_a_binaries_directory: bool,
+    pub binaries_directory: Vec<InferableBinary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DeclaredBinary {
+    name: BinaryName,
+    path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberManifest {
     pub name: CrateName,
-    pub declares_a_binary: bool,
+    declared_binaries: Vec<DeclaredBinary>,
 }
 
 impl MemberManifest {
+    pub fn binaries(&self, tree: &MemberTree) -> BTreeSet<BinaryName> {
+        let main_file = self.main_file_binary(tree);
+        let inferable = main_file
+            .iter()
+            .chain(&tree.binaries_directory)
+            .filter(|candidate| !self.already_declares(candidate))
+            .map(|candidate| candidate.name.clone());
+
+        self.declared_binaries
+            .iter()
+            .map(|declared| declared.name.clone())
+            .chain(inferable)
+            .collect()
+    }
+
     pub fn builds_a_binary(&self, tree: &MemberTree) -> bool {
-        self.declares_a_binary || tree.holds_a_main_file || tree.holds_a_binaries_directory
+        !self.binaries(tree).is_empty()
+    }
+
+    fn main_file_binary(&self, tree: &MemberTree) -> Option<InferableBinary> {
+        tree.holds_a_main_file.then(|| InferableBinary {
+            path: "src/main.rs".to_owned(),
+            name: BinaryName::from(self.name.as_ref()),
+        })
+    }
+
+    fn already_declares(&self, candidate: &InferableBinary) -> bool {
+        self.declared_binaries.iter().any(|declared| {
+            declared.name == candidate.name || declared.path.as_deref() == Some(&candidate.path)
+        })
     }
 }
 
@@ -110,7 +197,13 @@ struct WorkspaceSection {
 struct MemberDocument {
     package: Option<PackageSection>,
     #[serde(default, rename = "bin")]
-    binaries: Vec<toml::Value>,
+    binaries: Vec<BinarySection>,
+}
+
+#[derive(Deserialize)]
+struct BinarySection {
+    name: String,
+    path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -144,7 +237,14 @@ pub fn read_member_manifest(manifest: &str) -> Result<MemberManifest> {
 
     Ok(MemberManifest {
         name: CrateName::from(package.name),
-        declares_a_binary: !document.binaries.is_empty(),
+        declared_binaries: document
+            .binaries
+            .into_iter()
+            .map(|section| DeclaredBinary {
+                name: BinaryName::from(section.name),
+                path: section.path,
+            })
+            .collect(),
     })
 }
 
@@ -205,62 +305,134 @@ mod tests {
         );
     }
 
+    fn binaries_of(manifest: &str, tree: &MemberTree) -> Vec<String> {
+        read_member_manifest(manifest)
+            .unwrap()
+            .binaries(tree)
+            .iter()
+            .map(BinaryName::to_string)
+            .collect()
+    }
+
+    fn under_binaries_directory(stems: &[&str]) -> MemberTree {
+        MemberTree {
+            holds_a_main_file: false,
+            binaries_directory: stems
+                .iter()
+                .map(|stem| InferableBinary {
+                    path: format!("src/bin/{stem}.rs"),
+                    name: BinaryName::from(*stem),
+                })
+                .collect(),
+        }
+    }
+
     #[test]
-    fn a_member_whose_manifest_declares_a_binary_section_is_installable() {
+    fn a_member_is_known_by_the_binaries_its_manifest_names() {
         let manifest = r#"
             [package]
             name = "session-mining"
 
             [[bin]]
-            name = "session_census"
+            name = "session-census"
             path = "src/bin/session_census.rs"
         "#;
 
-        assert!(
-            read_member_manifest(manifest)
-                .unwrap()
-                .builds_a_binary(&MemberTree::default())
+        assert_eq!(
+            binaries_of(manifest, &MemberTree::default()),
+            vec!["session-census".to_owned()]
         );
     }
 
     #[test]
-    fn a_member_holding_a_main_file_is_installable() {
+    fn a_member_holding_a_main_file_builds_a_binary_named_for_the_package() {
         let manifest = r#"
             [package]
             name = "stop-gate"
         "#;
         let tree = MemberTree {
             holds_a_main_file: true,
-            holds_a_binaries_directory: false,
+            binaries_directory: Vec::new(),
         };
 
-        assert!(
-            read_member_manifest(manifest)
-                .unwrap()
-                .builds_a_binary(&tree)
-        );
+        assert_eq!(binaries_of(manifest, &tree), vec!["stop-gate".to_owned()]);
     }
 
     #[test]
-    fn a_member_holding_a_binaries_directory_is_installable() {
+    fn a_member_builds_a_binary_for_every_file_under_its_binaries_directory() {
         let manifest = r#"
             [package]
             name = "session-mining"
         "#;
-        let tree = MemberTree {
-            holds_a_main_file: false,
-            holds_a_binaries_directory: true,
-        };
 
-        assert!(
-            read_member_manifest(manifest)
-                .unwrap()
-                .builds_a_binary(&tree)
+        assert_eq!(
+            binaries_of(
+                manifest,
+                &under_binaries_directory(&["sweep-status", "reach"])
+            ),
+            vec!["reach".to_owned(), "sweep-status".to_owned()]
         );
     }
 
     #[test]
-    fn a_member_holding_only_a_library_is_not_installable() {
+    fn a_file_a_binary_section_already_claims_does_not_also_build_one_named_for_its_stem() {
+        let manifest = r#"
+            [package]
+            name = "session-mining"
+
+            [[bin]]
+            name = "tool-use-statistics"
+            path = "src/bin/tool_use_statistics.rs"
+        "#;
+
+        assert_eq!(
+            binaries_of(
+                manifest,
+                &under_binaries_directory(&["tool_use_statistics"])
+            ),
+            vec!["tool-use-statistics".to_owned()]
+        );
+    }
+
+    #[test]
+    fn a_main_file_a_binary_section_already_claims_does_not_also_build_one_named_for_the_package() {
+        let manifest = r#"
+            [package]
+            name = "claude-session"
+
+            [[bin]]
+            name = "claude-live-set"
+            path = "src/main.rs"
+        "#;
+        let tree = MemberTree {
+            holds_a_main_file: true,
+            binaries_directory: Vec::new(),
+        };
+
+        assert_eq!(
+            binaries_of(manifest, &tree),
+            vec!["claude-live-set".to_owned()]
+        );
+    }
+
+    #[test]
+    fn a_binary_section_naming_no_path_does_not_double_the_file_it_infers() {
+        let manifest = r#"
+            [package]
+            name = "session-mining"
+
+            [[bin]]
+            name = "sweep"
+        "#;
+
+        assert_eq!(
+            binaries_of(manifest, &under_binaries_directory(&["sweep"])),
+            vec!["sweep".to_owned()]
+        );
+    }
+
+    #[test]
+    fn a_member_holding_only_a_library_builds_no_binary() {
         let manifest = r#"
             [package]
             name = "shared"
@@ -302,6 +474,84 @@ mod tests {
         assert_eq!(
             desired.difference_from(&installed),
             Some("its dependencies have changed".to_owned())
+        );
+    }
+
+    fn a_fingerprint() -> Fingerprint {
+        Fingerprint {
+            crate_subtree: ObjectHash::from("aaa"),
+            workspace_manifest: ObjectHash::from("bbb"),
+            lockfile: ObjectHash::from("ccc"),
+        }
+    }
+
+    fn reading_missing(absent: &[&str]) -> MemberReading {
+        MemberReading {
+            desired: a_fingerprint(),
+            installed: Some(a_fingerprint()),
+            absent_binaries: absent.iter().map(|name| BinaryName::from(*name)).collect(),
+        }
+    }
+
+    #[test]
+    fn a_member_whose_every_binary_is_on_disk_at_the_installed_revision_has_not_drifted() {
+        assert_eq!(reading_missing(&[]).difference(), None);
+    }
+
+    #[test]
+    fn a_member_missing_one_binary_drifts_and_names_it() {
+        assert_eq!(
+            reading_missing(&["tool-use-statistics"]).difference(),
+            Some(
+                "tool-use-statistics is missing from the directory cargo installs into".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn a_member_missing_several_binaries_names_every_one_of_them() {
+        assert_eq!(
+            reading_missing(&["sweep-status", "session-census", "reach"]).difference(),
+            Some(
+                "reach, session-census and sweep-status are missing from the directory cargo \
+                 installs into"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn a_member_that_both_moved_on_and_lost_a_binary_reports_each_reason() {
+        let reading = MemberReading {
+            desired: Fingerprint {
+                lockfile: ObjectHash::from("ddd"),
+                ..a_fingerprint()
+            },
+            installed: Some(a_fingerprint()),
+            absent_binaries: BTreeSet::from([BinaryName::from("sweep")]),
+        };
+
+        assert_eq!(
+            reading.difference(),
+            Some(
+                "its dependencies have changed, and sweep is missing from the directory cargo \
+                 installs into"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn a_member_cargo_never_installed_drifts_without_listing_binaries_it_could_not_have() {
+        let reading = MemberReading {
+            desired: a_fingerprint(),
+            installed: None,
+            absent_binaries: BTreeSet::from([BinaryName::from("sweep")]),
+        };
+
+        assert_eq!(
+            reading.difference(),
+            Some("cargo has not installed it".to_owned())
         );
     }
 }

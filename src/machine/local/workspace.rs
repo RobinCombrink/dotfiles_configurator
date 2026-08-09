@@ -2,18 +2,27 @@ use {
     crate::{
         configuration::CrateName,
         machine::workspace_reading::{
-            Fingerprint, MemberReading, MemberTree, ObjectHash, Revision, WorkspaceReading,
-            member_paths, read_member_manifest,
+            BinaryName, Fingerprint, InferableBinary, MemberReading, MemberTree, ObjectHash,
+            Revision, WorkspaceReading, member_paths, read_member_manifest,
         },
     },
     anyhow::{Context, Result, anyhow},
-    git2::{BranchType, Repository, Tree},
-    std::{collections::BTreeMap, path::Path},
+    git2::{BranchType, ObjectType, Repository, Tree},
+    std::{
+        collections::{BTreeMap, BTreeSet},
+        path::Path,
+    },
 };
+
+struct MemberAtRevision {
+    fingerprint: Fingerprint,
+    binaries: BTreeSet<BinaryName>,
+}
 
 pub fn read(
     repository_path: &Path,
     installed: &BTreeMap<CrateName, Revision>,
+    binaries_directory: &Path,
 ) -> Result<Option<WorkspaceReading>> {
     if !repository_path.join(".git").exists() {
         return Ok(None);
@@ -29,7 +38,8 @@ pub fn read(
     let revision = tracked_remote_revision(&repository)?;
     let desired = members_at(&repository, &revision)?;
 
-    let mut by_revision: BTreeMap<Revision, BTreeMap<CrateName, Fingerprint>> = BTreeMap::new();
+    let mut by_revision: BTreeMap<Revision, BTreeMap<CrateName, MemberAtRevision>> =
+        BTreeMap::new();
     for installed_revision in installed.values() {
         if by_revision.contains_key(installed_revision) {
             continue;
@@ -45,8 +55,22 @@ pub fn read(
             let installed = installed
                 .get(&crate_name)
                 .and_then(|revision| by_revision.get(revision))
-                .and_then(|members| members.get(&crate_name).cloned());
-            (crate_name, MemberReading { desired, installed })
+                .and_then(|members| members.get(&crate_name))
+                .map(|member| member.fingerprint.clone());
+            let absent_binaries = desired
+                .binaries
+                .into_iter()
+                .filter(|binary| !binaries_directory.join(binary.file_name()).exists())
+                .collect();
+
+            (
+                crate_name,
+                MemberReading {
+                    desired: desired.fingerprint,
+                    installed,
+                    absent_binaries,
+                },
+            )
         })
         .collect();
 
@@ -77,7 +101,7 @@ fn tracked_remote_revision(repository: &Repository) -> Result<Revision> {
 fn members_at(
     repository: &Repository,
     revision: &Revision,
-) -> Result<BTreeMap<CrateName, Fingerprint>> {
+) -> Result<BTreeMap<CrateName, MemberAtRevision>> {
     let commit = repository
         .revparse_single(revision.as_ref())
         .and_then(|object| object.peel_to_commit())
@@ -103,22 +127,60 @@ fn members_at(
         )?)?;
         let member_tree = MemberTree {
             holds_a_main_file: entry_hash(&tree, &format!("{path}/src/main.rs")).is_some(),
-            holds_a_binaries_directory: entry_hash(&tree, &format!("{path}/src/bin")).is_some(),
+            binaries_directory: binaries_directory_of(repository, &tree, &path),
         };
 
-        if member.builds_a_binary(&member_tree) {
+        let binaries = member.binaries(&member_tree);
+        if !binaries.is_empty() {
             members.insert(
                 member.name,
-                Fingerprint {
-                    crate_subtree,
-                    workspace_manifest: workspace_manifest.clone(),
-                    lockfile: lockfile.clone(),
+                MemberAtRevision {
+                    fingerprint: Fingerprint {
+                        crate_subtree,
+                        workspace_manifest: workspace_manifest.clone(),
+                        lockfile: lockfile.clone(),
+                    },
+                    binaries,
                 },
             );
         }
     }
 
     Ok(members)
+}
+
+fn binaries_directory_of(
+    repository: &Repository,
+    tree: &Tree,
+    member_path: &str,
+) -> Vec<InferableBinary> {
+    let directory = format!("{member_path}/src/bin");
+    let Some(entries) = tree
+        .get_path(Path::new(&directory))
+        .ok()
+        .and_then(|entry| repository.find_tree(entry.id()).ok())
+    else {
+        return Vec::new();
+    };
+
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let name = entry.name()?;
+            match entry.kind() {
+                Some(ObjectType::Blob) => name.strip_suffix(".rs").map(|stem| InferableBinary {
+                    path: format!("src/bin/{name}"),
+                    name: BinaryName::from(stem),
+                }),
+                Some(ObjectType::Tree) => entry_hash(tree, &format!("{directory}/{name}/main.rs"))
+                    .map(|_| InferableBinary {
+                        path: format!("src/bin/{name}/main.rs"),
+                        name: BinaryName::from(name),
+                    }),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 fn entry_hash(tree: &Tree, path: &str) -> Option<ObjectHash> {

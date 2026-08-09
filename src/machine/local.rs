@@ -37,6 +37,7 @@ pub struct LocalMachine<'report> {
     repositories_directory: PathBuf,
     dotfiles_repository_path: PathBuf,
     download_directory: PathBuf,
+    cargo_binaries_directory: PathBuf,
     github_account: String,
     authenticated_account: OnceLock<AuthenticatedAccount>,
     http_client: Client,
@@ -45,13 +46,16 @@ pub struct LocalMachine<'report> {
 
 impl<'report> LocalMachine<'report> {
     pub fn new(settings: &MachineSettings, report: &'report RunReport) -> Result<Self> {
+        let home_directory =
+            env::home_dir().ok_or_else(|| anyhow!("Could not find the home directory"))?;
+
         Ok(Self {
-            home_directory: env::home_dir()
-                .ok_or_else(|| anyhow!("Could not find the home directory"))?,
             repositories_directory: settings.repositories_directory_path.clone(),
             dotfiles_repository_path: settings.dotfiles_repository_path(),
             download_directory: dirs::download_dir()
                 .ok_or_else(|| anyhow!("Could not find the download directory"))?,
+            cargo_binaries_directory: cargo_binaries_directory(&home_directory),
+            home_directory,
             github_account: settings.github_username.clone(),
             authenticated_account: OnceLock::new(),
             http_client: Client::default(),
@@ -306,6 +310,13 @@ fn decode_output(bytes: &[u8]) -> String {
     }
 }
 
+fn cargo_binaries_directory(home_directory: &Path) -> PathBuf {
+    match env::var_os("CARGO_HOME") {
+        Some(cargo_home) => PathBuf::from(cargo_home).join("bin"),
+        None => home_directory.join(".cargo").join("bin"),
+    }
+}
+
 fn program_is_on_path(program: &str) -> bool {
     let Some(path) = env::var_os("PATH") else {
         return false;
@@ -362,7 +373,7 @@ impl ReadMachine for LocalMachine<'_> {
         repository_path: &Path,
         installed: &BTreeMap<CrateName, Revision>,
     ) -> Result<Option<WorkspaceReading>> {
-        workspace::read(repository_path, installed)
+        workspace::read(repository_path, installed, &self.cargo_binaries_directory)
     }
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<bool> {

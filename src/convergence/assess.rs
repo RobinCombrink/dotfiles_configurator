@@ -280,11 +280,8 @@ fn assess_workspace_member(
     let Some(member) = reading.members.get(crate_name) else {
         return Assessment::Drifted("the workspace no longer holds it".into());
     };
-    let Some(installed) = &member.installed else {
-        return Assessment::Drifted("cargo has not installed it".into());
-    };
 
-    match member.desired.difference_from(installed) {
+    match member.difference() {
         None => Assessment::Converged,
         Some(difference) => Assessment::Drifted(difference.into()),
     }

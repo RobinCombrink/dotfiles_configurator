@@ -30,6 +30,7 @@ pub struct FakeMachine {
     home_directory: PathBuf,
     repositories_directory: PathBuf,
     dotfiles_repository_path: PathBuf,
+    cargo_binaries_directory: PathBuf,
     state: RefCell<MachineState>,
 }
 
@@ -58,6 +59,7 @@ impl Default for FakeMachine {
         let repositories_directory = PathBuf::from("/repositories");
         let dotfiles_repository_path = repositories_directory.join("dotfiles");
         Self {
+            cargo_binaries_directory: home_directory.join(".cargo").join("bin"),
             home_directory,
             repositories_directory,
             dotfiles_repository_path,
