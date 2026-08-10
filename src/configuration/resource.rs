@@ -249,9 +249,16 @@ impl VersionWord {
     ///
     /// assert_eq!(third.select("gh version 2.80.0 (2025-09-23)"), Some("2.80.0"));
     /// assert_eq!(third.select("ripgrep 15.1.0"), None);
+    /// assert_eq!(third.select("build source=binaryRelease, version=0.64.0,"), Some("0.64.0"));
     /// ```
     pub fn select<'output>(&self, output: &'output str) -> Option<&'output str> {
-        output.split_whitespace().nth(self.0.get() - 1)
+        let word = output.split_whitespace().nth(self.0.get() - 1)?;
+        let undecorated = word.trim_end_matches(',');
+
+        match undecorated.split_once('=') {
+            Some((_, value)) => Some(value),
+            None => Some(undecorated),
+        }
     }
 }
 
