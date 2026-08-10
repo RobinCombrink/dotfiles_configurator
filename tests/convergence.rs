@@ -10,10 +10,11 @@ use {
     declarations::{named_repository, reporting_its_version_in_the_second_word},
     dotfiles_configurator::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, BEYOND_BUILD_GENERATION,
-            BUILD_GENERATION, CargoWorkspace, Context, CrateName, DesiredState, GitHubRepository,
-            Installer, MachineSettings, Notice, PresenceCheck, RepositoryName, RepositoryOwner,
-            Resource, Shell, Symlink,
+            Application, ApplicationName, ApplicationSource, BENEATH_OLDEST_READABLE_GENERATION,
+            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, Context, CrateName,
+            DesiredState, GitHubRepository, Installer, MachineSettings, Notice,
+            OLDEST_READABLE_GENERATION, PresenceCheck, RepositoryName, RepositoryOwner, Resource,
+            Shell, Symlink,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
@@ -350,19 +351,27 @@ fn configuration_beyond_this_build(world: &mut MachineWorld) {
 }
 
 #[given(
-    expr = "Alice has a configuration for every machine declaring version {string} linking \
-            {string} to {string}"
+    expr = "Alice has a configuration for every machine declaring the generation below this build \
+            linking {string} to {string}"
 )]
-fn configuration_for_every_machine_with_version_linking(
+fn configuration_for_every_machine_a_generation_back_linking(
     world: &mut MachineWorld,
-    version: String,
     link_path: String,
     source_path: String,
 ) {
     world.documents.push(document(
-        &version,
+        &OLDEST_READABLE_GENERATION.to_string(),
         "everywhere",
         &symlink(&link_path, &source_path),
+    ));
+}
+
+#[given(expr = "Alice has a configuration declaring a generation this build has outgrown")]
+fn configuration_this_build_has_outgrown(world: &mut MachineWorld) {
+    world.documents.push(document(
+        &BENEATH_OLDEST_READABLE_GENERATION.to_string(),
+        "everywhere",
+        "[]",
     ));
 }
 

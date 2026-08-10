@@ -1,8 +1,13 @@
 use {
-    super::generation::Generation,
+    super::generation::{BUILD_GENERATION, Generation},
     std::fmt::{Display, Formatter, Result},
 };
 
+/// A configuration a run could not turn into desired state. Three causes with three closures:
+/// malformed is a fault in the repository it was read from and a person resolves it; too new is a
+/// fault in the build reading it and the program resolves it by updating itself; too old is a
+/// document this build has outgrown, and a person resolves it by running an intervening build once
+/// or by rewriting the document. See ADR 0026.
 #[derive(Debug)]
 pub enum Unreadable {
     Malformed(anyhow::Error),
@@ -10,6 +15,11 @@ pub enum Unreadable {
         source: String,
         required: Generation,
         available: Generation,
+    },
+    TooOld {
+        source: String,
+        stated: Generation,
+        oldest_readable: Generation,
     },
 }
 
@@ -26,6 +36,16 @@ impl Display for Unreadable {
                 "{source} needs generation {required} of dotfiles_configurator, and this build is \
                  generation {available}. A newer build reads it."
             ),
+            Self::TooOld {
+                source,
+                stated,
+                oldest_readable,
+            } => write!(
+                formatter,
+                "{source} states generation {stated} of dotfiles_configurator, and this build \
+                 reads back as far as generation {oldest_readable}. Run an intervening build once, \
+                 or rewrite it as a generation {BUILD_GENERATION} document."
+            ),
         }
     }
 }
@@ -40,9 +60,11 @@ impl From<anyhow::Error> for Unreadable {
 
 #[cfg(test)]
 mod tests {
-    use {
-        super::{super::generation::BEYOND_BUILD_GENERATION, *},
-        crate::configuration::BUILD_GENERATION,
+    use super::{
+        super::generation::{
+            BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, OLDEST_READABLE_GENERATION,
+        },
+        *,
     };
 
     #[test]
@@ -59,6 +81,24 @@ mod tests {
             reported.contains("everywhere.dotconfig.json")
                 && reported.contains(&format!("generation {BEYOND_BUILD_GENERATION}"))
                 && reported.contains(&format!("generation {BUILD_GENERATION}")),
+            "{reported}"
+        );
+    }
+
+    #[test]
+    fn a_configuration_this_build_has_outgrown_is_answered_with_an_intervening_build() {
+        let unreadable = Unreadable::TooOld {
+            source: "everywhere.dotconfig.json".to_owned(),
+            stated: BENEATH_OLDEST_READABLE_GENERATION,
+            oldest_readable: OLDEST_READABLE_GENERATION,
+        };
+
+        let reported = unreadable.to_string();
+
+        assert!(
+            reported.contains("everywhere.dotconfig.json")
+                && reported.contains(&format!("generation {BENEATH_OLDEST_READABLE_GENERATION}"))
+                && reported.contains("intervening build"),
             "{reported}"
         );
     }

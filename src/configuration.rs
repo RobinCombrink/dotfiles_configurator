@@ -27,7 +27,10 @@ pub mod workspace;
 
 pub use {
     context::Context,
-    generation::{BEYOND_BUILD_GENERATION, BUILD_GENERATION, Generation},
+    generation::{
+        BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION, Generation,
+        OLDEST_READABLE_GENERATION,
+    },
     identity::Identity,
     names::{
         ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName, RepositoryName,
@@ -171,6 +174,14 @@ pub fn parse_configuration(contents: &str, source: &str) -> Result<Configuration
         });
     }
 
+    if required.is_outgrown_by(OLDEST_READABLE_GENERATION) {
+        return Err(Unreadable::TooOld {
+            source: source.to_owned(),
+            stated: required,
+            oldest_readable: OLDEST_READABLE_GENERATION,
+        });
+    }
+
     serde_path_to_error::deserialize(document)
         .with_context(|| {
             format!("{source} is not a valid generation {BUILD_GENERATION} configuration")
@@ -276,12 +287,30 @@ mod tests {
     }
 
     #[test]
-    fn a_configuration_stating_a_generation_this_build_has_passed_is_read() {
-        let earlier = configuration_json("2", r#""resources": []"#);
+    fn a_configuration_stating_the_generation_below_this_build_is_read() {
+        let earlier = configuration_json(
+            &OLDEST_READABLE_GENERATION.to_string(),
+            r#""resources": []"#,
+        );
 
         let configuration = parse_configuration(&earlier, "everywhere.dotconfig.json").unwrap();
 
-        assert_eq!(configuration.version, Generation::try_from("2").unwrap());
+        assert_eq!(configuration.version, OLDEST_READABLE_GENERATION);
+    }
+
+    #[test]
+    fn a_configuration_further_back_than_one_generation_is_a_document_this_build_has_outgrown() {
+        let outgrown = configuration_json(
+            &BENEATH_OLDEST_READABLE_GENERATION.to_string(),
+            r#""resources": []"#,
+        );
+
+        let error = parse_configuration(&outgrown, "everywhere.dotconfig.json").unwrap_err();
+
+        let Unreadable::TooOld { stated, .. } = error else {
+            panic!("expected the refusal to name the document as outgrown, got: {error}");
+        };
+        assert_eq!(stated, BENEATH_OLDEST_READABLE_GENERATION);
     }
 
     #[test]

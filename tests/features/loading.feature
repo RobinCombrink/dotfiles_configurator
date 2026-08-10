@@ -52,10 +52,16 @@ Feature: Loading a configuration
     And the refusal mentions "0.1.0"
     And the refusal mentions "4"
 
-  Scenario: A configuration stating a generation this build has passed is read
-    Given Alice has a configuration for every machine declaring version "2" linking ".gitconfig" to "gitconfig/.gitconfig"
+  Scenario: A configuration stating the generation below this build is read
+    Given Alice has a configuration for every machine declaring the generation below this build linking ".gitconfig" to "gitconfig/.gitconfig"
     When Alice loads her configurations for a personal machine
     Then the desired state links ".gitconfig"
+
+  Scenario: A configuration further back than one generation is refused as outgrown
+    Given Alice has a configuration declaring a generation this build has outgrown
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "intervening build"
 
   Scenario: A configuration needing a newer build names the generation it needs
     Given Alice has a configuration declaring a generation beyond this build

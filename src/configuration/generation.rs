@@ -6,7 +6,14 @@ use {
 
 pub const BUILD_GENERATION: Generation = Generation(4);
 
+/// The oldest shape this build can read, derived from its own generation rather than declared, so
+/// that the two cannot drift apart. See ADR 0026.
+pub const OLDEST_READABLE_GENERATION: Generation = Generation(BUILD_GENERATION.0 - 1);
+
 pub const BEYOND_BUILD_GENERATION: Generation = Generation(BUILD_GENERATION.0 + 1);
+
+pub const BENEATH_OLDEST_READABLE_GENERATION: Generation =
+    Generation(OLDEST_READABLE_GENERATION.0 - 1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
@@ -15,6 +22,11 @@ pub struct Generation(u32);
 impl Generation {
     pub fn is_met_by(self, build: Generation) -> bool {
         self <= build
+    }
+
+    /// Whether this build has outgrown the shape a document states. See ADR 0026.
+    pub fn is_outgrown_by(self, oldest_readable: Generation) -> bool {
+        self < oldest_readable
     }
 }
 
@@ -80,6 +92,24 @@ mod tests {
             Generation::try_from("2")
                 .unwrap()
                 .is_met_by(BUILD_GENERATION)
+        );
+    }
+
+    #[test]
+    fn the_generation_below_this_build_is_still_one_it_reads() {
+        assert!(!OLDEST_READABLE_GENERATION.is_outgrown_by(OLDEST_READABLE_GENERATION));
+    }
+
+    #[test]
+    fn a_generation_further_back_than_one_is_outgrown() {
+        assert!(BENEATH_OLDEST_READABLE_GENERATION.is_outgrown_by(OLDEST_READABLE_GENERATION));
+    }
+
+    #[test]
+    fn the_oldest_readable_generation_is_the_one_below_this_build() {
+        assert_eq!(
+            OLDEST_READABLE_GENERATION,
+            Generation(BUILD_GENERATION.0 - 1)
         );
     }
 
