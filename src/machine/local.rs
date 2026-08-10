@@ -189,12 +189,12 @@ impl<'report> LocalMachine<'report> {
     fn fetch_options<'token>(
         &'token self,
         token: &'token secrecy::SecretString,
-        owner: &'token str,
+        account: &'token str,
         progress: &'token ProgressBar,
     ) -> FetchOptions<'token> {
         let mut callbacks = RemoteCallbacks::new();
         callbacks.credentials(move |_url, username_from_url, _allowed| {
-            Cred::userpass_plaintext(username_from_url.unwrap_or(owner), token.expose_secret())
+            Cred::userpass_plaintext(username_from_url.unwrap_or(account), token.expose_secret())
         });
         callbacks.transfer_progress(move |transfer| {
             progress.set_length(transfer.total_objects() as u64);
