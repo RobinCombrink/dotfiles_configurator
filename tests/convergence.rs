@@ -237,6 +237,25 @@ fn binary_reports(world: &mut MachineWorld, name: String, expected: String) {
     assert!(printed.contains(&expected), "{name} reports {printed:?}");
 }
 
+const A_NEWER_CONFIGURATOR: &str = "10.0.0";
+
+#[given(expr = "a newer configurator than this machine holds has been released")]
+fn a_newer_configurator_is_released(world: &mut MachineWorld) {
+    world
+        .machine
+        .publish_a_newer_configurator(A_NEWER_CONFIGURATOR);
+}
+
+#[then(expr = "the configurator reports the version of its latest release")]
+fn configurator_reports_the_latest_release(world: &mut MachineWorld) {
+    let printed = world
+        .machine
+        .configurator_reports()
+        .expect("the configurator is installed in the tool directory");
+
+    assert!(printed.contains(A_NEWER_CONFIGURATOR), "{printed}");
+}
+
 #[given(expr = "Alice declares the winget package {string}")]
 fn declare_winget_package(world: &mut MachineWorld, id: String) {
     world.resources.push(Resource::Package(

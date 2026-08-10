@@ -2,11 +2,12 @@ use {
     anyhow::Result,
     clap::{Args, Parser, Subcommand},
     dotfiles_configurator::{
-        configuration::MachineClass,
-        configuration_source::{ConfigurationSource, load_desired_state},
+        configuration::{GitHubAccount, MachineClass, Unreadable},
+        configuration_source::{ConfigurationSource, Refusal, load_desired_state},
         convergence::{apply::apply, plan},
+        currency::{RELEASE_OWNER, own_currency, own_release_repository},
         desired_state::DesiredState,
-        machine::local::LocalMachine,
+        machine::{ReadMachine, WriteMachine, local::LocalMachine},
         reporting::{RunKind, RunReport},
     },
     log::{LevelFilter, trace},
@@ -85,14 +86,16 @@ async fn run(task: Task) -> Result<ExitCode> {
     match task {
         Task::Plan(arguments) => {
             let report = RunReport::open(RunKind::Plan)?;
-            let (desired_state, machine) = prepare(&arguments, &report).await?;
+            let desired_state = load(&arguments).await?;
+            let machine = LocalMachine::new(desired_state.account().clone(), &report)?;
             let change_set = plan(&desired_state, &machine, &report).await?;
             println!("{change_set}");
             Ok(exit_code_for(change_set.is_converged()))
         }
         Task::Apply(arguments) => {
             let report = RunReport::open(RunKind::Apply)?;
-            let (desired_state, machine) = prepare(&arguments, &report).await?;
+            let desired_state = load_after_updating_if_it_must(&arguments, &report).await?;
+            let machine = LocalMachine::new(desired_state.account().clone(), &report)?;
             let outcome = apply(&desired_state, &machine, &report).await?;
             println!("{outcome}");
             Ok(exit_code_for(outcome.is_converged()))
@@ -100,14 +103,51 @@ async fn run(task: Task) -> Result<ExitCode> {
     }
 }
 
-async fn prepare<'report>(
+async fn load(arguments: &ConfigurationArguments) -> Result<DesiredState> {
+    load_desired_state(&arguments.sources, arguments.machine, &repositories_root()?).await
+}
+
+/// A configuration stating a generation above this build cannot be read, and a resource declaring
+/// where a newer build comes from would be inside it — so the origin is carried instead. Apply
+/// obtains a newer build once and reads again; a newest release that still does not meet the floor
+/// ends the run saying so rather than trying again. See ADR 0019.
+async fn load_after_updating_if_it_must(
     arguments: &ConfigurationArguments,
-    report: &'report RunReport,
-) -> Result<(DesiredState, LocalMachine<'report>)> {
-    let desired_state =
-        load_desired_state(&arguments.sources, arguments.machine, &repositories_root()?).await?;
-    let machine = LocalMachine::new(desired_state.account().clone(), report)?;
-    Ok((desired_state, machine))
+    report: &RunReport,
+) -> Result<DesiredState> {
+    let refusal = match load(arguments).await {
+        Ok(desired_state) => return Ok(desired_state),
+        Err(refusal) => refusal,
+    };
+
+    if !needs_a_newer_build(&refusal) {
+        return Err(refusal);
+    }
+
+    report.announce(&format!(
+        "{refusal:#}\nObtaining a newer build from {} and reading again.",
+        own_release_repository()
+    ));
+    obtain_a_newer_build(report).await?;
+    load(arguments).await
+}
+
+fn needs_a_newer_build(refusal: &anyhow::Error) -> bool {
+    refusal
+        .downcast_ref::<Refusal>()
+        .is_some_and(|refusal| refusal.unreadable().iter().any(Unreadable::is_too_new))
+}
+
+async fn obtain_a_newer_build(report: &RunReport) -> Result<()> {
+    let machine = LocalMachine::new(GitHubAccount::from(RELEASE_OWNER), report)?;
+    let binary = own_currency();
+    let released = machine.latest_release(&binary.repository).await?;
+    let asset = released
+        .asset_matching(&binary.asset)
+        .map_err(|refusal| anyhow::anyhow!("{refusal}"))?;
+
+    machine.install_released_binary(&binary, asset).await?;
+    Ok(())
 }
 
 // ADR 0025

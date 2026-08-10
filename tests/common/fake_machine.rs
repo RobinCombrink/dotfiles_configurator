@@ -13,6 +13,7 @@ use {
             ApplicationName, CrateName, GitHubRepository, Installer, PresenceCheck, ReleasedBinary,
             Shell, WingetPackageId,
         },
+        currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine, Tool,
             WriteInvocation, WriteMachine,
@@ -20,12 +21,14 @@ use {
             superseded_name,
             workspace_reading::{Revision, WorkspaceReading},
         },
+        version::Version,
     },
     std::{
         cell::RefCell,
         collections::{BTreeMap, BTreeSet},
         path::{Path, PathBuf},
     },
+    url::Url,
 };
 
 #[derive(Debug)]
@@ -68,12 +71,16 @@ enum Displacement {
     Refused,
 }
 
+/// The version the machine is already running and the newest one published, which are the same
+/// so that the configurator's own currency is converged in every scenario that is not about it.
+pub const CONFIGURATOR_VERSION: &str = "9.9.9";
+
 impl Default for FakeMachine {
     fn default() -> Self {
         let home_directory = PathBuf::from("/home/alice");
         let repositories_root = PathBuf::from("/repositories");
         let dotfiles_repository_path = repositories_root.join("Personal").join("dotfiles");
-        Self {
+        let machine = Self {
             cargo_binaries_directory: home_directory.join(".cargo").join("bin"),
             home_directory,
             repositories_root,
@@ -84,7 +91,27 @@ impl Default for FakeMachine {
                 tools: BTreeSet::from([Tool::Winget, Tool::Cargo, Tool::Claude, Tool::Wsl]),
                 ..MachineState::default()
             }),
-        }
+        };
+
+        machine.publish_release(
+            own_release_repository(),
+            ReleaseReading {
+                version: Version::try_from(CONFIGURATOR_VERSION).expect("a version"),
+                assets: vec![ReleaseAsset {
+                    name: own_release_asset_name().to_owned(),
+                    download_url: Url::parse("https://example.invalid/configurator.zip")
+                        .expect("a url"),
+                }],
+            },
+        );
+        machine.hold_binary(
+            machine
+                .binaries_directory()
+                .join(own_currency().installed_name().as_ref()),
+            format!("dotfiles_configurator {CONFIGURATOR_VERSION}"),
+        );
+
+        machine
     }
 }
 
@@ -176,6 +203,28 @@ impl FakeMachine {
             standard_output: String::new(),
             standard_error: String::new(),
         }
+    }
+
+    pub fn publish_a_newer_configurator(&self, version: &str) {
+        self.publish_release(
+            own_release_repository(),
+            ReleaseReading {
+                version: Version::try_from(version).expect("a version"),
+                assets: vec![ReleaseAsset {
+                    name: own_release_asset_name().to_owned(),
+                    download_url: Url::parse("https://example.invalid/configurator.zip")
+                        .expect("a url"),
+                }],
+            },
+        );
+    }
+
+    pub fn configurator_reports(&self) -> Option<String> {
+        self.binary_reports(
+            &self
+                .binaries_directory()
+                .join(own_currency().installed_name().as_ref()),
+        )
     }
 
     pub fn publish_release(&self, repository: GitHubRepository, reading: ReleaseReading) {

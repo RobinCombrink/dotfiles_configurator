@@ -23,6 +23,15 @@ pub enum Unreadable {
     },
 }
 
+impl Unreadable {
+    pub fn is_too_new(&self) -> bool {
+        match self {
+            Self::TooNew { .. } => true,
+            Self::Malformed(_) | Self::TooOld { .. } => false,
+        }
+    }
+}
+
 impl Display for Unreadable {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> Result {
         match self {

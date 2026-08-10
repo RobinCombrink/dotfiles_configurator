@@ -20,6 +20,12 @@ Feature: Applying a change set
     And the link ".gitconfig" points into the dotfiles repository
     And the machine is reported as converged
 
+  Scenario: A build behind its own latest release installs the newer one over itself
+    Given a newer configurator than this machine holds has been released
+    When Alice applies
+    Then the configurator reports the version of its latest release
+    And the machine is reported as converged
+
   Scenario: A released binary is installed under the name its archive entry carries
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
     And the latest release of "BurntSushi/ripgrep" is "v15.1.0"

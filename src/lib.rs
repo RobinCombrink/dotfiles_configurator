@@ -4,6 +4,7 @@
 pub mod configuration;
 pub mod configuration_source;
 pub mod convergence;
+pub mod currency;
 pub mod desired_state;
 pub mod github;
 pub mod machine;

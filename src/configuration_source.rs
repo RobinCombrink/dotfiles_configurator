@@ -449,10 +449,16 @@ mod tests {
         .await
     }
 
+    /// Every change set carries the configurator's own currency, which these scenarios are not
+    /// about.
     fn rendered(desired_state: &DesiredState) -> Vec<String> {
+        let own = crate::configuration::Identity::InstalledBinary(
+            crate::currency::own_currency().installed_name(),
+        );
         desired_state
             .resources
             .iter()
+            .filter(|resource| resource.identity() != Some(own.clone()))
             .map(ToString::to_string)
             .collect()
     }

@@ -65,6 +65,17 @@ Feature: Planning what a machine needs
     Then the change set reports 1 change
     And the change set mentions "no release"
 
+  Scenario: A build behind its own latest release is a change no configuration declared
+    Given a newer configurator than this machine holds has been released
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "dotfiles_configurator"
+
+  Scenario: A build at its own latest release is reported as converged
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
   Scenario: A declared package that the manager already holds is reported as converged
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget holds "Microsoft.PowerShell" on Alice's machine

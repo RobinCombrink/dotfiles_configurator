@@ -1,10 +1,11 @@
 use {
     crate::{
         configuration::{
-            CargoWorkspace, Configuration, Context, GitHubAccount, GitHubRepository, Identity,
-            Migration, Notice, Resource, ResourceKind,
+            Application, CargoWorkspace, Configuration, Context, GitHubAccount, GitHubRepository,
+            Identity, Migration, Notice, Resource, ResourceKind,
         },
         convergence::Requirement,
+        currency,
     },
     anyhow::{Result, anyhow, bail},
     std::{
@@ -242,13 +243,22 @@ impl DesiredState {
     }
 
     pub fn of(configurations: Vec<(String, ResolvedConfiguration)>) -> Result<Self> {
-        let account = account_of_the_configuration_for_every_machine(&configurations)?;
+        let for_every_machine = the_configuration_for_every_machine(&configurations)?;
+        let account = for_every_machine.origin.account.clone();
         refuse_a_set_holding_nothing_for_this_class(&configurations)?;
 
-        let mut resources: Vec<ResolvedResource> = Vec::new();
         let mut workspaces: Vec<ResolvedWorkspace> = Vec::new();
         let mut notices: Vec<ResolvedNotice> = Vec::new();
         let mut claimed: BTreeMap<Identity, (String, ResolvedResource)> = BTreeMap::new();
+
+        // ADR 0019
+        let own_currency = for_every_machine.pair(Resource::Application(
+            Application::ReleasedBinary(currency::own_currency()),
+        ));
+        if let Some(identity) = own_currency.identity() {
+            claimed.insert(identity, ("this build".to_owned(), own_currency.clone()));
+        }
+        let mut resources: Vec<ResolvedResource> = vec![own_currency];
 
         for (source, configuration) in &configurations {
             for resource in configuration.resources() {
@@ -289,13 +299,13 @@ impl DesiredState {
     }
 }
 
-fn account_of_the_configuration_for_every_machine(
+fn the_configuration_for_every_machine(
     configurations: &[(String, ResolvedConfiguration)],
-) -> Result<GitHubAccount> {
+) -> Result<&ResolvedConfiguration> {
     configurations
         .iter()
         .find(|(_, configuration)| configuration.context() == Context::Everywhere)
-        .map(|(_, configuration)| configuration.origin.account.clone())
+        .map(|(_, configuration)| configuration)
         .ok_or_else(|| {
             anyhow!(
                 "No configuration for every machine was loaded. A run reads one configuration for \
@@ -389,17 +399,44 @@ mod tests {
         ])
     }
 
+    /// Every change set carries the configurator's own currency, which most of these are not
+    /// about.
+    fn other_than_its_own_currency(desired_state: &DesiredState) -> Vec<&ResolvedResource> {
+        let own = Identity::InstalledBinary(currency::own_currency().installed_name());
+        desired_state
+            .resources
+            .iter()
+            .filter(|resource| resource.identity() != Some(own.clone()))
+            .collect()
+    }
+
     #[test]
     fn a_configuration_read_from_a_repository_contributes_that_repository_as_a_clone() {
         let desired_state = a_readable_set(EMPTY).unwrap();
 
         assert_eq!(
-            desired_state
-                .resources
+            other_than_its_own_currency(&desired_state)
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>(),
             vec!["repository Alice/dotfiles".to_owned()]
+        );
+    }
+
+    #[test]
+    fn every_change_set_carries_the_currency_of_the_build_producing_it() {
+        let desired_state = a_readable_set(EMPTY).unwrap();
+
+        let claimed: Vec<Identity> = desired_state
+            .resources
+            .iter()
+            .filter_map(ResolvedResource::identity)
+            .collect();
+        assert!(
+            claimed.contains(&Identity::InstalledBinary(
+                currency::own_currency().installed_name()
+            )),
+            "{claimed:?}"
         );
     }
 
@@ -616,9 +653,8 @@ mod tests {
         )
         .unwrap();
 
-        let binary = desired_state
-            .resources
-            .iter()
+        let binary = other_than_its_own_currency(&desired_state)
+            .into_iter()
             .find(|resource| resource.kind() == ResourceKind::Application)
             .expect("the personal configuration declared a released binary");
         assert_eq!(
