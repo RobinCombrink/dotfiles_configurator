@@ -1,7 +1,7 @@
 use {
     crate::{
         configuration::{
-            Configuration, Context, DesiredState, RepositoryName, RepositoryOwner, Unreadable,
+            Configuration, DesiredState, MachineClass, RepositoryName, RepositoryOwner, Unreadable,
             merge_configurations, parse_configuration,
         },
         github,
@@ -65,7 +65,7 @@ fn is_configuration_file(path: &str) -> bool {
 
 pub async fn load_desired_state(
     sources: &[ConfigurationSource],
-    context: Context,
+    machine: MachineClass,
 ) -> Result<DesiredState> {
     let mut loaded: Vec<(String, Configuration)> = Vec::new();
     let mut unreadable: Vec<Unreadable> = Vec::new();
@@ -90,13 +90,13 @@ pub async fn load_desired_state(
 
     let applicable: Vec<(String, Configuration)> = loaded
         .into_iter()
-        .filter(|(_, configuration)| configuration.applies_to.applies_on(context))
+        .filter(|(_, configuration)| configuration.applies_to.applies_on(machine))
         .collect();
 
     if applicable.is_empty() {
         return Err(anyhow!(
             "No configuration in any of the sources given applies to {}",
-            context.machine_described()
+            machine.described()
         ));
     }
 
@@ -289,7 +289,7 @@ mod tests {
     async fn a_directory_that_does_not_exist_is_reported_by_path() {
         let source = ConfigurationSource::LocalDirectory("/no/such/directory".into());
 
-        let error = load_desired_state(&[source], Context::Personal)
+        let error = load_desired_state(&[source], MachineClass::Personal)
             .await
             .unwrap_err();
 
@@ -314,7 +314,7 @@ mod tests {
 
         let desired_state = load_desired_state(
             &[ConfigurationSource::LocalDirectory(directory)],
-            Context::Personal,
+            MachineClass::Personal,
         )
         .await
         .unwrap();
@@ -347,7 +347,7 @@ mod tests {
 
         let desired_state = load_desired_state(
             &[ConfigurationSource::LocalDirectory(directory)],
-            Context::Work,
+            MachineClass::Work,
         )
         .await
         .unwrap();
@@ -375,7 +375,7 @@ mod tests {
 
         let desired_state = load_desired_state(
             &[ConfigurationSource::LocalDirectory(directory)],
-            Context::Personal,
+            MachineClass::Personal,
         )
         .await
         .unwrap();
@@ -401,7 +401,7 @@ mod tests {
 
         let error = load_desired_state(
             &[ConfigurationSource::LocalDirectory(directory)],
-            Context::Personal,
+            MachineClass::Personal,
         )
         .await
         .unwrap_err();
@@ -418,7 +418,7 @@ mod tests {
 
         let error = load_desired_state(
             &[ConfigurationSource::LocalDirectory(directory)],
-            Context::Personal,
+            MachineClass::Personal,
         )
         .await
         .unwrap_err();

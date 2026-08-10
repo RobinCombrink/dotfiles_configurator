@@ -26,7 +26,7 @@ pub mod unreadable;
 pub mod workspace;
 
 pub use {
-    context::Context,
+    context::{Context, MachineClass},
     generation::{
         BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION, Generation,
         OLDEST_READABLE_GENERATION,

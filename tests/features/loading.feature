@@ -19,13 +19,6 @@ Feature: Loading a configuration
     Then the desired state links ".gitconfig"
     And the desired state links ".npmrc"
 
-  Scenario: A machine belonging to no class applies only what is for every machine
-    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
-    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
-    When Alice loads her configurations for a machine of no class
-    Then the desired state links ".gitconfig"
-    And the desired state does not link ".npmrc"
-
   Scenario: A machine nothing applies to is refused rather than converged against nothing
     Given Alice has a configuration for work machines linking ".npmrc" to "npm/.npmrc"
     When Alice loads her configurations for a personal machine

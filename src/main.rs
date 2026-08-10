@@ -2,7 +2,7 @@ use {
     anyhow::Result,
     clap::{Args, Parser, Subcommand},
     dotfiles_configurator::{
-        configuration::{Context, DesiredState},
+        configuration::{DesiredState, MachineClass},
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{apply::apply, plan},
         machine::local::LocalMachine,
@@ -21,13 +21,13 @@ const DEFAULT_SOURCE: &str = "github:RobinCombrink/dotfiles/config";
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 struct ConfigurationArguments {
     #[arg(
-        short = 'c',
-        long = "context",
-        value_name = "CONTEXT",
-        help = "Which machine this is — `everywhere`, `personal` or `work`. A configuration \
-                applies when it declares this machine, or `everywhere`."
+        short = 'm',
+        long = "machine",
+        value_name = "MACHINE",
+        help = "Which class of machine this is — `personal` or `work`. A configuration applies \
+                when it declares this class, or `everywhere`."
     )]
-    context: Context,
+    machine: MachineClass,
     #[arg(
         short = 's',
         long = "source",
@@ -103,7 +103,7 @@ async fn prepare<'report>(
     arguments: &ConfigurationArguments,
     report: &'report RunReport,
 ) -> Result<(DesiredState, LocalMachine<'report>)> {
-    let desired_state = load_desired_state(&arguments.sources, arguments.context).await?;
+    let desired_state = load_desired_state(&arguments.sources, arguments.machine).await?;
     let machine = LocalMachine::new(&desired_state.machine, report)?;
     Ok((desired_state, machine))
 }
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn naming_a_directory_reads_that_directory_and_nothing_else() {
         assert_eq!(
-            sources_from(&["plan", "--context", "personal", "--source", "local:config"]),
+            sources_from(&["plan", "--machine", "personal", "--source", "local:config"]),
             vec![ConfigurationSource::LocalDirectory("config".into())]
         );
     }
@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn naming_no_source_reads_the_default_one() {
         assert_eq!(
-            sources_from(&["plan", "--context", "personal"]),
+            sources_from(&["plan", "--machine", "personal"]),
             vec![ConfigurationSource::from_str(DEFAULT_SOURCE).unwrap()]
         );
     }
@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(
             sources_from(&[
                 "plan",
-                "--context",
+                "--machine",
                 "personal",
                 "--source",
                 "github:Alice/dotfiles/config",
@@ -212,7 +212,10 @@ mod tests {
 
     #[test]
     fn the_machine_named_decides_which_configurations_apply() {
-        assert_eq!(parse(&["plan", "--context", "work"]).context, Context::Work);
+        assert_eq!(
+            parse(&["plan", "--machine", "work"]).machine,
+            MachineClass::Work
+        );
     }
 
     #[test]

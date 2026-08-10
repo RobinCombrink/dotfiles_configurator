@@ -11,8 +11,8 @@ use {
     dotfiles_configurator::{
         configuration::{
             Application, ApplicationName, ApplicationSource, BENEATH_OLDEST_READABLE_GENERATION,
-            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, Context, CrateName,
-            DesiredState, GitHubRepository, Installer, MachineSettings, Notice,
+            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, CrateName, DesiredState,
+            GitHubRepository, Installer, MachineClass, MachineSettings, Notice,
             OLDEST_READABLE_GENERATION, PresenceCheck, RepositoryName, RepositoryOwner, Resource,
             Shell, Symlink,
         },
@@ -620,15 +620,10 @@ fn withdraw_declaration(world: &mut MachineWorld, name: String) {
 
 #[when(expr = "Alice loads her configurations for a personal machine")]
 async fn alice_loads_for_a_personal_machine(world: &mut MachineWorld) {
-    alice_loads(world, Context::Personal).await;
+    alice_loads(world, MachineClass::Personal).await;
 }
 
-#[when(expr = "Alice loads her configurations for a machine of no class")]
-async fn alice_loads_for_a_machine_of_no_class(world: &mut MachineWorld) {
-    alice_loads(world, Context::Everywhere).await;
-}
-
-async fn alice_loads(world: &mut MachineWorld, context: Context) {
+async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
     let directory = configuration_directory();
     for (position, contents) in world.documents.iter().enumerate() {
         fs::write(
@@ -641,7 +636,7 @@ async fn alice_loads(world: &mut MachineWorld, context: Context) {
         fs::write(directory.join(file_name), "not a configuration").unwrap();
     }
 
-    match load_desired_state(&[ConfigurationSource::LocalDirectory(directory)], context).await {
+    match load_desired_state(&[ConfigurationSource::LocalDirectory(directory)], machine).await {
         Ok(desired_state) => world.loaded = Some(desired_state),
         Err(error) => world.loading_error = Some(format!("{error:#}")),
     }

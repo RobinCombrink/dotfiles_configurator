@@ -15,13 +15,21 @@ pub enum Context {
 
 impl Context {
     /// ```
-    /// use dotfiles_configurator::configuration::Context;
+    /// use dotfiles_configurator::configuration::{Context, MachineClass};
     ///
-    /// assert!(Context::Everywhere.applies_on(Context::Personal));
-    /// assert!(!Context::Work.applies_on(Context::Personal));
+    /// assert!(Context::Everywhere.applies_on(MachineClass::Personal));
+    /// assert!(!Context::Work.applies_on(MachineClass::Personal));
     /// ```
-    pub fn applies_on(self, machine: Context) -> bool {
-        self == Context::Everywhere || self == machine
+    pub fn applies_on(self, machine: MachineClass) -> bool {
+        match (self, machine) {
+            (Context::Everywhere, _) => true,
+            (Context::Personal, MachineClass::Personal) | (Context::Work, MachineClass::Work) => {
+                true
+            }
+            (Context::Personal, MachineClass::Work) | (Context::Work, MachineClass::Personal) => {
+                false
+            }
+        }
     }
 
     fn as_written(self) -> &'static str {
@@ -29,14 +37,6 @@ impl Context {
             Context::Everywhere => "everywhere",
             Context::Personal => "personal",
             Context::Work => "work",
-        }
-    }
-
-    pub fn machine_described(self) -> &'static str {
-        match self {
-            Context::Everywhere => "a machine of no class",
-            Context::Personal => "a personal machine",
-            Context::Work => "a work machine",
         }
     }
 }
@@ -47,15 +47,44 @@ impl Display for Context {
     }
 }
 
-impl FromStr for Context {
+// ADR 0025
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
+pub enum MachineClass {
+    Personal,
+    Work,
+}
+
+impl MachineClass {
+    fn as_written(self) -> &'static str {
+        match self {
+            MachineClass::Personal => "personal",
+            MachineClass::Work => "work",
+        }
+    }
+
+    pub fn described(self) -> &'static str {
+        match self {
+            MachineClass::Personal => "a personal machine",
+            MachineClass::Work => "a work machine",
+        }
+    }
+}
+
+impl Display for MachineClass {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_written())
+    }
+}
+
+impl FromStr for MachineClass {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Context::iter()
-            .find(|context| context.as_written() == value)
+        MachineClass::iter()
+            .find(|machine| machine.as_written() == value)
             .ok_or_else(|| {
-                let known: Vec<&str> = Context::iter()
-                    .map(|context| context.as_written())
+                let known: Vec<&str> = MachineClass::iter()
+                    .map(|machine| machine.as_written())
                     .collect();
                 format!(
                     "{value:?} is no machine this tool knows; expected one of {}",
@@ -71,48 +100,46 @@ mod tests {
 
     #[test]
     fn a_configuration_for_every_machine_applies_to_a_machine_of_any_class() {
-        assert!(Context::Everywhere.applies_on(Context::Personal));
-        assert!(Context::Everywhere.applies_on(Context::Work));
-        assert!(Context::Everywhere.applies_on(Context::Everywhere));
+        assert!(Context::Everywhere.applies_on(MachineClass::Personal));
+        assert!(Context::Everywhere.applies_on(MachineClass::Work));
     }
 
     #[test]
     fn a_configuration_for_one_class_of_machine_applies_to_no_other_class() {
-        assert!(!Context::Personal.applies_on(Context::Work));
-        assert!(!Context::Work.applies_on(Context::Personal));
+        assert!(!Context::Personal.applies_on(MachineClass::Work));
+        assert!(!Context::Work.applies_on(MachineClass::Personal));
     }
 
     #[test]
     fn a_configuration_for_one_class_of_machine_applies_to_that_class() {
-        assert!(Context::Personal.applies_on(Context::Personal));
-        assert!(Context::Work.applies_on(Context::Work));
-    }
-
-    #[test]
-    fn a_machine_belonging_to_no_class_takes_nothing_written_for_a_class() {
-        assert!(!Context::Personal.applies_on(Context::Everywhere));
-        assert!(!Context::Work.applies_on(Context::Everywhere));
+        assert!(Context::Personal.applies_on(MachineClass::Personal));
+        assert!(Context::Work.applies_on(MachineClass::Work));
     }
 
     #[test]
     fn a_machine_this_tool_does_not_know_is_rejected_with_the_ones_it_does() {
-        let error = Context::from_str("laptop").unwrap_err();
+        let error = MachineClass::from_str("laptop").unwrap_err();
 
         assert!(
-            error.contains("everywhere") && error.contains("personal") && error.contains("work"),
+            error.contains("personal") && error.contains("work"),
             "{error}"
         );
     }
 
     #[test]
-    fn every_context_is_written_the_way_it_is_read() {
-        for context in Context::iter() {
-            assert_eq!(Context::from_str(&context.to_string()), Ok(context));
+    fn no_invocation_can_name_the_context_a_configuration_writes_for_every_machine() {
+        assert!(MachineClass::from_str("everywhere").is_err());
+    }
+
+    #[test]
+    fn every_machine_class_is_written_the_way_it_is_read() {
+        for machine in MachineClass::iter() {
+            assert_eq!(MachineClass::from_str(&machine.to_string()), Ok(machine));
         }
     }
 
     #[test]
-    fn every_context_reaches_json_spelled_the_way_the_command_line_reads_it() {
+    fn every_context_reaches_json_spelled_the_way_a_configuration_writes_it() {
         for context in Context::iter() {
             assert_eq!(
                 serde_json::to_string(&context).unwrap(),
