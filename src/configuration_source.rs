@@ -1,8 +1,8 @@
 use {
     crate::{
         configuration::{
-            Configuration, GitHubRepository, MachineClass, Migration, Notice, RepositoryName,
-            RepositoryOwner, Unreadable, announcement, parse_configuration,
+            Configuration, GitHubAccount, GitHubRepository, MachineClass, Migration, Notice,
+            RepositoryName, RepositoryOwner, Unreadable, announcement, parse_configuration,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         github,
@@ -182,6 +182,22 @@ fn refuse_two_trees_for_one_source(
     )
 }
 
+// ADR 0020
+fn refuse_an_account_other_than_the_sources_owner(
+    source: &str,
+    declared: &GitHubAccount,
+    owner: &RepositoryOwner,
+) -> Result<()> {
+    match declared.as_ref() == owner.as_ref() {
+        true => Ok(()),
+        false => bail!(
+            "{source} declares the account {declared}, and it was read from a repository owned by \
+             {owner}. A source is read as the account that owns it, so either the declaration \
+             names {owner}, or the configuration belongs in a repository {declared} owns."
+        ),
+    }
+}
+
 #[derive(Debug)]
 pub struct Refusal(Vec<Unreadable>);
 
@@ -330,6 +346,7 @@ impl ConfigurationSource {
             Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
         };
 
+        let owner_of_the_source = RepositoryOwner::from(owner);
         let mut loaded: Vec<Result<LoadedConfiguration, Unreadable>> = Vec::new();
         for file_path in file_paths
             .iter()
@@ -340,6 +357,11 @@ impl ConfigurationSource {
                 Err(refusal) => loaded.push(Err(Unreadable::Malformed(refusal))),
                 Ok(documents) => loaded.extend(documents.into_iter().map(|contents| {
                     let reading = parse_configuration(&contents, &source)?;
+                    refuse_an_account_other_than_the_sources_owner(
+                        &source,
+                        &reading.configuration.github_account,
+                        &owner_of_the_source,
+                    )?;
                     Ok(LoadedConfiguration {
                         pending: match reading.migrated_from {
                             None => Pending::Nothing,
@@ -389,6 +411,47 @@ mod tests {
                 repository: RepositoryName::from("dotfiles"),
             })
         );
+    }
+
+    #[test]
+    fn a_configuration_declaring_the_account_that_owns_its_source_is_read() {
+        let checked = refuse_an_account_other_than_the_sources_owner(
+            "Alice/dotfiles/config/everywhere.dotconfig.json",
+            &GitHubAccount::from("Alice"),
+            &RepositoryOwner::from("Alice"),
+        );
+
+        assert!(checked.is_ok(), "{:?}", checked.unwrap_err());
+    }
+
+    #[test]
+    fn a_configuration_declaring_an_account_other_than_its_sources_owner_names_both_in_the_refusal()
+    {
+        let refusal = refuse_an_account_other_than_the_sources_owner(
+            "Employer/dotfiles/config/work.dotconfig.json",
+            &GitHubAccount::from("Alice"),
+            &RepositoryOwner::from("Employer"),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(
+            refusal.contains("Employer/dotfiles/config/work.dotconfig.json")
+                && refusal.contains("Alice")
+                && refusal.contains("Employer"),
+            "{refusal}"
+        );
+    }
+
+    #[test]
+    fn an_account_matching_its_sources_owner_in_every_letter_but_case_is_refused() {
+        let checked = refuse_an_account_other_than_the_sources_owner(
+            "Alice/dotfiles/config/everywhere.dotconfig.json",
+            &GitHubAccount::from("alice"),
+            &RepositoryOwner::from("Alice"),
+        );
+
+        assert!(checked.is_err());
     }
 
     #[test]
