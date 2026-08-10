@@ -1,0 +1,28 @@
+{
+    "version": "5",
+    "applies_to": "personal",
+    "github_account": "Alice",
+    "workspaces": [
+        {
+            "repository": {
+                "owner": "Alice",
+                "repository": "dotfiles"
+            }
+        }
+    ],
+    "resources": [
+        {
+            "kind": "symlink",
+            "source_path": "gitconfig/.gitconfig",
+            "link_path": ".gitconfig"
+        },
+        {
+            "kind": "package",
+            "manager": "winget",
+            "id": "Microsoft.PowerShell"
+        }
+    ],
+    "notices": [
+        "Sync the Android Studio settings repository"
+    ]
+}

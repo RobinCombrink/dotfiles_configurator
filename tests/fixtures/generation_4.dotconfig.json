@@ -1,0 +1,35 @@
+{
+    "version": "4",
+    "applies_to": "personal",
+    "machine": {
+        "repositories_directory_path": "C:\\Repositories\\Personal",
+        "github_username": "Alice",
+        "dotfiles_repository": {
+            "owner": "Alice",
+            "repository": "dotfiles"
+        }
+    },
+    "workspaces": [
+        {
+            "repository": {
+                "owner": "Alice",
+                "repository": "dotfiles"
+            }
+        }
+    ],
+    "resources": [
+        {
+            "kind": "symlink",
+            "source_path": "gitconfig/.gitconfig",
+            "link_path": ".gitconfig"
+        },
+        {
+            "kind": "package",
+            "manager": "winget",
+            "id": "Microsoft.PowerShell"
+        }
+    ],
+    "notices": [
+        "Sync the Android Studio settings repository"
+    ]
+}

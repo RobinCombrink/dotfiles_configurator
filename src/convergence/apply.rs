@@ -1,6 +1,6 @@
 use {
     crate::{
-        configuration::Notice,
+        configuration::{Migration, Notice},
         convergence::{
             Blocked, Change, ChangeSet,
             converge::{Convergence, converge},
@@ -38,6 +38,9 @@ pub struct ApplyOutcome {
     /// installer that exits zero without installing anything looks exactly like this.
     pub unverified: Vec<Change>,
     pub notices: Vec<Notice>,
+    /// The documents this run rewrote a generation forward, which is neither a change nor a
+    /// notice: it altered a configuration rather than the machine.
+    pub migrated: Vec<Migration>,
     pub passes: usize,
 }
 
@@ -87,18 +90,22 @@ impl Display for ApplyOutcome {
                 change.resource, change.reason
             )?;
         }
+        for migration in &self.migrated {
+            writeln!(formatter, "  migrated  {migration}")?;
+        }
         for notice in &self.notices {
             writeln!(formatter, "  notice    {notice}")?;
         }
         write!(
             formatter,
-            "\n{} converged, {} failed, {} held, {} still blocked, {} did not take, over {} \
-             pass(es)",
+            "\n{} converged, {} failed, {} held, {} still blocked, {} did not take, {} migrated, \
+             over {} pass(es)",
             self.converged.len(),
             self.failed.len(),
             self.held.len(),
             self.blocked.len(),
             self.unverified.len(),
+            self.migrated.len(),
             self.passes
         )
     }
@@ -123,6 +130,11 @@ pub async fn apply(
     {
         let _doing = report.doing("removing the binaries earlier runs replaced");
         machine.sweep_superseded_images();
+    }
+
+    for migration in &desired_state.migrations {
+        let _doing = report.doing(format!("rewriting {migration}"));
+        migration.perform()?;
     }
 
     let change_set = loop {
@@ -163,6 +175,7 @@ pub async fn apply(
         blocked: change_set.blocked,
         unverified,
         notices: change_set.notices,
+        migrated: desired_state.migrations.clone(),
         passes,
     })
 }

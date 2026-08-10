@@ -360,11 +360,25 @@ fn configuration_for_every_machine_a_generation_back_linking(
     link_path: String,
     source_path: String,
 ) {
-    world.documents.push(document(
-        &OLDEST_READABLE_GENERATION.to_string(),
-        "everywhere",
-        &symlink(&link_path, &source_path),
-    ));
+    world
+        .documents
+        .push(outgoing_document(&symlink(&link_path, &source_path)));
+}
+
+/// A generation-4 document, in the shape that generation had rather than this one's.
+fn outgoing_document(resources: &str) -> String {
+    format!(
+        r#"{{
+            "version": "{OLDEST_READABLE_GENERATION}",
+            "applies_to": "everywhere",
+            "machine": {{
+                "repositories_directory_path": "/repositories/Personal",
+                "github_username": "Alice",
+                "dotfiles_repository": {{ "owner": "Alice", "repository": "dotfiles" }}
+            }},
+            "resources": {resources}
+        }}"#
+    )
 }
 
 #[given(expr = "Alice has a configuration declaring a generation this build has outgrown")]
@@ -884,6 +898,17 @@ fn refusal_mentions_the_generation_needed(world: &mut MachineWorld) {
 #[then(expr = "the refusal mentions the generation this build is")]
 fn refusal_mentions_the_generation_of_this_build(world: &mut MachineWorld) {
     refusal_mentions(world, format!("generation {BUILD_GENERATION}"));
+}
+
+#[then(expr = "{int} configuration(s) is/are waiting to be rewritten")]
+fn configurations_waiting_to_be_rewritten(world: &mut MachineWorld, expected: usize) {
+    let migrations = &world
+        .loaded
+        .as_ref()
+        .expect("nothing was loaded")
+        .migrations;
+
+    assert_eq!(migrations.len(), expected, "{migrations:?}");
 }
 
 #[then(expr = "the desired state holds {int} symlink(s)")]

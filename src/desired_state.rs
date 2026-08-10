@@ -2,7 +2,7 @@ use {
     crate::{
         configuration::{
             CargoWorkspace, Configuration, Context, GitHubAccount, GitHubRepository, Identity,
-            Notice, Resource, ResourceKind,
+            Migration, Notice, Resource, ResourceKind,
         },
         convergence::Requirement,
     },
@@ -220,12 +220,25 @@ pub struct DesiredState {
     pub resources: Vec<ResolvedResource>,
     pub workspaces: Vec<ResolvedWorkspace>,
     pub notices: Vec<ResolvedNotice>,
+    pub migrations: Vec<Migration>,
+    pub announcements: Vec<Notice>,
     account: GitHubAccount,
 }
 
 impl DesiredState {
     pub fn account(&self) -> &GitHubAccount {
         &self.account
+    }
+
+    /// The documents an apply rewrites, and what it can only announce about the ones it cannot.
+    pub fn also_reporting(
+        mut self,
+        migrations: Vec<Migration>,
+        announcements: Vec<Notice>,
+    ) -> Self {
+        self.migrations = migrations;
+        self.announcements = announcements;
+        self
     }
 
     pub fn of(configurations: Vec<(String, ResolvedConfiguration)>) -> Result<Self> {
@@ -269,6 +282,8 @@ impl DesiredState {
             resources,
             workspaces,
             notices,
+            migrations: Vec::new(),
+            announcements: Vec::new(),
             account,
         })
     }
@@ -327,6 +342,7 @@ mod tests {
         );
         crate::configuration::parse_configuration(&written, "the test configuration")
             .unwrap_or_else(|refusal: Unreadable| panic!("{refusal}"))
+            .configuration
     }
 
     fn read_from_the_dotfiles_repository(applies_to: &str, body: &str) -> ResolvedConfiguration {

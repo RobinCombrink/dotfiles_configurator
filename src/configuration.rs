@@ -14,6 +14,8 @@ pub mod context;
 pub mod generation;
 #[path = "configuration/identity.rs"]
 pub mod identity;
+#[path = "configuration/migration.rs"]
+pub mod migration;
 #[path = "configuration/names.rs"]
 pub mod names;
 #[path = "configuration/presence_check.rs"]
@@ -32,6 +34,7 @@ pub use {
         OLDEST_READABLE_GENERATION,
     },
     identity::Identity,
+    migration::{Migration, announcement},
     names::{
         ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName, RepositoryName,
         RepositoryOwner, WingetPackageId,
@@ -106,7 +109,15 @@ impl Display for Notice {
     }
 }
 
-pub fn parse_configuration(contents: &str, source: &str) -> Result<Configuration, Unreadable> {
+/// A configuration as this build reads it, and the generation it was written as where that is not
+/// the one this build reads.
+#[derive(Debug)]
+pub struct Reading {
+    pub configuration: Configuration,
+    pub migrated_from: Option<Generation>,
+}
+
+pub fn parse_configuration(contents: &str, source: &str) -> Result<Reading, Unreadable> {
     let document: serde_json::Value =
         serde_json::from_str(contents).with_context(|| format!("{source} is not valid JSON"))?;
 
@@ -147,11 +158,26 @@ pub fn parse_configuration(contents: &str, source: &str) -> Result<Configuration
         });
     }
 
+    if required == OLDEST_READABLE_GENERATION {
+        let outgoing: migration::OutgoingConfiguration = serde_path_to_error::deserialize(document)
+            .with_context(|| format!("{source} is not a valid generation {required} configuration"))
+            .map_err(Unreadable::Malformed)?;
+
+        return Ok(Reading {
+            migrated_from: Some(outgoing.stated_generation()),
+            configuration: outgoing.into(),
+        });
+    }
+
     serde_path_to_error::deserialize(document)
         .with_context(|| {
             format!("{source} is not a valid generation {BUILD_GENERATION} configuration")
         })
         .map_err(Unreadable::Malformed)
+        .map(|configuration| Reading {
+            configuration,
+            migrated_from: None,
+        })
 }
 
 #[cfg(test)]
@@ -170,6 +196,7 @@ mod tests {
             &configuration_json(&BUILD_GENERATION.to_string(), body),
             "the test configuration",
         )
+        .map(|reading| reading.configuration)
     }
 
     #[test]

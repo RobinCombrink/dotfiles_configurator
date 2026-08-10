@@ -1,8 +1,8 @@
 use {
     crate::{
         configuration::{
-            Configuration, GitHubRepository, MachineClass, RepositoryName, RepositoryOwner,
-            Unreadable, parse_configuration,
+            Configuration, GitHubRepository, MachineClass, Migration, Notice, RepositoryName,
+            RepositoryOwner, Unreadable, announcement, parse_configuration,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         github,
@@ -60,6 +60,22 @@ const EXPECTED_SOURCE: &str = "expected `local:<directory>` or `github:<owner>/<
 
 const CONFIGURATION_SUFFIX: &str = ".dotconfig.json";
 
+/// A configuration as it was read, and what reading it a generation back left pending. A local
+/// document is rewritten by an apply; one this program only reads is announced instead.
+#[derive(Debug)]
+struct LoadedConfiguration {
+    name: String,
+    configuration: Configuration,
+    pending: Pending,
+}
+
+#[derive(Debug)]
+enum Pending {
+    Nothing,
+    Rewriting(Migration),
+    Announcing(Notice),
+}
+
 fn checkout_holding(directory: &Path) -> Option<PathBuf> {
     directory
         .ancestors()
@@ -76,10 +92,10 @@ pub async fn load_desired_state(
     machine: MachineClass,
     repositories_root: &Path,
 ) -> Result<DesiredState> {
-    let mut per_source: Vec<(&ConfigurationSource, Vec<(String, Configuration)>)> = Vec::new();
+    let mut per_source: Vec<(&ConfigurationSource, Vec<LoadedConfiguration>)> = Vec::new();
     let mut unreadable: Vec<Unreadable> = Vec::new();
     for source in sources {
-        let mut from_this_source: Vec<(String, Configuration)> = Vec::new();
+        let mut from_this_source: Vec<LoadedConfiguration> = Vec::new();
         for attempt in source.load().await {
             match attempt {
                 Ok(configuration) => from_this_source.push(configuration),
@@ -93,14 +109,14 @@ pub async fn load_desired_state(
         return Err(refusal.into());
     }
 
-    let mut read: Vec<(String, Configuration, SourceLocation)> = Vec::new();
+    let mut read: Vec<(LoadedConfiguration, SourceLocation)> = Vec::new();
     for (source, from_this_source) in per_source {
         refuse_two_trees_for_one_source(source, &from_this_source)?;
         let location = source.files_come_from()?;
         read.extend(
             from_this_source
                 .into_iter()
-                .map(|(name, configuration)| (name, configuration, location.clone())),
+                .map(|loaded| (loaded, location.clone())),
         );
     }
 
@@ -110,15 +126,9 @@ pub async fn load_desired_state(
         ));
     }
 
-    let applicable: Vec<(String, ResolvedConfiguration)> = read
+    let applicable: Vec<(LoadedConfiguration, SourceLocation)> = read
         .into_iter()
-        .filter(|(_, configuration, _)| configuration.applies_to.applies_on(machine))
-        .map(|(name, configuration, location)| {
-            (
-                name,
-                ResolvedConfiguration::read(configuration, location, repositories_root),
-            )
-        })
+        .filter(|(loaded, _)| loaded.configuration.applies_to.applies_on(machine))
         .collect();
 
     if applicable.is_empty() {
@@ -128,18 +138,31 @@ pub async fn load_desired_state(
         ));
     }
 
-    DesiredState::of(applicable)
+    let mut migrations: Vec<Migration> = Vec::new();
+    let mut announcements: Vec<Notice> = Vec::new();
+    let mut resolved: Vec<(String, ResolvedConfiguration)> = Vec::new();
+    for (loaded, location) in applicable {
+        match loaded.pending {
+            Pending::Nothing => {}
+            Pending::Rewriting(migration) => migrations.push(migration),
+            Pending::Announcing(notice) => announcements.push(notice),
+        }
+        resolved.push((
+            loaded.name,
+            ResolvedConfiguration::read(loaded.configuration, location, repositories_root),
+        ));
+    }
+
+    Ok(DesiredState::of(resolved)?.also_reporting(migrations, announcements))
 }
 
 /// A source is cloned into the tree its configurations' context names, so one yielding two
 /// contexts that name different trees would have to be cloned into both. See ADR 0025.
 fn refuse_two_trees_for_one_source(
     source: &ConfigurationSource,
-    loaded: &[(String, Configuration)],
+    loaded: &[LoadedConfiguration],
 ) -> Result<()> {
-    let contexts = loaded
-        .iter()
-        .map(|(_, configuration)| configuration.applies_to);
+    let contexts = loaded.iter().map(|loaded| loaded.configuration.applies_to);
 
     let Some(first) = contexts.clone().next() else {
         return Ok(());
@@ -232,7 +255,7 @@ impl ConfigurationSource {
         }
     }
 
-    async fn load(&self) -> Vec<Result<(String, Configuration), Unreadable>> {
+    async fn load(&self) -> Vec<Result<LoadedConfiguration, Unreadable>> {
         match self {
             ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory),
             ConfigurationSource::GitHubRepository {
@@ -243,7 +266,7 @@ impl ConfigurationSource {
         }
     }
 
-    fn load_local(directory: &Path) -> Vec<Result<(String, Configuration), Unreadable>> {
+    fn load_local(directory: &Path) -> Vec<Result<LoadedConfiguration, Unreadable>> {
         let entries = match fs::read_dir(directory) {
             Ok(entries) => entries,
             Err(failure) => {
@@ -267,7 +290,20 @@ impl ConfigurationSource {
                 let contents = fs::read_to_string(&path)
                     .with_context(|| format!("Could not read {source}"))
                     .map_err(Unreadable::Malformed)?;
-                Ok((source.clone(), parse_configuration(&contents, &source)?))
+                let reading = parse_configuration(&contents, &source)?;
+
+                let pending = match reading.migrated_from {
+                    None => Pending::Nothing,
+                    Some(from) => Pending::Rewriting(
+                        Migration::of(&path, &reading.configuration, from)
+                            .map_err(Unreadable::Malformed)?,
+                    ),
+                };
+                Ok(LoadedConfiguration {
+                    name: source,
+                    configuration: reading.configuration,
+                    pending,
+                })
             })
             .collect()
     }
@@ -276,7 +312,7 @@ impl ConfigurationSource {
         owner: &str,
         repository: &str,
         directory: &str,
-    ) -> Vec<Result<(String, Configuration), Unreadable>> {
+    ) -> Vec<Result<LoadedConfiguration, Unreadable>> {
         let account = match github::AuthenticatedAccount::authenticate_as(&owner.into()) {
             Ok(account) => account,
             Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
@@ -294,7 +330,7 @@ impl ConfigurationSource {
             Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
         };
 
-        let mut loaded: Vec<Result<(String, Configuration), Unreadable>> = Vec::new();
+        let mut loaded: Vec<Result<LoadedConfiguration, Unreadable>> = Vec::new();
         for file_path in file_paths
             .iter()
             .filter(|file_path| is_configuration_file(file_path))
@@ -303,7 +339,15 @@ impl ConfigurationSource {
             match github::get_file_contents(owner, repository, file_path, account.client()).await {
                 Err(refusal) => loaded.push(Err(Unreadable::Malformed(refusal))),
                 Ok(documents) => loaded.extend(documents.into_iter().map(|contents| {
-                    Ok((source.clone(), parse_configuration(&contents, &source)?))
+                    let reading = parse_configuration(&contents, &source)?;
+                    Ok(LoadedConfiguration {
+                        pending: match reading.migrated_from {
+                            None => Pending::Nothing,
+                            Some(from) => Pending::Announcing(announcement(&source, from)),
+                        },
+                        name: source.clone(),
+                        configuration: reading.configuration,
+                    })
                 })),
             }
         }

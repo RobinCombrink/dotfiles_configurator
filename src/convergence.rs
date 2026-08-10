@@ -1,6 +1,6 @@
 use {
     crate::{
-        configuration::{GitHubRepository, Notice, Resource, ResourceKind, Shell},
+        configuration::{GitHubRepository, Migration, Notice, Resource, ResourceKind, Shell},
         desired_state::{DesiredState, ResolvedResource},
         machine::Tool,
         reporting::RunReport,
@@ -168,6 +168,8 @@ pub struct ChangeSet {
     pub blocked: Vec<Blocked>,
     pub converged: Vec<ResolvedResource>,
     pub notices: Vec<Notice>,
+    /// The documents an apply would rewrite, which a plan reports and performs none of.
+    pub migrations: Vec<Migration>,
     pub readings: SourceReadings,
 }
 
@@ -231,6 +233,7 @@ pub async fn plan(
         .iter()
         .map(|notice| notice.declared().clone())
         .collect();
+    notices.extend(desired_state.announcements.iter().cloned());
     notices.extend(machine.superseded_images().iter().map(|path| {
         Notice::from(format!(
             "{} is a binary that was replaced while it was being executed; an apply removes it \
@@ -244,6 +247,7 @@ pub async fn plan(
         blocked,
         converged,
         notices,
+        migrations: desired_state.migrations.clone(),
         readings,
     })
 }
@@ -264,15 +268,19 @@ impl Display for ChangeSet {
                 blocked.resource, blocked.impediment
             )?;
         }
+        for migration in &self.migrations {
+            writeln!(formatter, "  migrate {migration}")?;
+        }
         for notice in &self.notices {
             writeln!(formatter, "  notice  {notice}")?;
         }
         write!(
             formatter,
-            "\n{} to change, {} blocked, {} already converged",
+            "\n{} to change, {} blocked, {} already converged, {} to migrate",
             self.changes.len(),
             self.blocked.len(),
-            self.converged.len()
+            self.converged.len(),
+            self.migrations.len()
         )
     }
 }

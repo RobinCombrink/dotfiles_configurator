@@ -73,6 +73,18 @@ Feature: Loading a configuration
     When Alice loads her configurations for a personal machine
     Then the desired state links ".gitconfig"
 
+  Scenario: A configuration a generation back is rewritten rather than refused
+    Given Alice has a configuration for every machine declaring the generation below this build linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then 1 configuration is waiting to be rewritten
+
+  Scenario: A configuration already at this generation is rewritten by nothing
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then 0 configurations are waiting to be rewritten
+
   Scenario: A configuration further back than one generation is refused as outgrown
     Given Alice has a configuration declaring a generation this build has outgrown
     When Alice loads her configurations for a personal machine
