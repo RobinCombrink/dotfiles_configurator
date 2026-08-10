@@ -61,7 +61,7 @@ struct MachineState {
     superseded_images: BTreeSet<PathBuf>,
     cargo_installs: usize,
     releases: BTreeMap<GitHubRepository, ReleaseReading>,
-    release_reads: Vec<GitHubRepository>,
+    release_reads: Vec<(GitHubRepository, GitHubAccount)>,
     clones: Vec<(GitHubRepository, GitHubAccount)>,
     version_output_by_binary_path: BTreeMap<PathBuf, String>,
 }
@@ -241,12 +241,24 @@ impl FakeMachine {
             .map(|(_, account)| account.clone())
     }
 
+    pub fn account_reading_releases_of(
+        &self,
+        repository: &GitHubRepository,
+    ) -> Option<GitHubAccount> {
+        self.state
+            .borrow()
+            .release_reads
+            .iter()
+            .find(|(read, _)| read == repository)
+            .map(|(_, account)| account.clone())
+    }
+
     pub fn release_reads(&self, repository: &GitHubRepository) -> usize {
         self.state
             .borrow()
             .release_reads
             .iter()
-            .filter(|read| *read == repository)
+            .filter(|(read, _)| read == repository)
             .count()
     }
 
@@ -490,10 +502,12 @@ impl ReadMachine for FakeMachine {
     async fn latest_release(
         &self,
         repository: &GitHubRepository,
-        _account: &GitHubAccount,
+        account: &GitHubAccount,
     ) -> Result<ReleaseReading> {
         let mut state = self.state.borrow_mut();
-        state.release_reads.push(repository.clone());
+        state
+            .release_reads
+            .push((repository.clone(), account.clone()));
 
         state
             .releases

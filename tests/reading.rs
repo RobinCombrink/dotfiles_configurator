@@ -10,11 +10,13 @@ mod declarations;
 mod fake_machine;
 
 use {
-    declarations::{declaring, named_repository, reporting_its_version_in_the_second_word},
+    declarations::{
+        declaring, named_repository, read_as_two_accounts, reporting_its_version_in_the_second_word,
+    },
     dotfiles_configurator::{
         configuration::{
-            Application, CargoPackage, CargoSource, CargoWorkspace, CrateName, GitHubRepository,
-            Package, RepositoryName, RepositoryOwner, Resource, WingetPackage,
+            Application, CargoPackage, CargoSource, CargoWorkspace, CrateName, GitHubAccount,
+            GitHubRepository, Package, RepositoryName, RepositoryOwner, Resource, WingetPackage,
         },
         convergence::plan,
         desired_state::DesiredState,
@@ -209,6 +211,32 @@ async fn several_binaries_out_of_one_repository_ask_it_for_its_release_once() {
         .unwrap();
 
     assert_eq!(machine.release_reads(&named_repository(RIPGREP)), 1);
+}
+
+#[tokio::test]
+async fn a_repository_two_configurations_declare_a_binary_from_is_read_once_as_the_first_of_them() {
+    let machine = FakeMachine::default();
+    machine.publish_release(
+        named_repository(RIPGREP),
+        ReleaseReading {
+            version: Version::try_from("15.1.0").unwrap(),
+            assets: Vec::new(),
+        },
+    );
+    let desired_state = read_as_two_accounts(
+        vec![released_binary("rg.exe")],
+        vec![released_binary("rg-imports.exe")],
+    );
+
+    plan(&desired_state, &machine, &RunReport::discarded())
+        .await
+        .unwrap();
+
+    assert_eq!(machine.release_reads(&named_repository(RIPGREP)), 1);
+    assert_eq!(
+        machine.account_reading_releases_of(&named_repository(RIPGREP)),
+        Some(GitHubAccount::from("Alice"))
+    );
 }
 
 #[tokio::test]
