@@ -1073,6 +1073,19 @@ fn directory_is_on_the_machine_search_path(world: &mut MachineWorld, path: Strin
     world.machine.hold_machine_search_path_entry(directory);
 }
 
+#[given(expr = "nothing is on Alice's search path")]
+fn nothing_is_on_the_search_path(world: &mut MachineWorld) {
+    world.machine.clear_the_search_path();
+}
+
+#[then(expr = "the directory this program installs binaries into is on Alice's own search path")]
+fn the_binaries_directory_is_on_alices_search_path(world: &mut MachineWorld) {
+    let directory = world.machine.binaries_directory();
+    let search_path = world.machine.user_search_path();
+
+    assert!(search_path.contains(&directory), "{search_path:?}");
+}
+
 #[then(expr = "{string} is on Alice's own search path")]
 fn directory_is_now_on_alices_search_path(world: &mut MachineWorld, path: String) {
     let directory = under_alices_home(world, &path);

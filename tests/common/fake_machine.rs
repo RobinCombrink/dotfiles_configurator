@@ -121,6 +121,7 @@ impl Default for FakeMachine {
                 .join(own_currency().installed_name().as_ref()),
             format!("dotfiles_configurator {CONFIGURATOR_VERSION}"),
         );
+        machine.hold_user_search_path_entry(machine.binaries_directory());
 
         machine
     }
@@ -298,6 +299,12 @@ impl FakeMachine {
 
     pub fn user_search_path(&self) -> Vec<PathBuf> {
         self.state.borrow().user_search_path.clone()
+    }
+
+    pub fn clear_the_search_path(&self) {
+        let mut state = self.state.borrow_mut();
+        state.user_search_path.clear();
+        state.machine_search_path.clear();
     }
 
     pub fn hold_environment_variable(&self, name: &VariableName, value: &str) {

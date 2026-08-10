@@ -245,3 +245,9 @@ Feature: Planning what a machine needs
     When Alice plans
     Then the change set reports 0 changes
     And the change set reports the machine as converged
+
+  Scenario: The directory this program installs binaries into is planned without being declared
+    Given nothing is on Alice's search path
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "the directory this program installs binaries into"

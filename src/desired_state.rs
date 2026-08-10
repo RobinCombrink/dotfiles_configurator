@@ -1,8 +1,9 @@
 use {
     crate::{
         configuration::{
-            Application, CargoWorkspace, Configuration, Context, GitHubAccount, GitHubRepository,
-            Identity, Migration, Notice, Resource, ResourceKind,
+            Application, CargoWorkspace, Configuration, Context, EnvironmentVariable,
+            GitHubAccount, GitHubRepository, Identity, Migration, Notice, Resource, ResourceKind,
+            SearchPathDirectory, SearchPathEntry,
         },
         convergence::Requirement,
         currency,
@@ -254,10 +255,20 @@ impl DesiredState {
         let own_currency = for_every_machine.pair(Resource::Application(
             Application::ReleasedBinary(currency::own_currency()),
         ));
-        if let Some(identity) = own_currency.identity() {
-            claimed.insert(identity, ("this build".to_owned(), own_currency.clone()));
+        // ADR 0017
+        let own_binaries_are_reachable = for_every_machine.pair(Resource::EnvironmentVariable(
+            EnvironmentVariable::SearchPathEntry(SearchPathEntry {
+                directory: SearchPathDirectory::ToolBinaries,
+            }),
+        ));
+
+        let mut resources: Vec<ResolvedResource> = Vec::new();
+        for carried in [own_currency, own_binaries_are_reachable] {
+            if let Some(identity) = carried.identity() {
+                claimed.insert(identity, ("this build".to_owned(), carried.clone()));
+            }
+            resources.push(carried);
         }
-        let mut resources: Vec<ResolvedResource> = vec![own_currency];
 
         for (source, configuration) in &configurations {
             for resource in configuration.resources() {
@@ -412,16 +423,27 @@ mod tests {
         ])
     }
 
-    /// Every change set carries the configurator's own currency, which most of these are not
-    /// about.
+    fn carried_by_every_change_set() -> Vec<Identity> {
+        vec![
+            Identity::InstalledBinary(currency::own_currency().installed_name()),
+            Identity::SearchPathEntry(SearchPathDirectory::ToolBinaries),
+        ]
+    }
+
+    /// Every change set carries the configurator's own currency and the directory it installs
+    /// binaries into, which most of these are not about.
     fn other_than_what_every_change_set_carries(
         desired_state: &DesiredState,
     ) -> Vec<&ResolvedResource> {
-        let own = Identity::InstalledBinary(currency::own_currency().installed_name());
+        let carried = carried_by_every_change_set();
         desired_state
             .resources
             .iter()
-            .filter(|resource| resource.identity() != Some(own.clone()))
+            .filter(|resource| {
+                resource
+                    .identity()
+                    .is_none_or(|identity| !carried.contains(&identity))
+            })
             .collect()
     }
 
@@ -450,6 +472,23 @@ mod tests {
         assert!(
             claimed.contains(&Identity::InstalledBinary(
                 currency::own_currency().installed_name()
+            )),
+            "{claimed:?}"
+        );
+    }
+
+    #[test]
+    fn every_change_set_carries_the_directory_this_program_installs_binaries_into() {
+        let desired_state = a_readable_set(EMPTY).unwrap();
+
+        let claimed: Vec<Identity> = desired_state
+            .resources
+            .iter()
+            .filter_map(ResolvedResource::identity)
+            .collect();
+        assert!(
+            claimed.contains(&Identity::SearchPathEntry(
+                SearchPathDirectory::ToolBinaries
             )),
             "{claimed:?}"
         );

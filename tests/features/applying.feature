@@ -177,3 +177,8 @@ Feature: Applying a change set
     Given Alice declares the search path entry "bin" in the repository "flutter/flutter"
     When Alice applies
     Then "bin" inside the clone of "flutter/flutter" is on Alice's own search path
+
+  Scenario: Applying puts the directory this program installs binaries into on the search path
+    Given nothing is on Alice's search path
+    When Alice applies
+    Then the directory this program installs binaries into is on Alice's own search path

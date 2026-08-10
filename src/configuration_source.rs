@@ -515,13 +515,22 @@ mod tests {
     /// Every change set carries the configurator's own currency, which these scenarios are not
     /// about.
     fn rendered(desired_state: &DesiredState) -> Vec<String> {
-        let own = crate::configuration::Identity::InstalledBinary(
-            crate::currency::own_currency().installed_name(),
-        );
+        let carried = [
+            crate::configuration::Identity::InstalledBinary(
+                crate::currency::own_currency().installed_name(),
+            ),
+            crate::configuration::Identity::SearchPathEntry(
+                crate::configuration::SearchPathDirectory::ToolBinaries,
+            ),
+        ];
         desired_state
             .resources
             .iter()
-            .filter(|resource| resource.identity() != Some(own.clone()))
+            .filter(|resource| {
+                resource
+                    .identity()
+                    .is_none_or(|identity| !carried.contains(&identity))
+            })
             .map(ToString::to_string)
             .collect()
     }
