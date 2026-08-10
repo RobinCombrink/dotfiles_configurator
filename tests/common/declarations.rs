@@ -78,10 +78,10 @@ pub fn declaring(resources: Vec<Resource>, workspaces: Vec<CargoWorkspace>) -> D
     read_out_of_a_checkout(resources, workspaces, Vec::new())
 }
 
-pub const EMPLOYER: &str = "Employer";
+fn employers_repository() -> GitHubRepository {
+    named_repository("Employer/dotfiles")
+}
 
-/// A set whose configuration for work machines was written in the employer's repository and acts
-/// as the employer's account, which is the two-account shape a run has to keep apart.
 pub fn read_as_two_accounts(
     alices_resources: Vec<Resource>,
     employers_resources: Vec<Resource>,
@@ -97,7 +97,7 @@ pub fn read_as_two_accounts(
     let work = Configuration {
         version: BUILD_GENERATION,
         applies_to: Context::Work,
-        github_account: GitHubAccount::from(EMPLOYER),
+        github_account: GitHubAccount::from(employers_repository().owner.as_ref()),
         workspaces: Vec::new(),
         resources: employers_resources,
         notices: Vec::new(),
@@ -116,7 +116,7 @@ pub fn read_as_two_accounts(
             "work.dotconfig.json".to_owned(),
             ResolvedConfiguration::read(
                 work,
-                SourceLocation::Repository(named_repository("Employer/dotfiles")),
+                SourceLocation::Repository(employers_repository()),
                 Path::new(REPOSITORIES_ROOT),
             ),
         ),

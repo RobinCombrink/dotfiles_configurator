@@ -356,8 +356,6 @@ mod tests {
             .configuration
     }
 
-    /// A configuration in the repository of the account it acts as, which is the only pairing
-    /// reading a GitHub source admits.
     fn read_from_the_repository_of(
         account: &str,
         applies_to: &str,
@@ -374,11 +372,7 @@ mod tests {
     }
 
     fn read_from_the_dotfiles_repository(applies_to: &str, body: &str) -> ResolvedConfiguration {
-        ResolvedConfiguration::read(
-            document(applies_to, body),
-            SourceLocation::Repository(dotfiles()),
-            Path::new(REPOSITORIES_ROOT),
-        )
+        read_from_the_repository_of("Alice", applies_to, body)
     }
 
     fn read_from_a_checkout(applies_to: &str, body: &str) -> ResolvedConfiguration {

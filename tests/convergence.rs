@@ -57,7 +57,6 @@ struct MachineWorld {
     documents: Vec<String>,
     /// A second source, held by a repository Alice does not own.
     employers_documents: Vec<String>,
-    /// What that second source declares, which converges as the employer's account.
     employers_resources: Vec<Resource>,
     /// Files kept beside the configurations that are not configurations themselves.
     stray_file_names: Vec<String>,
