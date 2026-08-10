@@ -4,7 +4,7 @@ use {
     std::{borrow::Cow, fmt::Display},
 };
 
-pub const BUILD_GENERATION: Generation = Generation(5);
+pub const BUILD_GENERATION: Generation = Generation(6);
 
 /// The oldest shape this build can read, derived from its own generation rather than declared, so
 /// that the two cannot drift apart. See ADR 0026.

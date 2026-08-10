@@ -4,7 +4,7 @@ use {
         context::Context,
         generation::{BUILD_GENERATION, Generation, OLDEST_READABLE_GENERATION},
         names::GitHubAccount,
-        resource::{GitHubRepository, Resource},
+        resource::Resource,
         workspace::CargoWorkspace,
     },
     crate::configuration::Notice,
@@ -23,7 +23,7 @@ use {
 pub struct OutgoingConfiguration {
     version: Generation,
     applies_to: Context,
-    machine: OutgoingMachineSettings,
+    github_account: GitHubAccount,
     #[serde(default)]
     workspaces: Vec<CargoWorkspace>,
     #[serde(default)]
@@ -32,23 +32,12 @@ pub struct OutgoingConfiguration {
     notices: Vec<Notice>,
 }
 
-#[derive(Debug, Deserialize)]
-struct OutgoingMachineSettings {
-    // Required of a generation 4 document and derived by this build, so it is read to refuse a
-    // document that omits it and then dropped.
-    #[allow(dead_code)]
-    repositories_directory_path: PathBuf,
-    github_username: GitHubAccount,
-    #[allow(dead_code)]
-    dotfiles_repository: GitHubRepository,
-}
-
 impl From<OutgoingConfiguration> for Configuration {
     fn from(outgoing: OutgoingConfiguration) -> Self {
         Self {
             version: BUILD_GENERATION,
             applies_to: outgoing.applies_to,
-            github_account: outgoing.machine.github_username,
+            github_account: outgoing.github_account,
             workspaces: outgoing.workspaces,
             resources: outgoing.resources,
             notices: outgoing.notices,

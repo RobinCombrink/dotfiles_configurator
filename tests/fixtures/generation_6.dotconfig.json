@@ -1,14 +1,7 @@
 {
-    "version": "4",
+    "version": "6",
     "applies_to": "personal",
-    "machine": {
-        "repositories_directory_path": "C:\\Repositories\\Personal",
-        "github_username": "Alice",
-        "dotfiles_repository": {
-            "owner": "Alice",
-            "repository": "dotfiles"
-        }
-    },
+    "github_account": "Alice",
     "workspaces": [
         {
             "repository": {

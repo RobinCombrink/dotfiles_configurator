@@ -396,17 +396,14 @@ fn configuration_for_every_machine_a_generation_back_linking(
         .push(outgoing_document(&symlink(&link_path, &source_path)));
 }
 
-/// A generation-4 document, in the shape that generation had rather than this one's.
+/// A document of the generation below this build, in the shape that generation had rather than
+/// this one's.
 fn outgoing_document(resources: &str) -> String {
     format!(
         r#"{{
             "version": "{OLDEST_READABLE_GENERATION}",
             "applies_to": "everywhere",
-            "machine": {{
-                "repositories_directory_path": "/repositories/Personal",
-                "github_username": "Alice",
-                "dotfiles_repository": {{ "owner": "Alice", "repository": "dotfiles" }}
-            }},
+            "github_account": "Alice",
             "resources": {resources}
         }}"#
     )
