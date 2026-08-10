@@ -182,3 +182,8 @@ Feature: Applying a change set
     Given nothing is on Alice's search path
     When Alice applies
     Then the directory this program installs binaries into is on Alice's own search path
+
+  Scenario: An environment change is reported as reaching no process already running
+    Given Alice declares the environment variable "EDITOR" as "nvim"
+    When Alice applies
+    Then the run reports a notice mentioning "open a new one"

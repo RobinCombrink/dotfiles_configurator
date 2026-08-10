@@ -1,6 +1,6 @@
 use {
     crate::{
-        configuration::{Migration, Notice},
+        configuration::{Migration, Notice, ResourceKind},
         convergence::{
             Blocked, Change, ChangeSet,
             converge::{Convergence, converge},
@@ -168,15 +168,34 @@ pub async fn apply(
         .cloned()
         .collect();
 
+    let mut notices = change_set.notices;
+    notices.extend(what_a_running_process_will_not_see(&converged));
+
     Ok(ApplyOutcome {
         converged,
         failed,
         held,
         blocked: change_set.blocked,
         unverified,
-        notices: change_set.notices,
+        notices,
         migrated: desired_state.migrations.clone(),
         passes,
+    })
+}
+
+/// ADR 0017 makes an environment change invisible to every process already running, including the
+/// shell that launched this one, so a run that made one says so rather than leaving a person to
+/// conclude the change did not take.
+fn what_a_running_process_will_not_see(converged: &[ResolvedResource]) -> Option<Notice> {
+    let changed = converged
+        .iter()
+        .any(|resource| resource.kind() == ResourceKind::EnvironmentVariable);
+
+    changed.then(|| {
+        Notice::from(
+            "The environment changed. No process already running sees it, including the shell \
+             this run was started from — open a new one.",
+        )
     })
 }
 

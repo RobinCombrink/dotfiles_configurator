@@ -793,6 +793,21 @@ fn change_set_mentions(world: &mut MachineWorld, text: String) {
     );
 }
 
+#[then(expr = "the run reports a notice mentioning {string}")]
+fn the_run_reports_a_notice_mentioning(world: &mut MachineWorld, text: String) {
+    let notices: Vec<String> = world
+        .outcome()
+        .notices
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+
+    assert!(
+        notices.iter().any(|notice| notice.contains(&text)),
+        "{notices:?}"
+    );
+}
+
 #[then(expr = "the change set reports the machine as converged")]
 fn change_set_reports_converged(world: &mut MachineWorld) {
     assert!(world.change_set().is_converged());
