@@ -61,8 +61,18 @@ impl<'report> LocalMachine<'report> {
         })
     }
 
-    fn run(&self, tool: Tool, arguments: &[String]) -> Result<CommandOutput> {
-        stream(Path::new(tool.program()), arguments, self.report)
+    fn run(
+        &self,
+        tool: Tool,
+        arguments: &[String],
+        environment: &[(&str, &str)],
+    ) -> Result<CommandOutput> {
+        stream(
+            Path::new(tool.program()),
+            arguments,
+            environment,
+            self.report,
+        )
     }
 
     fn authenticated_as(&self, account: &GitHubAccount) -> Result<Arc<AuthenticatedAccount>> {
@@ -173,7 +183,7 @@ impl<'report> LocalMachine<'report> {
     }
 
     fn run_installer(&self, installer_path: &Path) -> Result<()> {
-        let output = stream(installer_path, &[], self.report)?;
+        let output = stream(installer_path, &[], &[], self.report)?;
 
         match output.succeeded {
             true => Ok(()),
@@ -238,11 +248,17 @@ fn capture(program: &Path, arguments: &[String], report: &RunReport) -> Result<C
 }
 
 // ADR 0013
-fn stream(program: &Path, arguments: &[String], report: &RunReport) -> Result<CommandOutput> {
+fn stream(
+    program: &Path,
+    arguments: &[String],
+    environment: &[(&str, &str)],
+    report: &RunReport,
+) -> Result<CommandOutput> {
     report.announce(&rendered_invocation(program, arguments));
 
     let mut child = ProcessCommand::new(program)
         .args(arguments)
+        .envs(environment.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -612,7 +628,7 @@ impl WriteMachine for LocalMachine<'_> {
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
         let arguments = invocation.arguments();
-        let output = self.run(invocation.tool(), &arguments)?;
+        let output = self.run(invocation.tool(), &arguments, &[])?;
         match output.succeeded {
             true => Ok(output),
             false => Err(refused(invocation.tool(), &arguments, &output)),
@@ -622,8 +638,9 @@ impl WriteMachine for LocalMachine<'_> {
     fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
         let tool = invocation.tool();
         let arguments = invocation.arguments();
+        let environment = invocation.environment();
 
-        let output = self.run(tool, &arguments)?;
+        let output = self.run(tool, &arguments, &environment)?;
         if output.succeeded {
             return Ok(Placement::Placed);
         }
@@ -638,7 +655,7 @@ impl WriteMachine for LocalMachine<'_> {
         self.report
             .note(&format!("displaced {}", destination.display()));
 
-        match self.run(tool, &arguments) {
+        match self.run(tool, &arguments, &environment) {
             Ok(retried) if retried.succeeded => Ok(Placement::Placed),
             Ok(retried) => Err(restoring(
                 &superseded,
@@ -659,7 +676,7 @@ impl WriteMachine for LocalMachine<'_> {
 
     fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput> {
         let (program, arguments) = shell_invocation(shell, args);
-        stream(Path::new(&program), &arguments, self.report)
+        stream(Path::new(&program), &arguments, &[], self.report)
     }
 }
 
@@ -852,7 +869,7 @@ mod tests {
         let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
         let (program, arguments) = echoing_two_lines();
 
-        let output = stream(Path::new(&program), &arguments, &report).unwrap();
+        let output = stream(Path::new(&program), &arguments, &[], &report).unwrap();
 
         let written = fs::read_to_string(report.log_path().unwrap()).unwrap();
         assert!(output.succeeded, "{output:?}");
@@ -868,7 +885,7 @@ mod tests {
         let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
         let (program, arguments) = echoing_two_lines();
 
-        let output = stream(Path::new(&program), &arguments, &report).unwrap();
+        let output = stream(Path::new(&program), &arguments, &[], &report).unwrap();
 
         assert!(output.standard_output.contains("first"), "{output:?}");
         assert!(output.standard_output.contains("second"), "{output:?}");

@@ -92,6 +92,18 @@ impl DisplacingInvocation {
         }
     }
 
+    pub fn environment(&self) -> Vec<(&'static str, &'static str)> {
+        match self {
+            // 2026-08-10: cargo's own libgit2 fetch cannot authenticate to a private GitHub
+            // repository on a machine holding its credentials behind `gh auth git-credential`,
+            // failing with "no authentication methods succeeded" against a cold cache. The git
+            // command line runs that helper and fetches the same revision.
+            DisplacingInvocation::InstallCargoCrate { .. } => {
+                vec![("CARGO_NET_GIT_FETCH_WITH_CLI", "true")]
+            }
+        }
+    }
+
     pub fn refused_destination(&self, output: &CommandOutput) -> Option<PathBuf> {
         match self {
             // 2026-08-06: cargo builds into a temporary directory beside the one it installs to
@@ -219,6 +231,14 @@ mod tests {
             cargo_said("error: could not compile `claude-session` (bin \"claude-session\")");
 
         assert_eq!(installing_a_crate().refused_destination(&output), None);
+    }
+
+    #[test]
+    fn installing_a_crate_has_cargo_fetch_git_repositories_through_the_git_command_line() {
+        assert_eq!(
+            installing_a_crate().environment(),
+            vec![("CARGO_NET_GIT_FETCH_WITH_CLI", "true")]
+        );
     }
 
     #[test]
