@@ -79,12 +79,6 @@ pub enum Placement {
 pub trait ReadMachine {
     fn home_directory(&self) -> &Path;
 
-    fn repositories_directory(&self) -> &Path;
-
-    /// The directory the dotfiles repository is cloned into. Symlinks resolve their source
-    /// against it, which is what makes cloning it a requirement of every symlink.
-    fn dotfiles_repository_path(&self) -> &Path;
-
     fn superseded_images(&self) -> Vec<PathBuf>;
 
     fn path_exists(&self, path: &Path) -> bool;
@@ -139,6 +133,7 @@ pub trait WriteMachine: ReadMachine {
     fn clone_repository(
         &self,
         repository: &crate::configuration::GitHubRepository,
+        clone_directory: &Path,
     ) -> impl std::future::Future<Output = Result<()>>;
 
     fn install_application(

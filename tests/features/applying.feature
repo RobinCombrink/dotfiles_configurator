@@ -11,7 +11,7 @@ Feature: Applying a change set
     And the machine is reported as converged
 
   Scenario: A symlink waits for the dotfiles repository and converges once it is cloned
-    Given Alice declares the dotfiles repository
+    Given Alice's configurations come from the dotfiles repository
     And Alice declares the symlink "gitconfig/.gitconfig" at ".gitconfig"
     And the dotfiles repository holds "gitconfig/.gitconfig"
     And the dotfiles repository has not been cloned on Alice's machine
@@ -138,7 +138,7 @@ Feature: Applying a change set
     And 1 binary is superseded on Alice's machine
 
   Scenario: A real file where a link should go is reported rather than deleted
-    Given Alice declares the dotfiles repository
+    Given Alice's configurations come from the dotfiles repository
     And Alice declares the symlink "gitconfig/.gitconfig" at ".gitconfig"
     And the dotfiles repository holds "gitconfig/.gitconfig"
     And Alice already has a file of her own at ".gitconfig"

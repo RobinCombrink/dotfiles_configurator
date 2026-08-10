@@ -32,6 +32,19 @@ impl Context {
         }
     }
 
+    /// ```
+    /// use dotfiles_configurator::configuration::Context;
+    ///
+    /// assert_eq!(Context::Everywhere.repositories_leaf(), "Personal");
+    /// assert_eq!(Context::Work.repositories_leaf(), "Work");
+    /// ```
+    pub fn repositories_leaf(self) -> &'static str {
+        match self {
+            Context::Work => "Work",
+            Context::Personal | Context::Everywhere => "Personal",
+        }
+    }
+
     fn as_written(self) -> &'static str {
         match self {
             Context::Everywhere => "everywhere",

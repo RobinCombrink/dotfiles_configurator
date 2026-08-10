@@ -31,7 +31,7 @@ use {
 #[derive(Debug)]
 pub struct FakeMachine {
     home_directory: PathBuf,
-    repositories_directory: PathBuf,
+    repositories_root: PathBuf,
     dotfiles_repository_path: PathBuf,
     cargo_binaries_directory: PathBuf,
     state: RefCell<MachineState>,
@@ -71,12 +71,12 @@ enum Displacement {
 impl Default for FakeMachine {
     fn default() -> Self {
         let home_directory = PathBuf::from("/home/alice");
-        let repositories_directory = PathBuf::from("/repositories");
-        let dotfiles_repository_path = repositories_directory.join("dotfiles");
+        let repositories_root = PathBuf::from("/repositories");
+        let dotfiles_repository_path = repositories_root.join("Personal").join("dotfiles");
         Self {
             cargo_binaries_directory: home_directory.join(".cargo").join("bin"),
             home_directory,
-            repositories_directory,
+            repositories_root,
             dotfiles_repository_path,
             state: RefCell::new(MachineState {
                 // Every shell but WSL ships with the machines that have it, and the fixed set of
@@ -102,6 +102,14 @@ impl FakeMachine {
 
     pub fn cargo_binaries_directory(&self) -> &Path {
         &self.cargo_binaries_directory
+    }
+
+    pub fn repositories_root(&self) -> &Path {
+        &self.repositories_root
+    }
+
+    pub fn dotfiles_repository_path(&self) -> &Path {
+        &self.dotfiles_repository_path
     }
 
     pub fn execute_binary(&self, name: &str) {
@@ -349,14 +357,6 @@ impl ReadMachine for FakeMachine {
         &self.home_directory
     }
 
-    fn repositories_directory(&self) -> &Path {
-        &self.repositories_directory
-    }
-
-    fn dotfiles_repository_path(&self) -> &Path {
-        &self.dotfiles_repository_path
-    }
-
     fn superseded_images(&self) -> Vec<PathBuf> {
         self.state
             .borrow()
@@ -462,12 +462,13 @@ impl WriteMachine for FakeMachine {
         Ok(())
     }
 
-    async fn clone_repository(&self, repository: &GitHubRepository) -> Result<()> {
-        let clone_directory = self
-            .repositories_directory
-            .join(repository.repository.as_ref());
+    async fn clone_repository(
+        &self,
+        _repository: &GitHubRepository,
+        clone_directory: &Path,
+    ) -> Result<()> {
         let mut state = self.state.borrow_mut();
-        materialise_clone(&mut state, &clone_directory);
+        materialise_clone(&mut state, clone_directory);
         Ok(())
     }
 

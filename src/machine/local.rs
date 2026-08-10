@@ -2,7 +2,7 @@ use {
     crate::{
         configuration::{
             ApplicationSource, ArchiveEntry, AssetPattern, CrateName, GitHubAccount,
-            GitHubRepository, Installer, MachineSettings, PresenceCheck, ReleasedBinary, Shell,
+            GitHubRepository, Installer, PresenceCheck, ReleasedBinary, Shell,
         },
         github::AuthenticatedAccount,
         machine::{
@@ -38,8 +38,6 @@ pub mod workspace;
 /// The machine this process is running on.
 pub struct LocalMachine<'report> {
     home_directory: PathBuf,
-    repositories_directory: PathBuf,
-    dotfiles_repository_path: PathBuf,
     download_directory: PathBuf,
     cargo_binaries_directory: PathBuf,
     github_account: GitHubAccount,
@@ -49,18 +47,16 @@ pub struct LocalMachine<'report> {
 }
 
 impl<'report> LocalMachine<'report> {
-    pub fn new(settings: &MachineSettings, report: &'report RunReport) -> Result<Self> {
+    pub fn new(github_account: GitHubAccount, report: &'report RunReport) -> Result<Self> {
         let home_directory =
             env::home_dir().ok_or_else(|| anyhow!("Could not find the home directory"))?;
 
         Ok(Self {
-            repositories_directory: settings.repositories_directory_path.clone(),
-            dotfiles_repository_path: settings.dotfiles_repository_path(),
             download_directory: dirs::download_dir()
                 .ok_or_else(|| anyhow!("Could not find the download directory"))?,
             cargo_binaries_directory: cargo_binaries_directory(&home_directory),
             home_directory,
-            github_account: settings.github_username.clone(),
+            github_account,
             authenticated_account: OnceLock::new(),
             http_client: Client::default(),
             report,
@@ -382,14 +378,6 @@ impl ReadMachine for LocalMachine<'_> {
         &self.home_directory
     }
 
-    fn repositories_directory(&self) -> &Path {
-        &self.repositories_directory
-    }
-
-    fn dotfiles_repository_path(&self) -> &Path {
-        &self.dotfiles_repository_path
-    }
-
     fn superseded_images(&self) -> Vec<PathBuf> {
         let Ok(entries) = fs::read_dir(&self.cargo_binaries_directory) else {
             return Vec::new();
@@ -506,7 +494,11 @@ impl WriteMachine for LocalMachine<'_> {
         })
     }
 
-    async fn clone_repository(&self, repository: &GitHubRepository) -> Result<()> {
+    async fn clone_repository(
+        &self,
+        repository: &GitHubRepository,
+        clone_directory: &Path,
+    ) -> Result<()> {
         let account = self.authenticated_account()?;
         let owner = repository.owner.as_ref();
         let name = repository.repository.as_ref();
@@ -517,10 +509,11 @@ impl WriteMachine for LocalMachine<'_> {
             .await
             .with_context(|| format!("Could not read the details of {repository}"))?;
 
-        fs::create_dir_all(&self.repositories_directory).with_context(|| {
-            format!("Could not create {}", self.repositories_directory.display())
-        })?;
-        let directory_path = self.repositories_directory.join(name);
+        if let Some(parent_directory) = clone_directory.parent() {
+            fs::create_dir_all(parent_directory)
+                .with_context(|| format!("Could not create {}", parent_directory.display()))?;
+        }
+        let directory_path = clone_directory.to_path_buf();
 
         let url = details
             .html_url

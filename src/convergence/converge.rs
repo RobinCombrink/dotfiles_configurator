@@ -5,10 +5,11 @@ use {
             Registration, ReleasedBinary, Resource, Symlink, WingetPackage,
         },
         convergence::SourceReadings,
+        desired_state::ResolvedResource,
         machine::{DisplacingInvocation, Placement, WriteInvocation, WriteMachine},
     },
     anyhow::{Context, Result, anyhow, bail},
-    std::path::PathBuf,
+    std::path::{Path, PathBuf},
 };
 
 #[derive(Debug)]
@@ -29,15 +30,17 @@ impl From<Placement> for Convergence {
 /// Closes the drift on one resource. Only ever called for a resource a state reader has just
 /// reported as drifted.
 pub async fn converge(
-    resource: &Resource,
+    resource: &ResolvedResource,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
 ) -> Result<Convergence> {
-    let closed = match resource {
+    let closed = match resource.declared() {
         Resource::Package(Package::Cargo(package)) => {
-            return converge_cargo_package(package, machine, readings);
+            return converge_cargo_package(package, resource, machine, readings);
         }
-        Resource::Repository(repository) => converge_repository(repository, machine).await,
+        Resource::Repository(repository) => {
+            converge_repository(repository, &resource.clone_directory(repository), machine).await
+        }
         Resource::Application(Application::Installer(installer)) => machine
             .install_application(installer)
             .await
@@ -49,7 +52,7 @@ pub async fn converge(
                 .with_context(|| format!("Could not install {}", binary.installed_name()));
         }
         Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
-        Resource::Symlink(symlink) => converge_symlink(symlink, machine),
+        Resource::Symlink(symlink) => converge_symlink(symlink, resource, machine),
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
             let removal = WriteInvocation::RemoveClaudeMcpServer {
                 name: server.name.clone(),
@@ -87,9 +90,10 @@ async fn converge_released_binary(
 
 async fn converge_repository(
     repository: &GitHubRepository,
+    clone_directory: &Path,
     machine: &impl WriteMachine,
 ) -> Result<()> {
-    machine.clone_repository(repository).await
+    machine.clone_repository(repository, clone_directory).await
 }
 
 fn converge_winget_package(package: &WingetPackage, machine: &impl WriteMachine) -> Result<()> {
@@ -102,6 +106,7 @@ fn converge_winget_package(package: &WingetPackage, machine: &impl WriteMachine)
 
 fn converge_cargo_package(
     package: &CargoPackage,
+    resource: &ResolvedResource,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
 ) -> Result<Convergence> {
@@ -117,7 +122,8 @@ fn converge_cargo_package(
             arguments.push(path.display().to_string());
         }
         CargoSource::Workspace { repository } => {
-            let Some(revision) = readings.workspace_revision(repository) else {
+            let clone_directory = resource.clone_directory(repository);
+            let Some(revision) = readings.workspace_revision(&clone_directory) else {
                 bail!("{repository} was not read, so there is no revision to install from");
             };
             arguments.push("--git".to_owned());
@@ -133,11 +139,13 @@ fn converge_cargo_package(
         .map(Convergence::from)
 }
 
-fn converge_symlink(symlink: &Symlink, machine: &impl WriteMachine) -> Result<()> {
+fn converge_symlink(
+    symlink: &Symlink,
+    resource: &ResolvedResource,
+    machine: &impl WriteMachine,
+) -> Result<()> {
     let link_path = machine.resolve_against_home(&symlink.link_path);
-    let source_path = machine
-        .dotfiles_repository_path()
-        .join(&symlink.source_path);
+    let source_path = resource.files_root().join(&symlink.source_path);
 
     if !machine.path_exists(&source_path) {
         bail!(

@@ -1,11 +1,12 @@
 use {
     crate::{
-        configuration::{DesiredState, Notice, Resource},
+        configuration::Notice,
         convergence::{
             Blocked, Change, ChangeSet,
             converge::{Convergence, converge},
             plan,
         },
+        desired_state::{DesiredState, ResolvedResource},
         machine::WriteMachine,
         reporting::RunReport,
     },
@@ -15,13 +16,13 @@ use {
 /// One resource whose convergence failed, together with what went wrong.
 #[derive(Debug)]
 pub struct Failure {
-    pub resource: Resource,
+    pub resource: ResolvedResource,
     pub error: anyhow::Error,
 }
 
 #[derive(Debug)]
 pub struct Held {
-    pub resource: Resource,
+    pub resource: ResolvedResource,
     pub path: PathBuf,
 }
 
@@ -29,7 +30,7 @@ pub struct Held {
 /// one broken resource does not hide the state of every resource after it.
 #[derive(Debug)]
 pub struct ApplyOutcome {
-    pub converged: Vec<Resource>,
+    pub converged: Vec<ResolvedResource>,
     pub failed: Vec<Failure>,
     pub held: Vec<Held>,
     pub blocked: Vec<Blocked>,
@@ -114,7 +115,7 @@ pub async fn apply(
     machine: &impl WriteMachine,
     report: &RunReport,
 ) -> anyhow::Result<ApplyOutcome> {
-    let mut converged: Vec<Resource> = Vec::new();
+    let mut converged: Vec<ResolvedResource> = Vec::new();
     let mut failed: Vec<Failure> = Vec::new();
     let mut held: Vec<Held> = Vec::new();
     let mut passes = 0;
@@ -149,7 +150,9 @@ pub async fn apply(
     let unverified = change_set
         .changes
         .iter()
-        .filter(|change| converged.contains(&change.resource) && change.resource.can_be_read_back())
+        .filter(|change| {
+            converged.contains(&change.resource) && change.resource.declared().can_be_read_back()
+        })
         .cloned()
         .collect();
 
@@ -170,7 +173,7 @@ async fn attempt(
     change_set: &ChangeSet,
     machine: &impl WriteMachine,
     report: &RunReport,
-    converged: &mut Vec<Resource>,
+    converged: &mut Vec<ResolvedResource>,
     failed: &mut Vec<Failure>,
     held: &mut Vec<Held>,
 ) -> usize {

@@ -2,15 +2,17 @@ Feature: Loading a configuration
 
   Several configurations are read together and merged into the one desired state a machine is
   converged against. Each configuration declares which machines it is for, and an invocation names
-  which machine it is running on, so where configurations are read from cannot change which of them
-  apply. A configuration the tool cannot honour is refused before anything is read from the machine.
+  which class of machine it is running on, so where configurations are read from cannot change which
+  of them apply. A run reads one configuration for every machine and exactly one for this class, and
+  a configuration the tool cannot honour is refused before anything is read from the machine.
 
-  Scenario: A configuration for another machine is left out
-    Given Alice has a configuration for personal machines linking ".gitconfig" to "gitconfig/.gitconfig"
-    And Alice has a configuration for work machines linking ".npmrc" to "npm/.npmrc"
+  Scenario: A configuration for another class of machine is left out
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    And Alice's employer's repository has a configuration for work machines linking ".yarnrc" to "yarn/.yarnrc"
     When Alice loads her configurations for a personal machine
-    Then the desired state links ".gitconfig"
-    And the desired state does not link ".npmrc"
+    Then the desired state links ".npmrc"
+    And the desired state does not link ".yarnrc"
 
   Scenario: A configuration for every machine applies alongside the machine's own
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
@@ -25,8 +27,28 @@ Feature: Loading a configuration
     Then loading is refused
     And the refusal mentions "personal"
 
+  Scenario: A set holding nothing for this machine's class is refused
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "machine's class"
+
+  Scenario: A set holding nothing for every machine is refused
+    Given Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "every machine"
+
+  Scenario: A source whose configurations belong in two trees is refused
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for work machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "two trees"
+
   Scenario: A file that is not a configuration is left where it lies
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
     And Alice keeps a "README.md" alongside her configurations
     When Alice loads her configurations for a personal machine
     Then the desired state links ".gitconfig"
@@ -43,10 +65,11 @@ Feature: Loading a configuration
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "0.1.0"
-    And the refusal mentions "4"
+    And the refusal mentions the generation this build is
 
   Scenario: A configuration stating the generation below this build is read
     Given Alice has a configuration for every machine declaring the generation below this build linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
     When Alice loads her configurations for a personal machine
     Then the desired state links ".gitconfig"
 
@@ -65,7 +88,7 @@ Feature: Loading a configuration
 
   Scenario: Two configurations claiming the same link differently are refused
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
-    And Alice has a configuration for every machine linking ".gitconfig" to "elsewhere/.gitconfig"
+    And Alice has a configuration for personal machines linking ".gitconfig" to "elsewhere/.gitconfig"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "conflicting claims"
@@ -86,11 +109,10 @@ Feature: Loading a configuration
     And no desired state is loaded
 
   Scenario: A refusal names the setting at fault, not only the configuration
-    Given Alice has a configuration whose machine settings omit the repositories directory path
+    Given Alice has a configuration naming no account to act as
     When Alice loads her configurations for a personal machine
     Then loading is refused
-    And the refusal mentions "machine"
-    And the refusal mentions "repositories_directory_path"
+    And the refusal mentions "github_account"
 
   Scenario: A configuration declaring no machines it is for is refused
     Given Alice has a configuration that declares no machines it is for
@@ -100,6 +122,13 @@ Feature: Loading a configuration
 
   Scenario: Two configurations claiming the same link identically are one resource
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
-    And Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".gitconfig" to "gitconfig/.gitconfig"
     When Alice loads her configurations for a personal machine
     Then the desired state holds 1 symlink
+
+  Scenario: A directory inside no checkout has nothing to read a configuration's files out of
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice keeps her configurations outside any checkout
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "no checkout"

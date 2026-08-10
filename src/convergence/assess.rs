@@ -2,10 +2,11 @@ use {
     crate::{
         configuration::{
             Application, CargoPackage, CargoSource, ClaudeMcpServer, Command, CrateName,
-            DesiredState, GitHubRepository, Installer, Package, Registration, ReleasedBinary,
-            Resource, Symlink, WingetPackage,
+            GitHubRepository, Installer, Package, Registration, ReleasedBinary, Resource, Symlink,
+            WingetPackage,
         },
         convergence::{Assessment, DriftReason, Impediment, Requirement},
+        desired_state::{DesiredState, ResolvedResource},
         machine::{
             ReadInvocation, ReadMachine,
             release_reading::ReleaseReading,
@@ -15,7 +16,7 @@ use {
     },
     std::{
         collections::{BTreeMap, BTreeSet},
-        path::Path,
+        path::{Path, PathBuf},
     },
 };
 
@@ -30,7 +31,7 @@ use {
 pub struct SourceReadings {
     winget_packages: Option<Result<String, DriftReason>>,
     cargo_crates: Option<Result<String, DriftReason>>,
-    workspaces: BTreeMap<GitHubRepository, Result<Option<WorkspaceReading>, DriftReason>>,
+    workspaces: BTreeMap<PathBuf, Result<Option<WorkspaceReading>, DriftReason>>,
     releases: BTreeMap<GitHubRepository, Result<ReleaseReading, DriftReason>>,
 }
 
@@ -40,7 +41,7 @@ impl SourceReadings {
         let mut cargo_is_needed = !desired_state.workspaces.is_empty();
         let mut released_from: BTreeSet<GitHubRepository> = BTreeSet::new();
         for resource in &desired_state.resources {
-            match resource {
+            match resource.declared() {
                 Resource::Package(Package::Winget(_)) => winget_is_needed = true,
                 Resource::Package(Package::Cargo(_)) => cargo_is_needed = true,
                 Resource::Application(Application::ReleasedBinary(binary)) => {
@@ -75,13 +76,11 @@ impl SourceReadings {
 
         let mut workspaces = BTreeMap::new();
         for workspace in &desired_state.workspaces {
-            let repository_path = machine
-                .repositories_directory()
-                .join(workspace.repository.repository.as_ref());
+            let repository_path = workspace.clone_directory(&workspace.declared().repository);
             let reading = machine
                 .read_cargo_workspace(&repository_path, &installed)
                 .map_err(|error| DriftReason::from(format!("{error:#}")));
-            workspaces.insert(workspace.repository.clone(), reading);
+            workspaces.insert(repository_path, reading);
         }
 
         Self {
@@ -109,13 +108,13 @@ impl SourceReadings {
 
     pub fn workspace(
         &self,
-        repository: &GitHubRepository,
+        clone_directory: &Path,
     ) -> Option<&Result<Option<WorkspaceReading>, DriftReason>> {
-        self.workspaces.get(repository)
+        self.workspaces.get(clone_directory)
     }
 
-    pub fn workspace_revision(&self, repository: &GitHubRepository) -> Option<&Revision> {
-        match self.workspaces.get(repository) {
+    pub fn workspace_revision(&self, clone_directory: &Path) -> Option<&Revision> {
+        match self.workspaces.get(clone_directory) {
             Some(Ok(Some(reading))) => Some(&reading.revision),
             Some(Ok(None)) | Some(Err(_)) | None => None,
         }
@@ -162,7 +161,7 @@ fn read_listing(
 /// Requirements are read from the machine first: a resource whose requirements are absent is
 /// neither converged nor failed, it is unassessable and says so.
 pub fn assess(
-    resource: &Resource,
+    resource: &ResolvedResource,
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Assessment {
@@ -170,8 +169,10 @@ pub fn assess(
         return Assessment::Unassessable(Impediment::Absent(unmet));
     }
 
-    match resource {
-        Resource::Repository(repository) => assess_repository(repository, machine),
+    match resource.declared() {
+        Resource::Repository(repository) => {
+            assess_repository(&resource.clone_directory(repository), machine)
+        }
         Resource::Application(Application::Installer(installer)) => {
             assess_installer(installer, machine)
         }
@@ -179,8 +180,10 @@ pub fn assess(
             assess_released_binary(binary, machine, readings)
         }
         Resource::Package(Package::Winget(package)) => assess_winget_package(package, readings),
-        Resource::Package(Package::Cargo(package)) => assess_cargo_package(package, readings),
-        Resource::Symlink(symlink) => assess_symlink(symlink, machine),
+        Resource::Package(Package::Cargo(package)) => {
+            assess_cargo_package(package, resource, readings)
+        }
+        Resource::Symlink(symlink) => assess_symlink(symlink, resource, machine),
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
             assess_claude_mcp_server(server, machine)
         }
@@ -188,26 +191,30 @@ pub fn assess(
     }
 }
 
-fn first_unmet_requirement(resource: &Resource, machine: &impl ReadMachine) -> Option<Requirement> {
+fn first_unmet_requirement(
+    resource: &ResolvedResource,
+    machine: &impl ReadMachine,
+) -> Option<Requirement> {
     resource
         .requirements()
         .into_iter()
-        .find(|requirement| !requirement_is_met(*requirement, machine))
+        .find(|requirement| !requirement_is_met(requirement, resource, machine))
 }
 
-fn requirement_is_met(requirement: Requirement, machine: &impl ReadMachine) -> bool {
+fn requirement_is_met(
+    requirement: &Requirement,
+    resource: &ResolvedResource,
+    machine: &impl ReadMachine,
+) -> bool {
     match requirement {
-        Requirement::Tool(tool) => machine.tool_is_present(tool),
-        Requirement::DotfilesRepository => {
-            machine.path_exists(&machine.dotfiles_repository_path().join(".git"))
+        Requirement::Tool(tool) => machine.tool_is_present(*tool),
+        Requirement::DotfilesRepository(_) => {
+            machine.path_exists(&resource.files_root().join(".git"))
         }
     }
 }
 
-fn assess_repository(repository: &GitHubRepository, machine: &impl ReadMachine) -> Assessment {
-    let clone_directory = machine
-        .repositories_directory()
-        .join(repository.repository.as_ref());
+fn assess_repository(clone_directory: &Path, machine: &impl ReadMachine) -> Assessment {
     match machine.path_exists(&clone_directory.join(".git")) {
         true => Assessment::Converged,
         false => {
@@ -350,11 +357,17 @@ fn winget_id_column(listing: &str) -> Option<(usize, usize)> {
     })
 }
 
-fn assess_cargo_package(package: &CargoPackage, readings: &SourceReadings) -> Assessment {
+fn assess_cargo_package(
+    package: &CargoPackage,
+    resource: &ResolvedResource,
+    readings: &SourceReadings,
+) -> Assessment {
     match &package.source {
-        CargoSource::Workspace { repository } => {
-            assess_workspace_member(&package.crate_name, repository, readings)
-        }
+        CargoSource::Workspace { repository } => assess_workspace_member(
+            &package.crate_name,
+            &resource.clone_directory(repository),
+            readings,
+        ),
         CargoSource::Registry | CargoSource::Path { .. } => {
             assess_declared_cargo_package(package, readings)
         }
@@ -363,10 +376,10 @@ fn assess_cargo_package(package: &CargoPackage, readings: &SourceReadings) -> As
 
 fn assess_workspace_member(
     crate_name: &CrateName,
-    repository: &GitHubRepository,
+    clone_directory: &Path,
     readings: &SourceReadings,
 ) -> Assessment {
-    let reading = match readings.workspace(repository) {
+    let reading = match readings.workspace(clone_directory) {
         Some(Ok(Some(reading))) => reading,
         Some(Ok(None)) => {
             return Assessment::Drifted("its repository has not been cloned".into());
@@ -475,11 +488,13 @@ fn paths_are_the_same(declared: &std::path::Path, installed: &str) -> bool {
     }
 }
 
-fn assess_symlink(symlink: &Symlink, machine: &impl ReadMachine) -> Assessment {
+fn assess_symlink(
+    symlink: &Symlink,
+    resource: &ResolvedResource,
+    machine: &impl ReadMachine,
+) -> Assessment {
     let link_path = machine.resolve_against_home(&symlink.link_path);
-    let source_path = machine
-        .dotfiles_repository_path()
-        .join(&symlink.source_path);
+    let source_path = resource.files_root().join(&symlink.source_path);
 
     match machine.link_target(&link_path) {
         None if machine.path_exists(&link_path) => {

@@ -8,8 +8,9 @@
       "description": "Which machines this configuration is for. One declaring \"everywhere\" applies to every machine; any other applies only to a machine an invocation names as being that.",
       "$ref": "#/$defs/Context"
     },
-    "machine": {
-      "$ref": "#/$defs/MachineSettings"
+    "github_account": {
+      "description": "The GitHub account every resource this configuration declares acts as. Not a repository's owner — a public repository is read by any account at all.",
+      "$ref": "#/$defs/GitHubAccount"
     },
     "notices": {
       "type": "array",
@@ -40,7 +41,7 @@
   "required": [
     "version",
     "applies_to",
-    "machine"
+    "github_account"
   ],
   "$defs": {
     "Application": {
@@ -359,29 +360,6 @@
         "name",
         "source",
         "presence_check"
-      ]
-    },
-    "MachineSettings": {
-      "description": "The settings every resource in a configuration is read against.",
-      "type": "object",
-      "properties": {
-        "dotfiles_repository": {
-          "description": "The repository holding the dotfiles themselves, cloned before any symlink can converge.",
-          "$ref": "#/$defs/GitHubRepository"
-        },
-        "github_username": {
-          "description": "The username used when authenticating against GitHub.",
-          "$ref": "#/$defs/GitHubAccount"
-        },
-        "repositories_directory_path": {
-          "description": "Absolute path of the directory repositories are cloned into.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "repositories_directory_path",
-        "github_username",
-        "dotfiles_repository"
       ]
     },
     "McpScope": {

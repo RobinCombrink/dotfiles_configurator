@@ -1,6 +1,7 @@
 use {
     crate::{
-        configuration::{DesiredState, Notice, Resource, ResourceKind, Shell},
+        configuration::{GitHubRepository, Notice, Resource, ResourceKind, Shell},
+        desired_state::{DesiredState, ResolvedResource},
         machine::Tool,
         reporting::RunReport,
     },
@@ -66,23 +67,19 @@ impl Display for DriftReason {
     }
 }
 
-/// Something that has to be true of a machine before a resource can be read or converged. Read
-/// from the machine each time rather than inferred from order, so a resource blocked now may
-/// become ready once something else has been applied. See ADR 0004.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// ADR 0004
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Requirement {
     Tool(Tool),
-    /// Symlinks resolve against the dotfiles repository, so nothing can link out of it until it
-    /// has been cloned.
-    DotfilesRepository,
+    DotfilesRepository(GitHubRepository),
 }
 
 impl Display for Requirement {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Requirement::Tool(tool) => write!(formatter, "{tool} is not on the path"),
-            Requirement::DotfilesRepository => {
-                formatter.write_str("the dotfiles repository has not been cloned")
+            Requirement::DotfilesRepository(repository) => {
+                write!(formatter, "{repository} has not been cloned")
             }
         }
     }
@@ -103,11 +100,12 @@ impl Resource {
         }
     }
 
-    /// What this resource needs before it can be read or converged. A property of the kind, not
-    /// something an author writes down — no configuration can express a cargo package that
-    /// forgets it needs cargo.
-    pub fn requirements(&self) -> Vec<Requirement> {
-        let mut requirements = match self {
+    /// What this resource needs on the machine before it can be read or converged. A property of
+    /// the kind, not something an author writes down — no configuration can express a cargo
+    /// package that forgets it needs cargo. What it needs of its own configuration is answered by
+    /// the resolved resource instead, which is the only thing holding the origin that decides it.
+    pub(crate) fn tool_requirements(&self) -> Vec<Requirement> {
+        match self {
             Resource::Repository(_) => Vec::new(),
             Resource::Application(crate::configuration::Application::Installer(installer)) => {
                 check_requirements(Some(&installer.presence_check))
@@ -121,17 +119,14 @@ impl Resource {
             Resource::Package(crate::configuration::Package::Cargo(_)) => {
                 vec![Requirement::Tool(Tool::Cargo)]
             }
-            Resource::Symlink(_) => vec![Requirement::DotfilesRepository],
+            Resource::Symlink(_) => Vec::new(),
             Resource::Registration(_) => vec![Requirement::Tool(Tool::Claude)],
             Resource::Command(command) => {
                 let mut requirements = check_requirements(command.presence_check.as_ref());
                 requirements.extend(shell_requirement(command.shell));
                 requirements
             }
-        };
-        requirements.sort();
-        requirements.dedup();
-        requirements
+        }
     }
 }
 
@@ -155,14 +150,14 @@ fn shell_requirement(shell: Shell) -> Option<Requirement> {
 /// One resource that has drifted, together with why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
-    pub resource: Resource,
+    pub resource: ResolvedResource,
     pub reason: DriftReason,
 }
 
 /// One resource that could not be read, together with what stopped it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blocked {
-    pub resource: Resource,
+    pub resource: ResolvedResource,
     pub impediment: Impediment,
 }
 
@@ -171,7 +166,7 @@ pub struct Blocked {
 pub struct ChangeSet {
     pub changes: Vec<Change>,
     pub blocked: Vec<Blocked>,
-    pub converged: Vec<Resource>,
+    pub converged: Vec<ResolvedResource>,
     pub notices: Vec<Notice>,
     pub readings: SourceReadings,
 }
@@ -201,7 +196,7 @@ pub async fn plan(
     };
     let resources = resolve(desired_state, &readings)?;
 
-    let mut assessed: Vec<(ResourceKind, usize, Resource, Assessment)> = resources
+    let mut assessed: Vec<(ResourceKind, usize, ResolvedResource, Assessment)> = resources
         .iter()
         .enumerate()
         .map(|(position, resource)| {
@@ -231,7 +226,11 @@ pub async fn plan(
         }
     }
 
-    let mut notices = desired_state.notices.clone();
+    let mut notices: Vec<Notice> = desired_state
+        .notices
+        .iter()
+        .map(|notice| notice.declared().clone())
+        .collect();
     notices.extend(machine.superseded_images().iter().map(|path| {
         Notice::from(format!(
             "{} is a binary that was replaced while it was being executed; an apply removes it \

@@ -1,14 +1,15 @@
 use {
     crate::configuration::{
-        names::{
-            ApplicationName, BinaryName, CrateName, McpServerName, RepositoryName, WingetPackageId,
-        },
+        names::{ApplicationName, BinaryName, CrateName, McpServerName, WingetPackageId},
         resource::{
             Application, ClaudeMcpServer, GitHubRepository, Package, Registration, Resource,
             Symlink,
         },
     },
-    std::{fmt::Display, path::PathBuf},
+    std::{
+        fmt::Display,
+        path::{Path, PathBuf},
+    },
 };
 
 /// The machine fact a resource claims, by which two declarations are recognised as the same
@@ -19,9 +20,7 @@ use {
 /// resort.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Identity {
-    /// The directory the repository is cloned into, which is named by the repository alone
-    /// because every configuration shares one repositories directory.
-    ClonedRepository(RepositoryName),
+    ClonedRepository(PathBuf),
     Application(ApplicationName),
     InstalledBinary(BinaryName),
     WingetPackage(WingetPackageId),
@@ -34,8 +33,8 @@ pub enum Identity {
 impl Display for Identity {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Identity::ClonedRepository(repository) => {
-                write!(formatter, "the clone directory for {repository}")
+            Identity::ClonedRepository(directory) => {
+                write!(formatter, "the clone directory {}", directory.display())
             }
             Identity::Application(name) => write!(formatter, "the application {name}"),
             Identity::InstalledBinary(name) => {
@@ -52,12 +51,11 @@ impl Display for Identity {
 }
 
 impl Resource {
-    /// The fact this resource claims, or `None` for a command, which claims none.
-    pub fn identity(&self) -> Option<Identity> {
+    pub(crate) fn identity_within(&self, repositories_directory: &Path) -> Option<Identity> {
         match self {
-            Resource::Repository(GitHubRepository { repository, .. }) => {
-                Some(Identity::ClonedRepository(repository.clone()))
-            }
+            Resource::Repository(GitHubRepository { repository, .. }) => Some(
+                Identity::ClonedRepository(repositories_directory.join(repository.as_ref())),
+            ),
             Resource::Application(Application::Installer(installer)) => {
                 Some(Identity::Application(installer.name.clone()))
             }

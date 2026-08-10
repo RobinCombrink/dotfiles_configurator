@@ -7,17 +7,21 @@ mod fake_machine;
 
 use {
     cucumber::{World, given, then, when},
-    declarations::{named_repository, reporting_its_version_in_the_second_word},
+    declarations::{
+        DOTFILES_FILES_ROOT, REPOSITORIES_ROOT, dotfiles_repository, named_repository,
+        read_out_of_a_checkout, read_out_of_the_dotfiles_repository,
+        reporting_its_version_in_the_second_word,
+    },
     dotfiles_configurator::{
         configuration::{
             Application, ApplicationName, ApplicationSource, BENEATH_OLDEST_READABLE_GENERATION,
-            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, CrateName, DesiredState,
-            GitHubRepository, Installer, MachineClass, MachineSettings, Notice,
-            OLDEST_READABLE_GENERATION, PresenceCheck, RepositoryName, RepositoryOwner, Resource,
-            Shell, Symlink,
+            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, CrateName, Installer,
+            MachineClass, Notice, OLDEST_READABLE_GENERATION, PresenceCheck, Resource, Shell,
+            Symlink,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
+        desired_state::DesiredState,
         machine::{
             ReadMachine, Tool,
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -47,8 +51,12 @@ struct MachineWorld {
     workspaces: Vec<CargoWorkspace>,
     members: BTreeMap<CrateName, MemberReading>,
     notices: Vec<Notice>,
+    configurations_come_from_a_repository: bool,
+    configurations_are_inside_a_checkout: bool,
     /// Configurations as they are written down, for the scenarios about loading them.
     documents: Vec<String>,
+    /// A second source, held by a repository Alice does not own.
+    employers_documents: Vec<String>,
     /// Files kept beside the configurations that are not configurations themselves.
     stray_file_names: Vec<String>,
     change_set: Option<ChangeSet>,
@@ -69,7 +77,10 @@ impl MachineWorld {
             workspaces: Vec::new(),
             members: BTreeMap::new(),
             notices: Vec::new(),
+            configurations_come_from_a_repository: false,
+            configurations_are_inside_a_checkout: true,
             documents: Vec::new(),
+            employers_documents: Vec::new(),
             stray_file_names: Vec::new(),
             change_set: None,
             second_change_set: None,
@@ -95,12 +106,15 @@ impl MachineWorld {
     }
 
     fn desired_state(&self) -> DesiredState {
-        DesiredState {
-            machine: machine_settings(),
-            workspaces: self.workspaces.clone(),
-            resources: self.resources.clone(),
-            notices: self.notices.clone(),
-        }
+        let read = match self.configurations_come_from_a_repository {
+            true => read_out_of_the_dotfiles_repository,
+            false => read_out_of_a_checkout,
+        };
+        read(
+            self.resources.clone(),
+            self.workspaces.clone(),
+            self.notices.clone(),
+        )
     }
 
     fn linked_paths(&self) -> Vec<String> {
@@ -109,7 +123,7 @@ impl MachineWorld {
             .expect("nothing was loaded")
             .resources
             .iter()
-            .filter_map(|resource| match resource {
+            .filter_map(|resource| match resource.declared() {
                 Resource::Symlink(symlink) => Some(symlink.link_path.display().to_string()),
                 _ => None,
             })
@@ -128,7 +142,7 @@ impl MachineWorld {
         }
 
         self.machine.hold_cargo_workspace(
-            machine_settings().dotfiles_repository_path(),
+            PathBuf::from(DOTFILES_FILES_ROOT),
             WorkspaceReading {
                 revision: Revision::from("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c"),
                 members: self.members.clone(),
@@ -146,17 +160,6 @@ impl MachineWorld {
         self.outcome
             .as_ref()
             .expect("the scenario has not applied yet")
-    }
-}
-
-fn machine_settings() -> MachineSettings {
-    MachineSettings {
-        repositories_directory_path: PathBuf::from("/repositories"),
-        github_username: "Alice".into(),
-        dotfiles_repository: GitHubRepository {
-            owner: RepositoryOwner::from("Alice"),
-            repository: RepositoryName::from("dotfiles"),
-        },
     }
 }
 
@@ -261,11 +264,9 @@ fn declare_symlink(world: &mut MachineWorld, source_path: String, link_path: Str
     }));
 }
 
-#[given(expr = "Alice declares the dotfiles repository")]
-fn declare_dotfiles_repository(world: &mut MachineWorld) {
-    world
-        .resources
-        .push(Resource::Repository(machine_settings().dotfiles_repository));
+#[given(expr = "Alice's configurations come from the dotfiles repository")]
+fn configurations_come_from_a_repository(world: &mut MachineWorld) {
+    world.configurations_come_from_a_repository = true;
 }
 
 #[given(expr = "Alice declares the command {string} with no presence check")]
@@ -380,35 +381,38 @@ fn stray_file_alongside_configurations(world: &mut MachineWorld, file_name: Stri
     world.stray_file_names.push(file_name);
 }
 
-#[given(expr = "Alice has a configuration that declares no machines it is for")]
-fn configuration_without_a_context(world: &mut MachineWorld) {
-    world.documents.push(format!(
-        r#"{{
-            "version": "{BUILD_GENERATION}",
-            "machine": {{
-                "repositories_directory_path": "/repositories",
-                "github_username": "Alice",
-                "dotfiles_repository": {{ "owner": "Alice", "repository": "dotfiles" }}
-            }},
-            "resources": []
-        }}"#
-    ));
+#[given(expr = "Alice keeps her configurations outside any checkout")]
+fn configurations_outside_any_checkout(world: &mut MachineWorld) {
+    world.configurations_are_inside_a_checkout = false;
 }
 
 #[given(
-    expr = "Alice has a configuration whose machine settings omit the repositories directory path"
+    expr = "Alice's employer's repository has a configuration for work machines linking {string} \
+            to {string}"
 )]
-fn configuration_without_a_repositories_directory_path(world: &mut MachineWorld) {
+fn employers_configuration_linking(
+    world: &mut MachineWorld,
+    link_path: String,
+    source_path: String,
+) {
+    world.employers_documents.push(document(
+        &BUILD_GENERATION.to_string(),
+        "work",
+        &symlink(&link_path, &source_path),
+    ));
+}
+
+#[given(expr = "Alice has a configuration that declares no machines it is for")]
+fn configuration_without_a_context(world: &mut MachineWorld) {
     world.documents.push(format!(
-        r#"{{
-            "version": "{BUILD_GENERATION}",
-            "applies_to": "everywhere",
-            "machine": {{
-                "github_username": "Alice",
-                "dotfiles_repository": {{ "owner": "Alice", "repository": "dotfiles" }}
-            }},
-            "resources": []
-        }}"#
+        r#"{{ "version": "{BUILD_GENERATION}", "github_account": "Alice", "resources": [] }}"#
+    ));
+}
+
+#[given(expr = "Alice has a configuration naming no account to act as")]
+fn configuration_without_an_account(world: &mut MachineWorld) {
+    world.documents.push(format!(
+        r#"{{ "version": "{BUILD_GENERATION}", "applies_to": "everywhere", "resources": [] }}"#
     ));
 }
 
@@ -458,11 +462,7 @@ fn document(version: &str, applies_to: &str, resources: &str) -> String {
         r#"{{
             "version": "{version}",
             "applies_to": "{applies_to}",
-            "machine": {{
-                "repositories_directory_path": "/repositories",
-                "github_username": "Alice",
-                "dotfiles_repository": {{ "owner": "Alice", "repository": "dotfiles" }}
-            }},
+            "github_account": "Alice",
             "resources": {resources}
         }}"#
     )
@@ -471,7 +471,7 @@ fn document(version: &str, applies_to: &str, resources: &str) -> String {
 #[given(expr = "Alice declares the cargo workspace in the dotfiles repository")]
 fn declare_cargo_workspace(world: &mut MachineWorld) {
     world.workspaces.push(CargoWorkspace {
-        repository: machine_settings().dotfiles_repository,
+        repository: dotfiles_repository(),
     });
 }
 
@@ -624,33 +624,54 @@ async fn alice_loads_for_a_personal_machine(world: &mut MachineWorld) {
 }
 
 async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
-    let directory = configuration_directory();
-    for (position, contents) in world.documents.iter().enumerate() {
+    let mut sources = vec![ConfigurationSource::LocalDirectory(write_configurations(
+        &world.documents,
+        &world.stray_file_names,
+        world.configurations_are_inside_a_checkout,
+    ))];
+    if !world.employers_documents.is_empty() {
+        sources.push(ConfigurationSource::LocalDirectory(write_configurations(
+            &world.employers_documents,
+            &[],
+            true,
+        )));
+    }
+
+    match load_desired_state(&sources, machine, Path::new(REPOSITORIES_ROOT)).await {
+        Ok(desired_state) => world.loaded = Some(desired_state),
+        Err(error) => world.loading_error = Some(format!("{error:#}")),
+    }
+}
+
+fn write_configurations(
+    documents: &[String],
+    stray_file_names: &[String],
+    inside_a_checkout: bool,
+) -> PathBuf {
+    static NEXT_CHECKOUT_NUMBER: AtomicUsize = AtomicUsize::new(0);
+
+    let checkout = env::temp_dir().join(format!(
+        "dotfiles_loading_scenarios/{}",
+        NEXT_CHECKOUT_NUMBER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = fs::remove_dir_all(&checkout);
+    let directory = checkout.join("config");
+    fs::create_dir_all(&directory).unwrap();
+    if inside_a_checkout {
+        fs::create_dir_all(checkout.join(".git")).unwrap();
+    }
+
+    for (position, contents) in documents.iter().enumerate() {
         fs::write(
             directory.join(format!("{position:02}.dotconfig.json")),
             contents,
         )
         .unwrap();
     }
-    for file_name in &world.stray_file_names {
+    for file_name in stray_file_names {
         fs::write(directory.join(file_name), "not a configuration").unwrap();
     }
 
-    match load_desired_state(&[ConfigurationSource::LocalDirectory(directory)], machine).await {
-        Ok(desired_state) => world.loaded = Some(desired_state),
-        Err(error) => world.loading_error = Some(format!("{error:#}")),
-    }
-}
-
-fn configuration_directory() -> PathBuf {
-    static NEXT_DIRECTORY_NUMBER: AtomicUsize = AtomicUsize::new(0);
-
-    let directory = env::temp_dir().join(format!(
-        "dotfiles_loading_scenarios/{}",
-        NEXT_DIRECTORY_NUMBER.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _ = fs::remove_dir_all(&directory);
-    fs::create_dir_all(&directory).unwrap();
     directory
 }
 
@@ -821,7 +842,7 @@ fn link_points_into_repository(world: &mut MachineWorld, link_path: String) {
         .unwrap_or_else(|| panic!("nothing is linked at {}", resolved.display()));
 
     assert!(
-        target.starts_with("/repositories/dotfiles"),
+        target.starts_with(DOTFILES_FILES_ROOT),
         "expected the link to point into the dotfiles repository, got {}",
         target.display()
     );
@@ -873,7 +894,7 @@ fn desired_state_holds_symlinks(world: &mut MachineWorld, expected: usize) {
         .expect("nothing was loaded")
         .resources
         .iter()
-        .filter(|resource| matches!(resource, Resource::Symlink(_)))
+        .filter(|resource| matches!(resource.declared(), Resource::Symlink(_)))
         .count();
 
     assert_eq!(symlinks, expected);

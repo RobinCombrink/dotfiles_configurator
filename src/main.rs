@@ -2,14 +2,15 @@ use {
     anyhow::Result,
     clap::{Args, Parser, Subcommand},
     dotfiles_configurator::{
-        configuration::{DesiredState, MachineClass},
+        configuration::MachineClass,
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{apply::apply, plan},
+        desired_state::DesiredState,
         machine::local::LocalMachine,
         reporting::{RunKind, RunReport},
     },
     log::{LevelFilter, trace},
-    std::{io::Write, process::ExitCode},
+    std::{io::Write, path::PathBuf, process::ExitCode},
 };
 
 #[cfg(test)]
@@ -103,9 +104,27 @@ async fn prepare<'report>(
     arguments: &ConfigurationArguments,
     report: &'report RunReport,
 ) -> Result<(DesiredState, LocalMachine<'report>)> {
-    let desired_state = load_desired_state(&arguments.sources, arguments.machine).await?;
-    let machine = LocalMachine::new(&desired_state.machine, report)?;
+    let desired_state =
+        load_desired_state(&arguments.sources, arguments.machine, &repositories_root()?).await?;
+    let machine = LocalMachine::new(desired_state.account().clone(), report)?;
     Ok((desired_state, machine))
+}
+
+// ADR 0025
+#[cfg(target_family = "windows")]
+fn repositories_root() -> Result<PathBuf> {
+    Ok(PathBuf::from("C:\\Repositories"))
+}
+
+#[cfg(target_family = "unix")]
+fn repositories_root() -> Result<PathBuf> {
+    std::env::home_dir()
+        .map(|home| home.join("Repositories"))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Could not find the home directory to resolve the repositories root against"
+            )
+        })
 }
 
 /// A run that leaves the machine unconverged exits non-zero, whether that is because something

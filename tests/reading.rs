@@ -10,14 +10,14 @@ mod declarations;
 mod fake_machine;
 
 use {
-    declarations::{named_repository, reporting_its_version_in_the_second_word},
+    declarations::{declaring, named_repository, reporting_its_version_in_the_second_word},
     dotfiles_configurator::{
         configuration::{
-            Application, CargoPackage, CargoSource, CargoWorkspace, CrateName, DesiredState,
-            GitHubRepository, MachineSettings, Package, RepositoryName, RepositoryOwner, Resource,
-            WingetPackage,
+            Application, CargoPackage, CargoSource, CargoWorkspace, CrateName, GitHubRepository,
+            Package, RepositoryName, RepositoryOwner, Resource, WingetPackage,
         },
         convergence::plan,
+        desired_state::DesiredState,
         machine::{
             ReadInvocation,
             release_reading::ReleaseReading,
@@ -29,23 +29,11 @@ use {
         version::Version,
     },
     fake_machine::FakeMachine,
-    std::{collections::BTreeSet, path::PathBuf},
+    std::collections::BTreeSet,
 };
 
 fn desired_state(resources: Vec<Resource>) -> DesiredState {
-    DesiredState {
-        resources,
-        workspaces: Vec::new(),
-        notices: Vec::new(),
-        machine: MachineSettings {
-            repositories_directory_path: PathBuf::from("/repositories"),
-            github_username: "Alice".into(),
-            dotfiles_repository: GitHubRepository {
-                owner: RepositoryOwner::from("Alice"),
-                repository: RepositoryName::from("dotfiles"),
-            },
-        },
-    }
+    declaring(resources, Vec::new())
 }
 
 fn winget_package(id: &str) -> Resource {
@@ -155,7 +143,7 @@ async fn every_crate_in_one_workspace_opens_its_repository_once() {
     let machine = FakeMachine::default();
     machine.clone_dotfiles_repository();
     machine.hold_cargo_workspace(
-        PathBuf::from("/repositories/dotfiles"),
+        machine.dotfiles_repository_path().to_path_buf(),
         workspace_holding(&[
             "stop-gate",
             "ci-checks",
@@ -163,13 +151,15 @@ async fn every_crate_in_one_workspace_opens_its_repository_once() {
             "session-mining",
         ]),
     );
-    let mut desired_state = desired_state(Vec::new());
-    desired_state.workspaces = vec![CargoWorkspace {
-        repository: GitHubRepository {
-            owner: RepositoryOwner::from("Alice"),
-            repository: RepositoryName::from("dotfiles"),
-        },
-    }];
+    let desired_state = declaring(
+        Vec::new(),
+        vec![CargoWorkspace {
+            repository: GitHubRepository {
+                owner: RepositoryOwner::from("Alice"),
+                repository: RepositoryName::from("dotfiles"),
+            },
+        }],
+    );
 
     let change_set = plan(&desired_state, &machine, &RunReport::discarded())
         .await

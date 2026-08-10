@@ -1,12 +1,13 @@
 use {
     crate::{
         configuration::{
-            Configuration, DesiredState, MachineClass, RepositoryName, RepositoryOwner, Unreadable,
-            merge_configurations, parse_configuration,
+            Configuration, GitHubRepository, MachineClass, RepositoryName, RepositoryOwner,
+            Unreadable, parse_configuration,
         },
+        desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         github,
     },
-    anyhow::{Context as _, Error, Result, anyhow},
+    anyhow::{Context as _, Error, Result, anyhow, bail},
     std::{
         fmt::{Display, Formatter},
         fs,
@@ -59,6 +60,13 @@ const EXPECTED_SOURCE: &str = "expected `local:<directory>` or `github:<owner>/<
 
 const CONFIGURATION_SUFFIX: &str = ".dotconfig.json";
 
+fn checkout_holding(directory: &Path) -> Option<PathBuf> {
+    directory
+        .ancestors()
+        .find(|ancestor| ancestor.join(".git").exists())
+        .map(Path::to_path_buf)
+}
+
 fn is_configuration_file(path: &str) -> bool {
     path.ends_with(CONFIGURATION_SUFFIX)
 }
@@ -66,31 +74,51 @@ fn is_configuration_file(path: &str) -> bool {
 pub async fn load_desired_state(
     sources: &[ConfigurationSource],
     machine: MachineClass,
+    repositories_root: &Path,
 ) -> Result<DesiredState> {
-    let mut loaded: Vec<(String, Configuration)> = Vec::new();
+    let mut per_source: Vec<(&ConfigurationSource, Vec<(String, Configuration)>)> = Vec::new();
     let mut unreadable: Vec<Unreadable> = Vec::new();
     for source in sources {
+        let mut from_this_source: Vec<(String, Configuration)> = Vec::new();
         for attempt in source.load().await {
             match attempt {
-                Ok(configuration) => loaded.push(configuration),
+                Ok(configuration) => from_this_source.push(configuration),
                 Err(refusal) => unreadable.push(refusal),
             }
         }
+        per_source.push((source, from_this_source));
     }
 
     if let Some(refusal) = Refusal::of(unreadable) {
         return Err(refusal.into());
     }
 
-    if loaded.is_empty() {
+    let mut read: Vec<(String, Configuration, SourceLocation)> = Vec::new();
+    for (source, from_this_source) in per_source {
+        refuse_two_trees_for_one_source(source, &from_this_source)?;
+        let location = source.files_come_from()?;
+        read.extend(
+            from_this_source
+                .into_iter()
+                .map(|(name, configuration)| (name, configuration, location.clone())),
+        );
+    }
+
+    if read.is_empty() {
         return Err(anyhow!(
             "No configurations were found in any of the sources given"
         ));
     }
 
-    let applicable: Vec<(String, Configuration)> = loaded
+    let applicable: Vec<(String, ResolvedConfiguration)> = read
         .into_iter()
-        .filter(|(_, configuration)| configuration.applies_to.applies_on(machine))
+        .filter(|(_, configuration, _)| configuration.applies_to.applies_on(machine))
+        .map(|(name, configuration, location)| {
+            (
+                name,
+                ResolvedConfiguration::read(configuration, location, repositories_root),
+            )
+        })
         .collect();
 
     if applicable.is_empty() {
@@ -100,7 +128,35 @@ pub async fn load_desired_state(
         ));
     }
 
-    Ok(merge_configurations(applicable)?.with_dotfiles_repository())
+    DesiredState::of(applicable)
+}
+
+/// A source is cloned into the tree its configurations' context names, so one yielding two
+/// contexts that name different trees would have to be cloned into both. See ADR 0025.
+fn refuse_two_trees_for_one_source(
+    source: &ConfigurationSource,
+    loaded: &[(String, Configuration)],
+) -> Result<()> {
+    let contexts = loaded
+        .iter()
+        .map(|(_, configuration)| configuration.applies_to);
+
+    let Some(first) = contexts.clone().next() else {
+        return Ok(());
+    };
+    let Some(second) = contexts
+        .into_iter()
+        .find(|context| context.repositories_leaf() != first.repositories_leaf())
+    else {
+        return Ok(());
+    };
+
+    bail!(
+        "{source} holds a configuration for {first}, which clones under {}, and one for {second}, \
+         which clones under {}. One source cannot be cloned into two trees.",
+        first.repositories_leaf(),
+        second.repositories_leaf()
+    )
 }
 
 #[derive(Debug)]
@@ -139,7 +195,43 @@ impl Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
+impl Display for ConfigurationSource {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigurationSource::LocalDirectory(directory) => {
+                write!(formatter, "local:{}", directory.display())
+            }
+            ConfigurationSource::GitHubRepository {
+                owner,
+                repository,
+                directory,
+            } => write!(formatter, "github:{owner}/{repository}/{directory}"),
+        }
+    }
+}
+
 impl ConfigurationSource {
+    // ADR 0025
+    fn files_come_from(&self) -> Result<SourceLocation> {
+        match self {
+            ConfigurationSource::GitHubRepository {
+                owner, repository, ..
+            } => Ok(SourceLocation::Repository(GitHubRepository {
+                owner: owner.clone(),
+                repository: repository.clone(),
+            })),
+            ConfigurationSource::LocalDirectory(directory) => checkout_holding(directory)
+                .map(SourceLocation::Checkout)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "{} is inside no checkout, so there is nothing to read a configuration's \
+                         files out of. Read it from the repository it was written in instead.",
+                        directory.display()
+                    )
+                }),
+        }
+    }
+
     async fn load(&self) -> Vec<Result<(String, Configuration), Unreadable>> {
         match self {
             ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory),
@@ -226,6 +318,36 @@ mod tests {
     use std::{env, fs::File, io::Write};
 
     #[test]
+    fn a_local_source_resolves_its_files_root_by_walking_up_to_a_checkout() {
+        let checkout = temporary_checkout("files_root");
+
+        let location = ConfigurationSource::LocalDirectory(checkout.join("config"))
+            .files_come_from()
+            .unwrap();
+
+        assert_eq!(location, SourceLocation::Checkout(checkout));
+    }
+
+    #[test]
+    fn a_github_source_resolves_its_files_root_to_the_clone_of_that_repository() {
+        let location = ConfigurationSource::GitHubRepository {
+            owner: RepositoryOwner::from("Alice"),
+            repository: RepositoryName::from("dotfiles"),
+            directory: "config".to_owned(),
+        }
+        .files_come_from()
+        .unwrap();
+
+        assert_eq!(
+            location,
+            SourceLocation::Repository(GitHubRepository {
+                owner: RepositoryOwner::from("Alice"),
+                repository: RepositoryName::from("dotfiles"),
+            })
+        );
+    }
+
+    #[test]
     fn the_cause_of_each_refusal_survives_being_combined_with_the_others() {
         let refusal = Refusal::of(vec![
             Unreadable::Malformed(anyhow!("personal.dotconfig.json is not valid JSON")),
@@ -247,34 +369,40 @@ mod tests {
         assert_eq!(*required, BEYOND_BUILD_GENERATION);
     }
 
-    fn temporary_directory(name: &str) -> PathBuf {
-        let directory = env::temp_dir()
+    fn temporary_checkout(name: &str) -> PathBuf {
+        let checkout = env::temp_dir()
             .join("dotfiles_configuration_source_tests")
             .join(name);
-        let _ = fs::remove_dir_all(&directory);
-        fs::create_dir_all(&directory).unwrap();
-        directory
+        let _ = fs::remove_dir_all(&checkout);
+        fs::create_dir_all(checkout.join(".git")).unwrap();
+        fs::create_dir_all(checkout.join("config")).unwrap();
+        checkout
     }
 
-    fn write_configuration(directory: &Path, file_name: &str, applies_to: &str, resources: &str) {
+    fn write_configuration(checkout: &Path, file_name: &str, applies_to: &str, resources: &str) {
         let contents = format!(
             r#"{{
                 "version": "{BUILD_GENERATION}",
                 "applies_to": "{applies_to}",
-                "machine": {{
-                    "repositories_directory_path": "C:\\Repositories",
-                    "github_username": "Alice",
-                    "dotfiles_repository": {{ "owner": "Alice", "repository": "dotfiles" }}
-                }},
+                "github_account": "Alice",
                 "resources": [{resources}]
             }}"#
         );
-        let mut file = File::create(directory.join(file_name)).unwrap();
+        let mut file = File::create(checkout.join("config").join(file_name)).unwrap();
         file.write_all(contents.as_bytes()).unwrap();
     }
 
     fn command(argument: &str) -> String {
         format!(r#"{{ "kind": "command", "shell": "bash", "args": ["{argument}"] }}"#)
+    }
+
+    async fn load_from(checkout: &Path, machine: MachineClass) -> Result<DesiredState> {
+        load_desired_state(
+            &[ConfigurationSource::LocalDirectory(checkout.join("config"))],
+            machine,
+            Path::new("/repositories"),
+        )
+        .await
     }
 
     fn rendered(desired_state: &DesiredState) -> Vec<String> {
@@ -287,141 +415,182 @@ mod tests {
 
     #[tokio::test]
     async fn a_directory_that_does_not_exist_is_reported_by_path() {
-        let source = ConfigurationSource::LocalDirectory("/no/such/directory".into());
+        let error = load_desired_state(
+            &[ConfigurationSource::LocalDirectory(
+                "/no/such/directory".into(),
+            )],
+            MachineClass::Personal,
+            Path::new("/repositories"),
+        )
+        .await
+        .unwrap_err();
 
-        let error = load_desired_state(&[source], MachineClass::Personal)
-            .await
-            .unwrap_err();
+        assert!(error.to_string().contains("no/such/directory"), "{error}");
+    }
 
-        assert!(error.to_string().contains("no/such/directory"));
+    #[tokio::test]
+    async fn a_directory_inside_no_checkout_has_nothing_to_read_a_configurations_files_out_of() {
+        let outside_any_checkout = env::temp_dir()
+            .join("dotfiles_configuration_source_tests")
+            .join("outside_any_checkout");
+        let _ = fs::remove_dir_all(&outside_any_checkout);
+        fs::create_dir_all(outside_any_checkout.join("config")).unwrap();
+        write_configuration(
+            &outside_any_checkout,
+            "everywhere.dotconfig.json",
+            "everywhere",
+            "",
+        );
+        let outside_any_checkout = outside_any_checkout.join("config");
+
+        let error = load_desired_state(
+            &[ConfigurationSource::LocalDirectory(outside_any_checkout)],
+            MachineClass::Personal,
+            Path::new("/repositories"),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.to_string().contains("no checkout"), "{error}");
     }
 
     #[tokio::test]
     async fn configurations_in_a_directory_are_read_in_a_stable_order() {
-        let directory = temporary_directory("stable_order");
+        let checkout = temporary_checkout("stable_order");
         write_configuration(
-            &directory,
+            &checkout,
             "b_second.dotconfig.json",
             "everywhere",
             &command("second"),
         );
         write_configuration(
-            &directory,
+            &checkout,
             "a_first.dotconfig.json",
-            "everywhere",
+            "personal",
             &command("first"),
         );
 
-        let desired_state = load_desired_state(
-            &[ConfigurationSource::LocalDirectory(directory)],
-            MachineClass::Personal,
-        )
-        .await
-        .unwrap();
+        let desired_state = load_from(&checkout, MachineClass::Personal).await.unwrap();
 
         assert_eq!(
             rendered(&desired_state),
-            vec![
-                "repository Alice/dotfiles".to_owned(),
-                "command first".to_owned(),
-                "command second".to_owned(),
-            ]
+            vec!["command first".to_owned(), "command second".to_owned()]
         );
     }
 
     #[tokio::test]
     async fn a_directory_holding_a_configuration_for_another_machine_contributes_none_of_it() {
-        let directory = temporary_directory("another_machine");
+        let checkout = temporary_checkout("another_machine");
         write_configuration(
-            &directory,
+            &checkout,
             "everywhere.dotconfig.json",
             "everywhere",
             &command("for every machine"),
         );
         write_configuration(
-            &directory,
+            &checkout,
             "personal.dotconfig.json",
             "personal",
             &command("for a personal machine"),
         );
 
-        let desired_state = load_desired_state(
-            &[ConfigurationSource::LocalDirectory(directory)],
-            MachineClass::Work,
-        )
-        .await
-        .unwrap();
+        let desired_state = load_from(&checkout, MachineClass::Personal).await.unwrap();
 
-        assert_eq!(
-            rendered(&desired_state),
-            vec![
-                "repository Alice/dotfiles".to_owned(),
-                "command for every machine".to_owned(),
-            ]
+        assert!(
+            !rendered(&desired_state).contains(&"command for a work machine".to_owned()),
+            "{:?}",
+            rendered(&desired_state)
         );
     }
 
     #[tokio::test]
     async fn a_file_without_the_configuration_suffix_is_not_read_at_all() {
-        let directory = temporary_directory("unsuffixed_file");
+        let checkout = temporary_checkout("unsuffixed_file");
         write_configuration(
-            &directory,
+            &checkout,
             "everywhere.dotconfig.json",
             "everywhere",
             &command("declared"),
         );
-        let mut readme = File::create(directory.join("README.md")).unwrap();
+        write_configuration(
+            &checkout,
+            "personal.dotconfig.json",
+            "personal",
+            &command("also declared"),
+        );
+        let mut readme = File::create(checkout.join("config").join("README.md")).unwrap();
         readme.write_all(b"These are the configurations.").unwrap();
 
-        let desired_state = load_desired_state(
-            &[ConfigurationSource::LocalDirectory(directory)],
-            MachineClass::Personal,
-        )
-        .await
-        .unwrap();
+        let desired_state = load_from(&checkout, MachineClass::Personal).await.unwrap();
 
         assert_eq!(
             rendered(&desired_state),
             vec![
-                "repository Alice/dotfiles".to_owned(),
                 "command declared".to_owned(),
+                "command also declared".to_owned()
             ]
         );
     }
 
     #[tokio::test]
-    async fn a_directory_holding_nothing_for_this_machine_is_refused_naming_the_machine() {
-        let directory = temporary_directory("nothing_applies");
+    async fn a_set_holding_nothing_for_this_machines_class_is_refused() {
+        let checkout = temporary_checkout("nothing_for_this_class");
         write_configuration(
-            &directory,
-            "work.dotconfig.json",
-            "work",
-            &command("for a work machine"),
+            &checkout,
+            "everywhere.dotconfig.json",
+            "everywhere",
+            &command("for every machine"),
         );
 
-        let error = load_desired_state(
-            &[ConfigurationSource::LocalDirectory(directory)],
-            MachineClass::Personal,
-        )
-        .await
-        .unwrap_err();
+        let error = load_from(&checkout, MachineClass::Personal)
+            .await
+            .unwrap_err();
 
-        assert!(error.to_string().contains("personal"), "{error}");
+        assert!(error.to_string().contains("machine's class"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_set_holding_nothing_for_every_machine_is_refused() {
+        let checkout = temporary_checkout("nothing_for_every_machine");
+        write_configuration(
+            &checkout,
+            "personal.dotconfig.json",
+            "personal",
+            &command("for a personal machine"),
+        );
+
+        let error = load_from(&checkout, MachineClass::Personal)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("every machine"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_source_holding_configurations_of_two_trees_is_refused_by_the_trees_it_names() {
+        let checkout = temporary_checkout("two_trees");
+        write_configuration(&checkout, "everywhere.dotconfig.json", "everywhere", "");
+        write_configuration(&checkout, "work.dotconfig.json", "work", "");
+
+        let error = load_from(&checkout, MachineClass::Work).await.unwrap_err();
+
+        assert!(
+            error.to_string().contains("Personal") && error.to_string().contains("Work"),
+            "{error}"
+        );
     }
 
     #[tokio::test]
     async fn a_configuration_in_the_superseded_format_is_rejected_by_file_name() {
-        let directory = temporary_directory("superseded_format");
-        let mut file = File::create(directory.join("everywhere.dotconfig.json")).unwrap();
+        let checkout = temporary_checkout("superseded_format");
+        let mut file =
+            File::create(checkout.join("config").join("everywhere.dotconfig.json")).unwrap();
         file.write_all(br#"{ "version": "0.1.0", "clone_config": {}, "items": [] }"#)
             .unwrap();
 
-        let error = load_desired_state(
-            &[ConfigurationSource::LocalDirectory(directory)],
-            MachineClass::Personal,
-        )
-        .await
-        .unwrap_err();
+        let error = load_from(&checkout, MachineClass::Personal)
+            .await
+            .unwrap_err();
 
         assert!(error.to_string().contains("everywhere.dotconfig.json"));
     }

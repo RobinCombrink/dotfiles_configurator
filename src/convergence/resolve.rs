@@ -1,31 +1,39 @@
 use {
     crate::{
-        configuration::{CargoPackage, CargoSource, DesiredState, Identity, Package, Resource},
+        configuration::{CargoPackage, CargoSource, Identity, Package, Resource},
         convergence::assess::SourceReadings,
+        desired_state::{DesiredState, ResolvedResource},
     },
     anyhow::{Result, bail},
     std::collections::BTreeMap,
 };
 
-pub fn resolve(desired_state: &DesiredState, readings: &SourceReadings) -> Result<Vec<Resource>> {
+pub fn resolve(
+    desired_state: &DesiredState,
+    readings: &SourceReadings,
+) -> Result<Vec<ResolvedResource>> {
     let mut resources = desired_state.resources.clone();
 
     for workspace in &desired_state.workspaces {
-        match readings.workspace(&workspace.repository) {
+        let repository = &workspace.declared().repository;
+        match readings.workspace(&workspace.clone_directory(repository)) {
             Some(Ok(Some(reading))) => {
                 for crate_name in reading.members.keys() {
-                    resources.push(Resource::Package(Package::Cargo(CargoPackage {
-                        crate_name: crate_name.clone(),
-                        source: CargoSource::Workspace {
-                            repository: workspace.repository.clone(),
+                    resources.push(workspace.alongside(Resource::Package(Package::Cargo(
+                        CargoPackage {
+                            crate_name: crate_name.clone(),
+                            source: CargoSource::Workspace {
+                                repository: repository.clone(),
+                            },
                         },
-                    })));
+                    ))));
                 }
             }
             Some(Ok(None)) | None => {}
             Some(Err(reason)) => bail!(
-                "{workspace} could not be read, so which crates it holds is unknown: {reason}. \
-                 Nothing was applied."
+                "{} could not be read, so which crates it holds is unknown: {reason}. Nothing was \
+                 applied.",
+                workspace.declared()
             ),
         }
     }
@@ -34,8 +42,8 @@ pub fn resolve(desired_state: &DesiredState, readings: &SourceReadings) -> Resul
     Ok(resources)
 }
 
-fn reject_conflicting_claims(resources: &[Resource]) -> Result<()> {
-    let mut claimed: BTreeMap<Identity, &Resource> = BTreeMap::new();
+fn reject_conflicting_claims(resources: &[ResolvedResource]) -> Result<()> {
+    let mut claimed: BTreeMap<Identity, &ResolvedResource> = BTreeMap::new();
 
     for resource in resources {
         let Some(identity) = resource.identity() else {
