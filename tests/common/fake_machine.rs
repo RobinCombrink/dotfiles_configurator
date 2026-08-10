@@ -11,12 +11,13 @@ use {
     dotfiles_configurator::{
         configuration::{
             ApplicationName, CrateName, GitHubAccount, GitHubRepository, Installer, PresenceCheck,
-            ReleasedBinary, Shell, WingetPackageId,
+            ReleasedBinary, Shell, VariableName, WingetPackageId,
         },
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine, Tool,
             WriteInvocation, WriteMachine,
+            environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
             workspace_reading::{Revision, WorkspaceReading},
@@ -64,6 +65,9 @@ struct MachineState {
     release_reads: Vec<(GitHubRepository, GitHubAccount)>,
     clones: Vec<(GitHubRepository, GitHubAccount)>,
     version_output_by_binary_path: BTreeMap<PathBuf, String>,
+    user_search_path: Vec<PathBuf>,
+    machine_search_path: Vec<PathBuf>,
+    environment_variables: BTreeMap<VariableName, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,6 +288,29 @@ impl FakeMachine {
             .cloned()
     }
 
+    pub fn hold_user_search_path_entry(&self, directory: PathBuf) {
+        self.state.borrow_mut().user_search_path.push(directory);
+    }
+
+    pub fn hold_machine_search_path_entry(&self, directory: PathBuf) {
+        self.state.borrow_mut().machine_search_path.push(directory);
+    }
+
+    pub fn user_search_path(&self) -> Vec<PathBuf> {
+        self.state.borrow().user_search_path.clone()
+    }
+
+    pub fn hold_environment_variable(&self, name: &VariableName, value: &str) {
+        self.state
+            .borrow_mut()
+            .environment_variables
+            .insert(name.clone(), value.to_owned());
+    }
+
+    pub fn environment_variable(&self, name: &VariableName) -> Option<String> {
+        self.state.borrow().environment_variables.get(name).cloned()
+    }
+
     pub fn remove_tool(&self, tool: Tool) {
         self.state.borrow_mut().tools.remove(&tool);
     }
@@ -362,12 +389,14 @@ impl FakeMachine {
     pub fn fingerprint(&self) -> String {
         let state = self.state.borrow();
         format!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}",
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
             state.paths,
             state.links,
             state.installed_applications,
             state.winget_packages,
-            state.commands_run
+            state.commands_run,
+            state.user_search_path,
+            state.environment_variables
         )
     }
 }
@@ -522,6 +551,22 @@ impl ReadMachine for FakeMachine {
             .ok_or_else(|| anyhow!("{repository} has published no release"))
     }
 
+    fn read_search_path(&self) -> Result<SearchPathReading> {
+        let state = self.state.borrow();
+
+        Ok(SearchPathReading::of(
+            state
+                .user_search_path
+                .iter()
+                .chain(state.machine_search_path.iter())
+                .cloned(),
+        ))
+    }
+
+    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<String>> {
+        Ok(self.state.borrow().environment_variables.get(name).cloned())
+    }
+
     fn report_version(&self, binary_path: &Path, _arguments: &[String]) -> Result<CommandOutput> {
         let state = self.state.borrow();
         let Some(printed) = state.version_output_by_binary_path.get(binary_path) else {
@@ -599,6 +644,22 @@ impl WriteMachine for FakeMachine {
             .version_output_by_binary_path
             .insert(installed_path, reported);
         Ok(Placement::Placed)
+    }
+
+    fn add_to_search_path(&self, directory: &Path) -> Result<()> {
+        self.state
+            .borrow_mut()
+            .user_search_path
+            .push(directory.to_path_buf());
+        Ok(())
+    }
+
+    fn set_environment_variable(&self, name: &VariableName, value: &str) -> Result<()> {
+        self.state
+            .borrow_mut()
+            .environment_variables
+            .insert(name.clone(), value.to_owned());
+        Ok(())
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {

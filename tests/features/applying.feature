@@ -156,3 +156,24 @@ Feature: Applying a change set
     Given Alice's employer's configuration declares the repository "Employer/tooling"
     When Alice applies
     Then "Employer/tooling" is cloned as "Employer"
+
+  Scenario: Applying sets an environment variable the machine did not have
+    Given Alice declares the environment variable "EDITOR" as "nvim"
+    When Alice applies
+    Then "EDITOR" is set to "nvim" on Alice's machine
+
+  Scenario: Applying puts a declared directory on Alice's own search path
+    Given Alice declares the search path entry "tools/bin" under her home directory
+    When Alice applies
+    Then "tools/bin" is on Alice's own search path
+
+  Scenario: A directory the machine-wide search path carries is not added to Alice's own
+    Given Alice declares the search path entry "tools/bin" under her home directory
+    And "tools/bin" is already on the machine-wide search path
+    When Alice applies
+    Then "tools/bin" is not on Alice's own search path
+
+  Scenario: A directory inside a repository reaches the search path as the path of its clone
+    Given Alice declares the search path entry "bin" in the repository "flutter/flutter"
+    When Alice applies
+    Then "bin" inside the clone of "flutter/flutter" is on Alice's own search path

@@ -48,3 +48,10 @@ url = { version = "2.5.4", features = ["serde"] }
 
 [target.'cfg(target_family = "windows")'.build-dependencies]
 winresource = "0.1.23"
+
+[target.'cfg(target_family = "windows")'.dependencies]
+windows-registry = "0.5.3"
+windows-sys = { version = "0.60.2", features = [
+    "Win32_System_Environment",
+    "Win32_UI_WindowsAndMessaging",
+] }

@@ -205,3 +205,43 @@ Feature: Planning what a machine needs
     And git is absent from Alice's machine
     When Alice plans
     Then the change set reports 1 change
+
+  Scenario: An environment variable the machine does not set is reported as a change
+    Given Alice declares the environment variable "EDITOR" as "nvim"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "EDITOR"
+
+  Scenario: An environment variable already set to the declared value is reported as converged
+    Given Alice declares the environment variable "EDITOR" as "nvim"
+    And "EDITOR" is set to "nvim" on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: An environment variable set to something else is a change naming what it is set to
+    Given Alice declares the environment variable "EDITOR" as "nvim"
+    And "EDITOR" is set to "notepad" on Alice's machine
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "notepad"
+
+  Scenario: A directory absent from the search path is reported as a change
+    Given Alice declares the search path entry "tools/bin" under her home directory
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "tools"
+
+  Scenario: A directory already on Alice's own search path is reported as converged
+    Given Alice declares the search path entry "tools/bin" under her home directory
+    And "tools/bin" is already on Alice's own search path
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A directory the machine-wide search path carries is reported as converged
+    Given Alice declares the search path entry "tools/bin" under her home directory
+    And "tools/bin" is already on the machine-wide search path
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged

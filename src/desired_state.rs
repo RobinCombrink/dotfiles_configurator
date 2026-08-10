@@ -125,6 +125,7 @@ impl ResolvedResource {
             Resource::Repository(_)
             | Resource::Application(_)
             | Resource::Package(_)
+            | Resource::EnvironmentVariable(_)
             | Resource::Registration(_)
             | Resource::Command(_) => None,
         }
@@ -413,7 +414,9 @@ mod tests {
 
     /// Every change set carries the configurator's own currency, which most of these are not
     /// about.
-    fn other_than_its_own_currency(desired_state: &DesiredState) -> Vec<&ResolvedResource> {
+    fn other_than_what_every_change_set_carries(
+        desired_state: &DesiredState,
+    ) -> Vec<&ResolvedResource> {
         let own = Identity::InstalledBinary(currency::own_currency().installed_name());
         desired_state
             .resources
@@ -427,7 +430,7 @@ mod tests {
         let desired_state = a_readable_set(EMPTY).unwrap();
 
         assert_eq!(
-            other_than_its_own_currency(&desired_state)
+            other_than_what_every_change_set_carries(&desired_state)
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>(),
@@ -665,7 +668,7 @@ mod tests {
         )
         .unwrap();
 
-        let binary = other_than_its_own_currency(&desired_state)
+        let binary = other_than_what_every_change_set_carries(&desired_state)
             .into_iter()
             .find(|resource| resource.kind() == ResourceKind::Application)
             .expect("the personal configuration declared a released binary");
@@ -691,7 +694,7 @@ mod tests {
         ])
         .unwrap();
 
-        let symlink = other_than_its_own_currency(&desired_state)
+        let symlink = other_than_what_every_change_set_carries(&desired_state)
             .into_iter()
             .find(|resource| resource.kind() == ResourceKind::Symlink)
             .expect("the work configuration declared a symlink");

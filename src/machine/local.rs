@@ -2,12 +2,13 @@ use {
     crate::{
         configuration::{
             ApplicationSource, ArchiveEntry, AssetPattern, CrateName, GitHubAccount,
-            GitHubRepository, Installer, PresenceCheck, ReleasedBinary, Shell,
+            GitHubRepository, Installer, PresenceCheck, ReleasedBinary, Shell, VariableName,
         },
         github::AuthenticatedAccount,
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
             SUPERSEDED_SUFFIX, Tool, WriteInvocation, WriteMachine,
+            environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
             workspace_reading::{Revision, WorkspaceReading},
@@ -33,6 +34,7 @@ use {
     url::Url,
 };
 
+pub mod environment;
 pub mod workspace;
 
 /// The machine this process is running on.
@@ -495,6 +497,14 @@ impl ReadMachine for LocalMachine<'_> {
     fn report_version(&self, binary_path: &Path, arguments: &[String]) -> Result<CommandOutput> {
         capture(binary_path, arguments, self.report)
     }
+
+    fn read_search_path(&self) -> Result<SearchPathReading> {
+        environment::read_search_path()
+    }
+
+    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<String>> {
+        environment::read_variable(name)
+    }
 }
 
 impl WriteMachine for LocalMachine<'_> {
@@ -624,6 +634,14 @@ impl WriteMachine for LocalMachine<'_> {
                     installed_path.display()
                 )
             })
+    }
+
+    fn add_to_search_path(&self, directory: &Path) -> Result<()> {
+        environment::add_to_search_path(directory)
+    }
+
+    fn set_environment_variable(&self, name: &VariableName, value: &str) -> Result<()> {
+        environment::set_variable(name, value)
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {

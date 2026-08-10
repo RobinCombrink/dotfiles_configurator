@@ -78,3 +78,5 @@ name!(
     /// The name Claude Code holds an MCP server under.
     McpServerName
 );
+
+name!(VariableName);

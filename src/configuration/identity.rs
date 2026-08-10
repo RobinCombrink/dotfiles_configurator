@@ -1,9 +1,11 @@
 use {
     crate::configuration::{
-        names::{ApplicationName, BinaryName, CrateName, McpServerName, WingetPackageId},
+        names::{
+            ApplicationName, BinaryName, CrateName, McpServerName, VariableName, WingetPackageId,
+        },
         resource::{
-            Application, ClaudeMcpServer, GitHubRepository, Package, Registration, Resource,
-            Symlink,
+            Application, ClaudeMcpServer, EnvironmentVariable, GitHubRepository, Package,
+            Registration, Resource, SearchPathDirectory, SearchPathEntry, Symlink, Variable,
         },
     },
     std::{
@@ -25,6 +27,9 @@ pub enum Identity {
     InstalledBinary(BinaryName),
     WingetPackage(WingetPackageId),
     CargoCrate(CrateName),
+    EnvironmentVariable(VariableName),
+    /// The directory the entry names, as declared.
+    SearchPathEntry(SearchPathDirectory),
     /// The path of the link itself, as declared.
     Symlink(PathBuf),
     ClaudeMcpServer(McpServerName),
@@ -42,6 +47,12 @@ impl Display for Identity {
             }
             Identity::WingetPackage(id) => write!(formatter, "the winget package {id}"),
             Identity::CargoCrate(name) => write!(formatter, "the cargo crate {name}"),
+            Identity::EnvironmentVariable(name) => {
+                write!(formatter, "the environment variable {name}")
+            }
+            Identity::SearchPathEntry(directory) => {
+                write!(formatter, "the search path entry {directory}")
+            }
             Identity::Symlink(path) => write!(formatter, "the link at {}", path.display()),
             Identity::ClaudeMcpServer(name) => {
                 write!(formatter, "the claude mcp server {name}")
@@ -68,6 +79,12 @@ impl Resource {
             Resource::Package(Package::Cargo(package)) => {
                 Some(Identity::CargoCrate(package.crate_name.clone()))
             }
+            Resource::EnvironmentVariable(EnvironmentVariable::Variable(Variable {
+                name, ..
+            })) => Some(Identity::EnvironmentVariable(name.clone())),
+            Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(
+                SearchPathEntry { directory },
+            )) => Some(Identity::SearchPathEntry(directory.clone())),
             Resource::Symlink(Symlink { link_path, .. }) => {
                 Some(Identity::Symlink(link_path.clone()))
             }

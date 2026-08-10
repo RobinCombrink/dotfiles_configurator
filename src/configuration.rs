@@ -37,13 +37,14 @@ pub use {
     migration::{Migration, announcement},
     names::{
         ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName, RepositoryName,
-        RepositoryOwner, WingetPackageId,
+        RepositoryOwner, VariableName, WingetPackageId,
     },
     presence_check::PresenceCheck,
     resource::{
         Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,
-        ClaudeMcpServer, Command, GitHubRepository, Installer, McpScope, Package, Registration,
-        ReleasedBinary, Resource, ResourceKind, Shell, Symlink, VersionWord, WingetPackage,
+        ClaudeMcpServer, Command, EnvironmentVariable, GitHubRepository, Installer, McpScope,
+        Package, Registration, ReleasedBinary, Resource, ResourceKind, SearchPathDirectory,
+        SearchPathEntry, Shell, Symlink, Variable, VersionWord, WingetPackage,
     },
     unreadable::Unreadable,
     workspace::CargoWorkspace,
@@ -347,6 +348,66 @@ mod tests {
     }
 
     #[test]
+    fn a_configuration_cannot_claim_the_directory_this_program_installs_binaries_into() {
+        let claimed = r#""resources": [{
+            "kind": "environment_variable", "shape": "search_path_entry",
+            "directory": { "in": "tool_binaries" }
+        }]"#;
+
+        assert!(parse(claimed).is_err());
+    }
+
+    #[test]
+    fn a_search_path_entry_in_a_repository_is_read_as_a_path_under_that_repositorys_clone() {
+        let configuration = parse(
+            r#""resources": [{
+                "kind": "environment_variable", "shape": "search_path_entry",
+                "directory": {
+                    "in": "repository",
+                    "repository": { "owner": "flutter", "repository": "flutter" },
+                    "path": "bin"
+                }
+            }]"#,
+        )
+        .unwrap();
+
+        let Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(entry)) =
+            &configuration.resources[0]
+        else {
+            panic!("the configuration declared no search path entry");
+        };
+        assert_eq!(
+            entry.directory,
+            SearchPathDirectory::Repository {
+                repository: GitHubRepository {
+                    owner: RepositoryOwner::from("flutter"),
+                    repository: RepositoryName::from("flutter"),
+                },
+                path: std::path::PathBuf::from("bin"),
+            }
+        );
+    }
+
+    #[test]
+    fn a_variable_is_read_as_the_whole_value_it_declares() {
+        let configuration = parse(
+            r#""resources": [
+                { "kind": "environment_variable", "shape": "variable",
+                  "name": "EDITOR", "value": "nvim" }
+            ]"#,
+        )
+        .unwrap();
+
+        let Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) =
+            &configuration.resources[0]
+        else {
+            panic!("the configuration declared no variable");
+        };
+        assert_eq!(variable.name, VariableName::from("EDITOR"));
+        assert_eq!(variable.value, "nvim");
+    }
+
+    #[test]
     fn a_released_binary_naming_no_version_arguments_is_asked_the_usual_way() {
         let configuration = parse(
             r#""resources": [{
@@ -383,6 +444,7 @@ mod tests {
             ResourceKind::Application,
             ResourceKind::Repository,
             ResourceKind::Registration,
+            ResourceKind::EnvironmentVariable,
             ResourceKind::Package,
         ];
 
@@ -394,6 +456,7 @@ mod tests {
                 ResourceKind::Repository,
                 ResourceKind::Application,
                 ResourceKind::Package,
+                ResourceKind::EnvironmentVariable,
                 ResourceKind::Symlink,
                 ResourceKind::Registration,
                 ResourceKind::Command,

@@ -95,6 +95,7 @@ impl Resource {
             Resource::Repository(_)
             | Resource::Application(_)
             | Resource::Package(_)
+            | Resource::EnvironmentVariable(_)
             | Resource::Symlink(_)
             | Resource::Registration(_) => true,
         }
@@ -127,7 +128,7 @@ impl Resource {
                     }
                 }
             }
-            Resource::Symlink(_) => Vec::new(),
+            Resource::EnvironmentVariable(_) | Resource::Symlink(_) => Vec::new(),
             Resource::Registration(_) => vec![Requirement::Tool(Tool::Claude)],
             Resource::Command(command) => {
                 let mut requirements = check_requirements(command.presence_check.as_ref());
@@ -152,6 +153,24 @@ fn shell_requirement(shell: Shell) -> Option<Requirement> {
     match shell {
         Shell::Wsl => Some(Requirement::Tool(Tool::Wsl)),
         Shell::Bash | Shell::CommandPrompt | Shell::PowerShell => None,
+    }
+}
+
+/// Which directory a search path entry names, resolved against everything the run holds that the
+/// configuration therefore does not declare. See ADR 0025.
+pub(crate) fn search_path_directory(
+    entry: &crate::configuration::SearchPathEntry,
+    resource: &ResolvedResource,
+    machine: &impl crate::machine::ReadMachine,
+) -> std::path::PathBuf {
+    match &entry.directory {
+        crate::configuration::SearchPathDirectory::ToolBinaries => machine.binaries_directory(),
+        crate::configuration::SearchPathDirectory::Repository { repository, path } => {
+            resource.clone_directory(repository).join(path)
+        }
+        crate::configuration::SearchPathDirectory::Home { path } => {
+            machine.resolve_against_home(path)
+        }
     }
 }
 

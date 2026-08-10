@@ -3,7 +3,7 @@ use {
         configuration::{
             names::{
                 ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName,
-                RepositoryName, RepositoryOwner, WingetPackageId,
+                RepositoryName, RepositoryOwner, VariableName, WingetPackageId,
             },
             presence_check::PresenceCheck,
         },
@@ -23,6 +23,7 @@ pub enum Resource {
     Repository(GitHubRepository),
     Application(Application),
     Package(Package),
+    EnvironmentVariable(EnvironmentVariable),
     Symlink(Symlink),
     Registration(Registration),
     Command(Command),
@@ -33,12 +34,14 @@ pub enum Resource {
 /// The declaration order below is the order kinds are converged in, and it is load-bearing for
 /// safety rather than presentation: a program initialising its configuration for the first time
 /// writes through a symlink into the dotfiles repository, so applications must be installed
-/// before anything links into their configuration directories. See ADR 0004.
+/// before anything links into their configuration directories. An environment variable follows
+/// the kinds that create the directories a search path entry names. See ADR 0004.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ResourceKind {
     Repository,
     Application,
     Package,
+    EnvironmentVariable,
     Symlink,
     Registration,
     Command,
@@ -50,6 +53,7 @@ impl Display for ResourceKind {
             ResourceKind::Repository => "repository",
             ResourceKind::Application => "application",
             ResourceKind::Package => "package",
+            ResourceKind::EnvironmentVariable => "environment variable",
             ResourceKind::Symlink => "symlink",
             ResourceKind::Registration => "registration",
             ResourceKind::Command => "command",
@@ -64,6 +68,7 @@ impl Resource {
             Resource::Repository(_) => ResourceKind::Repository,
             Resource::Application(_) => ResourceKind::Application,
             Resource::Package(_) => ResourceKind::Package,
+            Resource::EnvironmentVariable(_) => ResourceKind::EnvironmentVariable,
             Resource::Symlink(_) => ResourceKind::Symlink,
             Resource::Registration(_) => ResourceKind::Registration,
             Resource::Command(_) => ResourceKind::Command,
@@ -77,6 +82,7 @@ impl Display for Resource {
             Resource::Repository(name) => write!(formatter, "repository {name}"),
             Resource::Application(application) => write!(formatter, "application {application}"),
             Resource::Package(package) => write!(formatter, "package {package}"),
+            Resource::EnvironmentVariable(variable) => write!(formatter, "{variable}"),
             Resource::Symlink(symlink) => write!(
                 formatter,
                 "symlink {} -> {}",
@@ -389,6 +395,82 @@ pub enum CargoSource {
     Workspace {
         repository: GitHubRepository,
     },
+}
+
+// ADR 0017
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(tag = "shape", rename_all = "snake_case")]
+pub enum EnvironmentVariable {
+    Variable(Variable),
+    SearchPathEntry(SearchPathEntry),
+}
+
+impl Display for EnvironmentVariable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnvironmentVariable::Variable(variable) => {
+                write!(formatter, "environment variable {variable}")
+            }
+            EnvironmentVariable::SearchPathEntry(entry) => {
+                write!(formatter, "search path entry {}", entry.directory)
+            }
+        }
+    }
+}
+
+/// A variable whose desired state is its whole value.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct Variable {
+    pub name: VariableName,
+    pub value: String,
+}
+
+impl Display for Variable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}={}", self.name, self.value)
+    }
+}
+
+/// A directory the search path contains, whose desired state is membership rather than the whole
+/// path, because the machine and other installers write there too.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct SearchPathEntry {
+    pub directory: SearchPathDirectory,
+}
+
+/// Which directory an entry names, derived rather than declared wherever the run already holds it.
+/// See ADR 0025.
+#[derive(
+    Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(tag = "in", rename_all = "snake_case")]
+pub enum SearchPathDirectory {
+    /// The directory this program installs released binaries into, carried by every change set
+    /// rather than declared, which is why no configuration can name it. See ADR 0019.
+    #[serde(skip_deserializing)]
+    #[schemars(skip)]
+    ToolBinaries,
+    Repository {
+        repository: GitHubRepository,
+        path: PathBuf,
+    },
+    /// Resolved against the home directory, leaving an absolute path alone, as a symlink's link
+    /// path is.
+    Home { path: PathBuf },
+}
+
+impl Display for SearchPathDirectory {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SearchPathDirectory::ToolBinaries => {
+                formatter.write_str("the directory this program installs binaries into")
+            }
+            SearchPathDirectory::Repository { repository, path } => {
+                write!(formatter, "{} in {repository}", path.display())
+            }
+            SearchPathDirectory::Home { path } => write!(formatter, "{}", path.display()),
+        }
+    }
 }
 
 /// A configuration file or directory owned by the dotfiles repository and linked into place on the

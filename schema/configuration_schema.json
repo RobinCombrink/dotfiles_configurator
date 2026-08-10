@@ -319,6 +319,36 @@
       "description": "The name Cargo knows a crate by.",
       "type": "string"
     },
+    "EnvironmentVariable": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "shape": {
+              "type": "string",
+              "const": "variable"
+            }
+          },
+          "$ref": "#/$defs/Variable",
+          "required": [
+            "shape"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "shape": {
+              "type": "string",
+              "const": "search_path_entry"
+            }
+          },
+          "$ref": "#/$defs/SearchPathEntry",
+          "required": [
+            "shape"
+          ]
+        }
+      ]
+    },
     "Generation": {
       "type": "string",
       "pattern": "^\\d+$"
@@ -583,6 +613,19 @@
           "properties": {
             "kind": {
               "type": "string",
+              "const": "environment_variable"
+            }
+          },
+          "$ref": "#/$defs/EnvironmentVariable",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
               "const": "symlink"
             }
           },
@@ -619,6 +662,60 @@
         }
       ]
     },
+    "SearchPathDirectory": {
+      "description": "Which directory an entry names, derived rather than declared wherever the run already holds it.\nSee ADR 0025.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "in": {
+              "type": "string",
+              "const": "repository"
+            },
+            "path": {
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "#/$defs/GitHubRepository"
+            }
+          },
+          "required": [
+            "in",
+            "repository",
+            "path"
+          ]
+        },
+        {
+          "description": "Resolved against the home directory, leaving an absolute path alone, as a symlink's link\npath is.",
+          "type": "object",
+          "properties": {
+            "in": {
+              "type": "string",
+              "const": "home"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "in",
+            "path"
+          ]
+        }
+      ]
+    },
+    "SearchPathEntry": {
+      "description": "A directory the search path contains, whose desired state is membership rather than the whole\npath, because the machine and other installers write there too.",
+      "type": "object",
+      "properties": {
+        "directory": {
+          "$ref": "#/$defs/SearchPathDirectory"
+        }
+      },
+      "required": [
+        "directory"
+      ]
+    },
     "Shell": {
       "type": "string",
       "enum": [
@@ -644,6 +741,22 @@
       "required": [
         "source_path",
         "link_path"
+      ]
+    },
+    "Variable": {
+      "description": "A variable whose desired state is its whole value.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
       ]
     },
     "WingetPackage": {

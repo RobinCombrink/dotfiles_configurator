@@ -490,6 +490,8 @@ dependencies = [
  "tokio",
  "toml",
  "url",
+ "windows-registry",
+ "windows-sys 0.60.2",
  "winresource",
  "zip",
 ]

@@ -2,13 +2,14 @@ use {
     crate::{
         configuration::{
             Application, CargoPackage, CargoSource, ClaudeMcpServer, Command, CrateName,
-            GitHubAccount, GitHubRepository, Installer, Package, Registration, ReleasedBinary,
-            Resource, Symlink, WingetPackage,
+            EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, Package, Registration,
+            ReleasedBinary, Resource, SearchPathEntry, Symlink, Variable, WingetPackage,
         },
-        convergence::{Assessment, DriftReason, Impediment, Requirement},
+        convergence::{Assessment, DriftReason, Impediment, Requirement, search_path_directory},
         desired_state::{DesiredState, ResolvedResource},
         machine::{
             ReadInvocation, ReadMachine,
+            environment_reading::SearchPathReading,
             release_reading::ReleaseReading,
             workspace_reading::{Revision, WorkspaceReading},
         },
@@ -33,17 +34,22 @@ pub struct SourceReadings {
     cargo_crates: Option<Result<String, DriftReason>>,
     workspaces: BTreeMap<PathBuf, Result<Option<WorkspaceReading>, DriftReason>>,
     releases: BTreeMap<GitHubRepository, Result<ReleaseReading, DriftReason>>,
+    search_path: Option<Result<SearchPathReading, DriftReason>>,
 }
 
 impl SourceReadings {
     pub async fn read_for(desired_state: &DesiredState, machine: &impl ReadMachine) -> Self {
         let mut winget_is_needed = false;
         let mut cargo_is_needed = !desired_state.workspaces.is_empty();
+        let mut search_path_is_needed = false;
         let mut released_from: BTreeMap<GitHubRepository, GitHubAccount> = BTreeMap::new();
         for resource in &desired_state.resources {
             match resource.declared() {
                 Resource::Package(Package::Winget(_)) => winget_is_needed = true,
                 Resource::Package(Package::Cargo(_)) => cargo_is_needed = true,
+                Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(_)) => {
+                    search_path_is_needed = true;
+                }
                 Resource::Application(Application::ReleasedBinary(binary)) => {
                     released_from
                         .entry(binary.repository.clone())
@@ -51,6 +57,7 @@ impl SourceReadings {
                 }
                 Resource::Application(Application::Installer(_))
                 | Resource::Repository(_)
+                | Resource::EnvironmentVariable(EnvironmentVariable::Variable(_))
                 | Resource::Symlink(_)
                 | Resource::Registration(_)
                 | Resource::Command(_) => {}
@@ -94,6 +101,19 @@ impl SourceReadings {
             cargo_crates,
             workspaces,
             releases,
+            search_path: search_path_is_needed.then(|| {
+                machine
+                    .read_search_path()
+                    .map_err(|error| DriftReason::from(format!("{error:#}")))
+            }),
+        }
+    }
+
+    pub fn search_path(&self) -> Result<&SearchPathReading, DriftReason> {
+        match &self.search_path {
+            Some(Ok(reading)) => Ok(reading),
+            Some(Err(reason)) => Err(reason.clone()),
+            None => Err("the search path was not read for this change set".into()),
         }
     }
 
@@ -184,6 +204,12 @@ pub fn assess(
         Resource::Package(Package::Winget(package)) => assess_winget_package(package, readings),
         Resource::Package(Package::Cargo(package)) => {
             assess_cargo_package(package, resource, readings)
+        }
+        Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => {
+            assess_variable(variable, machine)
+        }
+        Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(entry)) => {
+            assess_search_path_entry(entry, resource, machine, readings)
         }
         Resource::Symlink(symlink) => assess_symlink(symlink, resource, machine),
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
@@ -487,6 +513,35 @@ fn paths_are_the_same(declared: &std::path::Path, installed: &str) -> bool {
     match (declared.canonicalize(), installed.canonicalize()) {
         (Ok(declared), Ok(installed)) => declared == installed,
         _ => declared == installed,
+    }
+}
+
+fn assess_variable(variable: &Variable, machine: &impl ReadMachine) -> Assessment {
+    match machine.read_environment_variable(&variable.name) {
+        Ok(Some(set)) if set == variable.value => Assessment::Converged,
+        Ok(Some(set)) => Assessment::Drifted(format!("is set to {set}").into()),
+        Ok(None) => Assessment::Drifted("is not set".into()),
+        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            format!("{error:#}").into(),
+        )),
+    }
+}
+
+fn assess_search_path_entry(
+    entry: &SearchPathEntry,
+    resource: &ResolvedResource,
+    machine: &impl ReadMachine,
+    readings: &SourceReadings,
+) -> Assessment {
+    let reading = match readings.search_path() {
+        Ok(reading) => reading,
+        Err(reason) => return Assessment::Unassessable(Impediment::ActualStateUnreadable(reason)),
+    };
+    let directory = search_path_directory(entry, resource, machine);
+
+    match reading.carries(&directory) {
+        true => Assessment::Converged,
+        false => Assessment::Drifted(format!("{} is not on it", directory.display()).into()),
     }
 }
 

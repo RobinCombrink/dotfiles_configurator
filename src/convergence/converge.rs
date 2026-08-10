@@ -1,10 +1,11 @@
 use {
     crate::{
         configuration::{
-            Application, CargoPackage, CargoSource, Command, GitHubAccount, GitHubRepository,
-            Package, Registration, ReleasedBinary, Resource, Symlink, WingetPackage,
+            Application, CargoPackage, CargoSource, Command, EnvironmentVariable, GitHubAccount,
+            GitHubRepository, Package, Registration, ReleasedBinary, Resource, Symlink,
+            WingetPackage,
         },
-        convergence::SourceReadings,
+        convergence::{SourceReadings, search_path_directory},
         desired_state::ResolvedResource,
         machine::{DisplacingInvocation, Placement, WriteInvocation, WriteMachine},
     },
@@ -58,6 +59,15 @@ pub async fn converge(
                 .with_context(|| format!("Could not install {}", binary.installed_name()));
         }
         Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
+        Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => machine
+            .set_environment_variable(&variable.name, &variable.value)
+            .with_context(|| format!("Could not set {}", variable.name)),
+        Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(entry)) => {
+            let directory = search_path_directory(entry, resource, machine);
+            machine.add_to_search_path(&directory).with_context(|| {
+                format!("Could not put {} on the search path", directory.display())
+            })
+        }
         Resource::Symlink(symlink) => converge_symlink(symlink, resource, machine),
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
             let removal = WriteInvocation::RemoveClaudeMcpServer {

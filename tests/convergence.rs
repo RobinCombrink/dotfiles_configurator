@@ -15,9 +15,10 @@ use {
     dotfiles_configurator::{
         configuration::{
             Application, ApplicationName, ApplicationSource, BENEATH_OLDEST_READABLE_GENERATION,
-            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, CrateName, GitHubAccount,
-            Installer, MachineClass, Notice, OLDEST_READABLE_GENERATION, PresenceCheck, Resource,
-            Shell, Symlink,
+            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, CrateName,
+            EnvironmentVariable, GitHubAccount, Installer, MachineClass, Notice,
+            OLDEST_READABLE_GENERATION, PresenceCheck, Resource, SearchPathDirectory,
+            SearchPathEntry, Shell, Symlink, Variable, VariableName,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
@@ -1000,6 +1001,104 @@ fn desired_state_does_not_link(world: &mut MachineWorld, link_path: String) {
         !linked.contains(&link_path),
         "expected {link_path:?} not to be linked, got {linked:?}"
     );
+}
+
+fn under_alices_home(world: &MachineWorld, path: &str) -> PathBuf {
+    world.machine.home_directory().join(path)
+}
+
+fn inside_the_clone_of(owner_and_name: &str, path: &str) -> PathBuf {
+    Path::new(REPOSITORIES_ROOT)
+        .join("Personal")
+        .join(named_repository(owner_and_name).repository.as_ref())
+        .join(path)
+}
+
+#[given(expr = "Alice declares the environment variable {string} as {string}")]
+fn declare_variable(world: &mut MachineWorld, name: String, value: String) {
+    world.resources.push(Resource::EnvironmentVariable(
+        EnvironmentVariable::Variable(Variable {
+            name: VariableName::from(name.as_str()),
+            value,
+        }),
+    ));
+}
+
+#[given(expr = "Alice declares the search path entry {string} under her home directory")]
+fn declare_search_path_entry_under_home(world: &mut MachineWorld, path: String) {
+    world.resources.push(Resource::EnvironmentVariable(
+        EnvironmentVariable::SearchPathEntry(SearchPathEntry {
+            directory: SearchPathDirectory::Home {
+                path: PathBuf::from(path),
+            },
+        }),
+    ));
+}
+
+#[given(expr = "Alice declares the search path entry {string} in the repository {string}")]
+fn declare_search_path_entry_in_repository(
+    world: &mut MachineWorld,
+    path: String,
+    owner_and_name: String,
+) {
+    world.resources.push(Resource::EnvironmentVariable(
+        EnvironmentVariable::SearchPathEntry(SearchPathEntry {
+            directory: SearchPathDirectory::Repository {
+                repository: named_repository(&owner_and_name),
+                path: PathBuf::from(path),
+            },
+        }),
+    ));
+}
+
+#[given(expr = "{string} is set to {string} on Alice's machine")]
+#[then(expr = "{string} is set to {string} on Alice's machine")]
+fn variable_is_set_to(world: &mut MachineWorld, name: String, value: String) {
+    let name = VariableName::from(name.as_str());
+    match world.outcome.is_some() {
+        true => assert_eq!(world.machine.environment_variable(&name), Some(value)),
+        false => world.machine.hold_environment_variable(&name, &value),
+    }
+}
+
+#[given(expr = "{string} is already on Alice's own search path")]
+fn directory_is_on_alices_search_path(world: &mut MachineWorld, path: String) {
+    let directory = under_alices_home(world, &path);
+    world.machine.hold_user_search_path_entry(directory);
+}
+
+#[given(expr = "{string} is already on the machine-wide search path")]
+fn directory_is_on_the_machine_search_path(world: &mut MachineWorld, path: String) {
+    let directory = under_alices_home(world, &path);
+    world.machine.hold_machine_search_path_entry(directory);
+}
+
+#[then(expr = "{string} is on Alice's own search path")]
+fn directory_is_now_on_alices_search_path(world: &mut MachineWorld, path: String) {
+    let directory = under_alices_home(world, &path);
+    let search_path = world.machine.user_search_path();
+
+    assert!(search_path.contains(&directory), "{search_path:?}");
+}
+
+#[then(expr = "{string} is not on Alice's own search path")]
+fn directory_is_not_on_alices_search_path(world: &mut MachineWorld, path: String) {
+    let directory = under_alices_home(world, &path);
+    let search_path = world.machine.user_search_path();
+
+    assert!(!search_path.contains(&directory), "{search_path:?}");
+}
+
+#[then(expr = "{string} inside the clone of {string} is on Alice's own search path")]
+fn directory_inside_a_clone_is_on_alices_search_path(
+    world: &mut MachineWorld,
+    path: String,
+    owner_and_name: String,
+) {
+    let directory = inside_the_clone_of(&owner_and_name, &path);
+    let search_path = world.machine.user_search_path();
+
+    assert!(search_path.contains(&directory), "{search_path:?}");
 }
 
 #[tokio::main]
