@@ -93,7 +93,7 @@ async fn run(task: Task) -> Result<ExitCode> {
         Task::Plan(arguments) => {
             let report = RunReport::open(RunKind::Plan)?;
             let desired_state = load(&arguments).await?;
-            let machine = LocalMachine::new(desired_state.account().clone(), &report)?;
+            let machine = LocalMachine::new(&report)?;
             let change_set = plan(&desired_state, &machine, &report).await?;
             println!("{change_set}");
             Ok(exit_code_for(change_set.is_converged()))
@@ -101,7 +101,7 @@ async fn run(task: Task) -> Result<ExitCode> {
         Task::Apply(arguments) => {
             let report = RunReport::open(RunKind::Apply)?;
             let desired_state = load_after_updating_if_it_must(&arguments, &report).await?;
-            let machine = LocalMachine::new(desired_state.account().clone(), &report)?;
+            let machine = LocalMachine::new(&report)?;
             let outcome = apply(&desired_state, &machine, &report).await?;
             println!("{outcome}");
             Ok(exit_code_for(outcome.is_converged()))
@@ -145,9 +145,11 @@ fn needs_a_newer_build(refusal: &anyhow::Error) -> bool {
 }
 
 async fn obtain_a_newer_build(report: &RunReport) -> Result<()> {
-    let machine = LocalMachine::new(GitHubAccount::from(RELEASE_OWNER), report)?;
+    let machine = LocalMachine::new(report)?;
     let binary = own_currency();
-    let released = machine.latest_release(&binary.repository).await?;
+    let released = machine
+        .latest_release(&binary.repository, &GitHubAccount::from(RELEASE_OWNER))
+        .await?;
     let asset = released
         .asset_matching(&binary.asset)
         .map_err(|refusal| anyhow::anyhow!("{refusal}"))?;

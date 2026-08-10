@@ -151,3 +151,8 @@ Feature: Applying a change set
     When Alice applies
     Then Alice's own file at ".gitconfig" is still there
     And 1 resource is reported as failed
+
+  Scenario: A repository the work configuration declares is cloned as the work account
+    Given Alice's employer's configuration declares the repository "Employer/tooling"
+    When Alice applies
+    Then "Employer/tooling" is cloned as "Employer"

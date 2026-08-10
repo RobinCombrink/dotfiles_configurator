@@ -9,15 +9,15 @@ use {
     cucumber::{World, given, then, when},
     declarations::{
         DOTFILES_FILES_ROOT, REPOSITORIES_ROOT, dotfiles_repository, named_repository,
-        read_out_of_a_checkout, read_out_of_the_dotfiles_repository,
+        read_as_two_accounts, read_out_of_a_checkout, read_out_of_the_dotfiles_repository,
         reporting_its_version_in_the_second_word,
     },
     dotfiles_configurator::{
         configuration::{
             Application, ApplicationName, ApplicationSource, BENEATH_OLDEST_READABLE_GENERATION,
-            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, CrateName, Installer,
-            MachineClass, Notice, OLDEST_READABLE_GENERATION, PresenceCheck, Resource, Shell,
-            Symlink,
+            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, CrateName, GitHubAccount,
+            Installer, MachineClass, Notice, OLDEST_READABLE_GENERATION, PresenceCheck, Resource,
+            Shell, Symlink,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
@@ -57,6 +57,8 @@ struct MachineWorld {
     documents: Vec<String>,
     /// A second source, held by a repository Alice does not own.
     employers_documents: Vec<String>,
+    /// What that second source declares, which converges as the employer's account.
+    employers_resources: Vec<Resource>,
     /// Files kept beside the configurations that are not configurations themselves.
     stray_file_names: Vec<String>,
     change_set: Option<ChangeSet>,
@@ -81,6 +83,7 @@ impl MachineWorld {
             configurations_are_inside_a_checkout: true,
             documents: Vec::new(),
             employers_documents: Vec::new(),
+            employers_resources: Vec::new(),
             stray_file_names: Vec::new(),
             change_set: None,
             second_change_set: None,
@@ -106,6 +109,10 @@ impl MachineWorld {
     }
 
     fn desired_state(&self) -> DesiredState {
+        if !self.employers_resources.is_empty() {
+            return read_as_two_accounts(self.resources.clone(), self.employers_resources.clone());
+        }
+
         let read = match self.configurations_come_from_a_repository {
             true => read_out_of_the_dotfiles_repository,
             false => read_out_of_a_checkout,
@@ -433,6 +440,23 @@ fn employers_configuration_linking(
         "work",
         &symlink(&link_path, &source_path),
     ));
+}
+
+#[given(expr = "Alice's employer's configuration declares the repository {string}")]
+fn employers_configuration_declares_a_repository(world: &mut MachineWorld, owner_and_name: String) {
+    world
+        .employers_resources
+        .push(Resource::Repository(named_repository(&owner_and_name)));
+}
+
+#[then(expr = "{string} is cloned as {string}")]
+fn repository_is_cloned_as(world: &mut MachineWorld, owner_and_name: String, account: String) {
+    assert_eq!(
+        world
+            .machine
+            .account_cloning(&named_repository(&owner_and_name)),
+        Some(GitHubAccount::from(account.as_str()))
+    );
 }
 
 #[given(expr = "Alice has a configuration that declares no machines it is for")]

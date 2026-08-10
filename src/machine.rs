@@ -1,7 +1,7 @@
 use {
     crate::{
         TOOL_DIRECTORY,
-        configuration::{CrateName, GitHubRepository, PresenceCheck, Shell},
+        configuration::{CrateName, GitHubAccount, GitHubRepository, PresenceCheck, Shell},
         machine::{
             release_reading::ReleaseReading,
             workspace_reading::{Revision, WorkspaceReading},
@@ -106,6 +106,7 @@ pub trait ReadMachine {
     fn latest_release(
         &self,
         repository: &GitHubRepository,
+        account: &GitHubAccount,
     ) -> impl std::future::Future<Output = Result<ReleaseReading>>;
 
     // ADR 0016
@@ -134,11 +135,13 @@ pub trait WriteMachine: ReadMachine {
         &self,
         repository: &crate::configuration::GitHubRepository,
         clone_directory: &Path,
+        account: &GitHubAccount,
     ) -> impl std::future::Future<Output = Result<()>>;
 
     fn install_application(
         &self,
         installer: &crate::configuration::Installer,
+        account: &GitHubAccount,
     ) -> impl std::future::Future<Output = Result<()>>;
 
     // ADR 0016

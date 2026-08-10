@@ -27,7 +27,7 @@ use {
         io::{BufRead, BufReader, Read},
         path::{Path, PathBuf},
         process::{Command as ProcessCommand, Stdio},
-        sync::OnceLock,
+        sync::{Arc, Mutex, PoisonError},
         thread,
     },
     url::Url,
@@ -40,14 +40,13 @@ pub struct LocalMachine<'report> {
     home_directory: PathBuf,
     download_directory: PathBuf,
     cargo_binaries_directory: PathBuf,
-    github_account: GitHubAccount,
-    authenticated_account: OnceLock<AuthenticatedAccount>,
+    authenticated_accounts: Mutex<BTreeMap<GitHubAccount, Arc<AuthenticatedAccount>>>,
     http_client: Client,
     report: &'report RunReport,
 }
 
 impl<'report> LocalMachine<'report> {
-    pub fn new(github_account: GitHubAccount, report: &'report RunReport) -> Result<Self> {
+    pub fn new(report: &'report RunReport) -> Result<Self> {
         let home_directory =
             env::home_dir().ok_or_else(|| anyhow!("Could not find the home directory"))?;
 
@@ -56,8 +55,7 @@ impl<'report> LocalMachine<'report> {
                 .ok_or_else(|| anyhow!("Could not find the download directory"))?,
             cargo_binaries_directory: cargo_binaries_directory(&home_directory),
             home_directory,
-            github_account,
-            authenticated_account: OnceLock::new(),
+            authenticated_accounts: Mutex::new(BTreeMap::new()),
             http_client: Client::default(),
             report,
         })
@@ -67,13 +65,19 @@ impl<'report> LocalMachine<'report> {
         stream(Path::new(tool.program()), arguments, self.report)
     }
 
-    fn authenticated_account(&self) -> Result<&AuthenticatedAccount> {
-        if let Some(account) = self.authenticated_account.get() {
-            return Ok(account);
+    fn authenticated_as(&self, account: &GitHubAccount) -> Result<Arc<AuthenticatedAccount>> {
+        let mut held = self
+            .authenticated_accounts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+
+        if let Some(authenticated) = held.get(account) {
+            return Ok(Arc::clone(authenticated));
         }
 
-        let account = AuthenticatedAccount::authenticate_as(&self.github_account)?;
-        Ok(self.authenticated_account.get_or_init(|| account))
+        let authenticated = Arc::new(AuthenticatedAccount::authenticate_as(account)?);
+        held.insert(account.clone(), Arc::clone(&authenticated));
+        Ok(authenticated)
     }
 
     async fn download(&self, url: &Url, destination: &Path) -> Result<()> {
@@ -138,9 +142,10 @@ impl<'report> LocalMachine<'report> {
         owner: &str,
         repo: &str,
         asset: &AssetPattern,
+        account: &GitHubAccount,
     ) -> Result<(Url, String)> {
         let release = self
-            .authenticated_account()?
+            .authenticated_as(account)?
             .client()
             .repos(owner, repo)
             .releases()
@@ -439,11 +444,15 @@ impl ReadMachine for LocalMachine<'_> {
         }
     }
 
-    async fn latest_release(&self, repository: &GitHubRepository) -> Result<ReleaseReading> {
+    async fn latest_release(
+        &self,
+        repository: &GitHubRepository,
+        account: &GitHubAccount,
+    ) -> Result<ReleaseReading> {
         let owner = repository.owner.as_ref();
         let name = repository.repository.as_ref();
         let release = self
-            .authenticated_account()?
+            .authenticated_as(account)?
             .client()
             .repos(owner, name)
             .releases()
@@ -498,11 +507,12 @@ impl WriteMachine for LocalMachine<'_> {
         &self,
         repository: &GitHubRepository,
         clone_directory: &Path,
+        account: &GitHubAccount,
     ) -> Result<()> {
-        let account = self.authenticated_account()?;
+        let authenticated = self.authenticated_as(account)?;
         let owner = repository.owner.as_ref();
         let name = repository.repository.as_ref();
-        let details = account
+        let details = authenticated
             .client()
             .repos(owner, name)
             .get()
@@ -523,7 +533,11 @@ impl WriteMachine for LocalMachine<'_> {
             .report
             .progress_bar(None, format!("cloning {repository}"));
         let cloned = RepoBuilder::new()
-            .fetch_options(self.fetch_options(account.token().secret(), owner, &progress))
+            .fetch_options(self.fetch_options(
+                authenticated.token().secret(),
+                account.as_ref(),
+                &progress,
+            ))
             .clone(url.as_str(), &directory_path)
             .map(|_| ())
             .map_err(|error| {
@@ -536,7 +550,11 @@ impl WriteMachine for LocalMachine<'_> {
         cloned
     }
 
-    async fn install_application(&self, installer: &Installer) -> Result<()> {
+    async fn install_application(
+        &self,
+        installer: &Installer,
+        account: &GitHubAccount,
+    ) -> Result<()> {
         let (url, file_name) = match &installer.source {
             ApplicationSource::Uri {
                 uri,
@@ -547,7 +565,7 @@ impl WriteMachine for LocalMachine<'_> {
                 repository,
                 asset,
             } => {
-                self.release_asset_url(owner.as_ref(), repository.as_ref(), asset)
+                self.release_asset_url(owner.as_ref(), repository.as_ref(), asset, account)
                     .await?
             }
         };

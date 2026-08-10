@@ -10,8 +10,8 @@ use {
     anyhow::{Result, anyhow, bail},
     dotfiles_configurator::{
         configuration::{
-            ApplicationName, CrateName, GitHubRepository, Installer, PresenceCheck, ReleasedBinary,
-            Shell, WingetPackageId,
+            ApplicationName, CrateName, GitHubAccount, GitHubRepository, Installer, PresenceCheck,
+            ReleasedBinary, Shell, WingetPackageId,
         },
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
@@ -62,6 +62,7 @@ struct MachineState {
     cargo_installs: usize,
     releases: BTreeMap<GitHubRepository, ReleaseReading>,
     release_reads: Vec<GitHubRepository>,
+    clones: Vec<(GitHubRepository, GitHubAccount)>,
     version_output_by_binary_path: BTreeMap<PathBuf, String>,
 }
 
@@ -229,6 +230,15 @@ impl FakeMachine {
 
     pub fn publish_release(&self, repository: GitHubRepository, reading: ReleaseReading) {
         self.state.borrow_mut().releases.insert(repository, reading);
+    }
+
+    pub fn account_cloning(&self, repository: &GitHubRepository) -> Option<GitHubAccount> {
+        self.state
+            .borrow()
+            .clones
+            .iter()
+            .find(|(cloned, _)| cloned == repository)
+            .map(|(_, account)| account.clone())
     }
 
     pub fn release_reads(&self, repository: &GitHubRepository) -> usize {
@@ -477,7 +487,11 @@ impl ReadMachine for FakeMachine {
         }
     }
 
-    async fn latest_release(&self, repository: &GitHubRepository) -> Result<ReleaseReading> {
+    async fn latest_release(
+        &self,
+        repository: &GitHubRepository,
+        _account: &GitHubAccount,
+    ) -> Result<ReleaseReading> {
         let mut state = self.state.borrow_mut();
         state.release_reads.push(repository.clone());
 
@@ -513,15 +527,21 @@ impl WriteMachine for FakeMachine {
 
     async fn clone_repository(
         &self,
-        _repository: &GitHubRepository,
+        repository: &GitHubRepository,
         clone_directory: &Path,
+        account: &GitHubAccount,
     ) -> Result<()> {
         let mut state = self.state.borrow_mut();
+        state.clones.push((repository.clone(), account.clone()));
         materialise_clone(&mut state, clone_directory);
         Ok(())
     }
 
-    async fn install_application(&self, installer: &Installer) -> Result<()> {
+    async fn install_application(
+        &self,
+        installer: &Installer,
+        _account: &GitHubAccount,
+    ) -> Result<()> {
         let mut state = self.state.borrow_mut();
         *state
             .install_attempts

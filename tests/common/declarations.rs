@@ -78,6 +78,52 @@ pub fn declaring(resources: Vec<Resource>, workspaces: Vec<CargoWorkspace>) -> D
     read_out_of_a_checkout(resources, workspaces, Vec::new())
 }
 
+pub const EMPLOYER: &str = "Employer";
+
+/// A set whose configuration for work machines was written in the employer's repository and acts
+/// as the employer's account, which is the two-account shape a run has to keep apart.
+pub fn read_as_two_accounts(
+    alices_resources: Vec<Resource>,
+    employers_resources: Vec<Resource>,
+) -> DesiredState {
+    let everywhere = Configuration {
+        version: BUILD_GENERATION,
+        applies_to: Context::Everywhere,
+        github_account: GitHubAccount::from("Alice"),
+        workspaces: Vec::new(),
+        resources: alices_resources,
+        notices: Vec::new(),
+    };
+    let work = Configuration {
+        version: BUILD_GENERATION,
+        applies_to: Context::Work,
+        github_account: GitHubAccount::from(EMPLOYER),
+        workspaces: Vec::new(),
+        resources: employers_resources,
+        notices: Vec::new(),
+    };
+
+    DesiredState::of(vec![
+        (
+            "everywhere.dotconfig.json".to_owned(),
+            ResolvedConfiguration::read(
+                everywhere,
+                SourceLocation::Checkout(PathBuf::from(DOTFILES_FILES_ROOT)),
+                Path::new(REPOSITORIES_ROOT),
+            ),
+        ),
+        (
+            "work.dotconfig.json".to_owned(),
+            ResolvedConfiguration::read(
+                work,
+                SourceLocation::Repository(named_repository("Employer/dotfiles")),
+                Path::new(REPOSITORIES_ROOT),
+            ),
+        ),
+    ])
+    .expect("a set holding one configuration for every machine and one for this class")
+}
+
 fn read_from(
     location: SourceLocation,
     resources: Vec<Resource>,

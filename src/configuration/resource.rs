@@ -2,8 +2,8 @@ use {
     crate::{
         configuration::{
             names::{
-                ApplicationName, BinaryName, CrateName, McpServerName, RepositoryName,
-                RepositoryOwner, WingetPackageId,
+                ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName,
+                RepositoryName, RepositoryOwner, WingetPackageId,
             },
             presence_check::PresenceCheck,
         },
@@ -101,8 +101,27 @@ pub struct GitHubRepository {
 }
 
 impl GitHubRepository {
-    pub fn clone_url(&self) -> String {
-        format!("https://github.com/{}/{}", self.owner, self.repository)
+    /// The URL a git fetch is made against, naming the account to fetch as so that a credential
+    /// helper holding several can pick the right one. It carries no credential itself.
+    ///
+    /// ```
+    /// # use dotfiles_configurator::configuration::{GitHubAccount, GitHubRepository,
+    /// #     RepositoryName, RepositoryOwner};
+    /// let repository = GitHubRepository {
+    ///     owner: RepositoryOwner::from("Employer"),
+    ///     repository: RepositoryName::from("dotfiles"),
+    /// };
+    ///
+    /// assert_eq!(
+    ///     repository.fetch_url_as(&GitHubAccount::from("Alice")),
+    ///     "https://Alice@github.com/Employer/dotfiles"
+    /// );
+    /// ```
+    pub fn fetch_url_as(&self, account: &GitHubAccount) -> String {
+        format!(
+            "https://{account}@github.com/{}/{}",
+            self.owner, self.repository
+        )
     }
 }
 

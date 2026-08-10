@@ -2,8 +2,8 @@ use {
     crate::{
         configuration::{
             Application, CargoPackage, CargoSource, ClaudeMcpServer, Command, CrateName,
-            GitHubRepository, Installer, Package, Registration, ReleasedBinary, Resource, Symlink,
-            WingetPackage,
+            GitHubAccount, GitHubRepository, Installer, Package, Registration, ReleasedBinary,
+            Resource, Symlink, WingetPackage,
         },
         convergence::{Assessment, DriftReason, Impediment, Requirement},
         desired_state::{DesiredState, ResolvedResource},
@@ -15,7 +15,7 @@ use {
         version::Version,
     },
     std::{
-        collections::{BTreeMap, BTreeSet},
+        collections::BTreeMap,
         path::{Path, PathBuf},
     },
 };
@@ -39,13 +39,15 @@ impl SourceReadings {
     pub async fn read_for(desired_state: &DesiredState, machine: &impl ReadMachine) -> Self {
         let mut winget_is_needed = false;
         let mut cargo_is_needed = !desired_state.workspaces.is_empty();
-        let mut released_from: BTreeSet<GitHubRepository> = BTreeSet::new();
+        let mut released_from: BTreeMap<GitHubRepository, GitHubAccount> = BTreeMap::new();
         for resource in &desired_state.resources {
             match resource.declared() {
                 Resource::Package(Package::Winget(_)) => winget_is_needed = true,
                 Resource::Package(Package::Cargo(_)) => cargo_is_needed = true,
                 Resource::Application(Application::ReleasedBinary(binary)) => {
-                    released_from.insert(binary.repository.clone());
+                    released_from
+                        .entry(binary.repository.clone())
+                        .or_insert_with(|| resource.account().clone());
                 }
                 Resource::Application(Application::Installer(_))
                 | Resource::Repository(_)
@@ -56,9 +58,9 @@ impl SourceReadings {
         }
 
         let mut releases = BTreeMap::new();
-        for repository in released_from {
+        for (repository, account) in released_from {
             let reading = machine
-                .latest_release(&repository)
+                .latest_release(&repository, &account)
                 .await
                 .map_err(|error| DriftReason::from(format!("{error:#}")));
             releases.insert(repository, reading);

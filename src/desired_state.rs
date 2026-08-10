@@ -81,6 +81,10 @@ impl<T> Resolved<T> {
         self.origin.files_root.path()
     }
 
+    pub fn account(&self) -> &GitHubAccount {
+        &self.origin.account
+    }
+
     pub fn clone_directory(&self, repository: &GitHubRepository) -> PathBuf {
         self.origin
             .repositories_directory
@@ -223,14 +227,9 @@ pub struct DesiredState {
     pub notices: Vec<ResolvedNotice>,
     pub migrations: Vec<Migration>,
     pub announcements: Vec<Notice>,
-    account: GitHubAccount,
 }
 
 impl DesiredState {
-    pub fn account(&self) -> &GitHubAccount {
-        &self.account
-    }
-
     /// The documents an apply rewrites, and what it can only announce about the ones it cannot.
     pub fn also_reporting(
         mut self,
@@ -244,7 +243,6 @@ impl DesiredState {
 
     pub fn of(configurations: Vec<(String, ResolvedConfiguration)>) -> Result<Self> {
         let for_every_machine = the_configuration_for_every_machine(&configurations)?;
-        let account = for_every_machine.origin.account.clone();
         refuse_a_set_holding_nothing_for_this_class(&configurations)?;
 
         let mut workspaces: Vec<ResolvedWorkspace> = Vec::new();
@@ -294,7 +292,6 @@ impl DesiredState {
             notices,
             migrations: Vec::new(),
             announcements: Vec::new(),
-            account,
         })
     }
 }
@@ -346,13 +343,34 @@ mod tests {
     }
 
     fn document(applies_to: &str, body: &str) -> Configuration {
+        document_acting_as("Alice", applies_to, body)
+    }
+
+    fn document_acting_as(account: &str, applies_to: &str, body: &str) -> Configuration {
         let written = format!(
             r#"{{ "version": "{BUILD_GENERATION}", "applies_to": "{applies_to}",
-               "github_account": "Alice", {body} }}"#
+               "github_account": "{account}", {body} }}"#
         );
         crate::configuration::parse_configuration(&written, "the test configuration")
             .unwrap_or_else(|refusal: Unreadable| panic!("{refusal}"))
             .configuration
+    }
+
+    /// A configuration in the repository of the account it acts as, which is the only pairing
+    /// reading a GitHub source admits.
+    fn read_from_the_repository_of(
+        account: &str,
+        applies_to: &str,
+        body: &str,
+    ) -> ResolvedConfiguration {
+        ResolvedConfiguration::read(
+            document_acting_as(account, applies_to, body),
+            SourceLocation::Repository(GitHubRepository {
+                owner: RepositoryOwner::from(account),
+                repository: RepositoryName::from("dotfiles"),
+            }),
+            Path::new(REPOSITORIES_ROOT),
+        )
     }
 
     fn read_from_the_dotfiles_repository(applies_to: &str, body: &str) -> ResolvedConfiguration {
@@ -666,9 +684,24 @@ mod tests {
     }
 
     #[test]
-    fn the_account_a_run_acts_as_is_the_one_the_configuration_for_every_machine_declares() {
-        let desired_state = a_readable_set(EMPTY).unwrap();
+    fn a_resource_acts_as_the_account_of_the_configuration_that_declared_it() {
+        let desired_state = merged(vec![
+            (
+                "everywhere",
+                read_from_the_repository_of("Alice", "everywhere", EMPTY),
+            ),
+            (
+                "work",
+                read_from_the_repository_of("Employer", "work", SYMLINK),
+            ),
+        ])
+        .unwrap();
 
-        assert_eq!(*desired_state.account(), GitHubAccount::from("Alice"));
+        let symlink = other_than_its_own_currency(&desired_state)
+            .into_iter()
+            .find(|resource| resource.kind() == ResourceKind::Symlink)
+            .expect("the work configuration declared a symlink");
+
+        assert_eq!(*symlink.account(), GitHubAccount::from("Employer"));
     }
 }

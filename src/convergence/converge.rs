@@ -1,8 +1,8 @@
 use {
     crate::{
         configuration::{
-            Application, CargoPackage, CargoSource, Command, GitHubRepository, Package,
-            Registration, ReleasedBinary, Resource, Symlink, WingetPackage,
+            Application, CargoPackage, CargoSource, Command, GitHubAccount, GitHubRepository,
+            Package, Registration, ReleasedBinary, Resource, Symlink, WingetPackage,
         },
         convergence::SourceReadings,
         desired_state::ResolvedResource,
@@ -39,10 +39,16 @@ pub async fn converge(
             return converge_cargo_package(package, resource, machine, readings);
         }
         Resource::Repository(repository) => {
-            converge_repository(repository, &resource.clone_directory(repository), machine).await
+            converge_repository(
+                repository,
+                &resource.clone_directory(repository),
+                machine,
+                resource.account(),
+            )
+            .await
         }
         Resource::Application(Application::Installer(installer)) => machine
-            .install_application(installer)
+            .install_application(installer, resource.account())
             .await
             .with_context(|| format!("Could not install {}", installer.name)),
         Resource::Application(Application::ReleasedBinary(binary)) => {
@@ -92,8 +98,11 @@ async fn converge_repository(
     repository: &GitHubRepository,
     clone_directory: &Path,
     machine: &impl WriteMachine,
+    account: &GitHubAccount,
 ) -> Result<()> {
-    machine.clone_repository(repository, clone_directory).await
+    machine
+        .clone_repository(repository, clone_directory, account)
+        .await
 }
 
 fn converge_winget_package(package: &WingetPackage, machine: &impl WriteMachine) -> Result<()> {
@@ -127,7 +136,7 @@ fn converge_cargo_package(
                 bail!("{repository} was not read, so there is no revision to install from");
             };
             arguments.push("--git".to_owned());
-            arguments.push(repository.clone_url());
+            arguments.push(repository.fetch_url_as(resource.account()));
             arguments.push("--rev".to_owned());
             arguments.push(revision.to_string());
             arguments.push(package.crate_name.to_string());
