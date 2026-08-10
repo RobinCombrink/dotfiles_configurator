@@ -37,7 +37,7 @@ pub use {
     migration::{Migration, announcement},
     names::{
         ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName, RepositoryName,
-        RepositoryOwner, VariableName, WingetPackageId,
+        RepositoryOwner, VariableName, VariableValue, WingetPackageId,
     },
     presence_check::PresenceCheck,
     resource::{
@@ -403,8 +403,31 @@ mod tests {
         else {
             panic!("the configuration declared no variable");
         };
-        assert_eq!(variable.name, VariableName::from("EDITOR"));
-        assert_eq!(variable.value, "nvim");
+        assert_eq!(variable.name, VariableName::try_from("EDITOR").unwrap());
+        assert_eq!(variable.value, VariableValue::from("nvim"));
+    }
+
+    #[test]
+    fn a_variable_claiming_the_search_path_is_refused_naming_the_shape_that_owns_it() {
+        let claimed = r#""resources": [
+            { "kind": "environment_variable", "shape": "variable",
+              "name": "Path", "value": "C:\\only\\this" }
+        ]"#;
+
+        let error = parse(claimed).unwrap_err();
+
+        let message = format!("{error:#}");
+        assert!(message.contains("search path entry"), "{message}");
+    }
+
+    #[test]
+    fn a_variable_claiming_the_search_path_in_another_case_is_refused_just_the_same() {
+        let claimed = r#""resources": [
+            { "kind": "environment_variable", "shape": "variable",
+              "name": "PATH", "value": "C:\\only\\this" }
+        ]"#;
+
+        assert!(parse(claimed).is_err());
     }
 
     #[test]

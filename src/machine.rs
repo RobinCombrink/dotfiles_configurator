@@ -3,6 +3,7 @@ use {
         TOOL_DIRECTORY,
         configuration::{
             CrateName, GitHubAccount, GitHubRepository, PresenceCheck, Shell, VariableName,
+            VariableValue,
         },
         machine::{
             environment_reading::SearchPathReading,
@@ -122,7 +123,7 @@ pub trait ReadMachine {
     fn read_search_path(&self) -> Result<SearchPathReading>;
 
     // ADR 0017
-    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<String>>;
+    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>>;
 
     /// Resolves a path declared relative to the home directory. Absolute paths are left alone.
     fn resolve_against_home(&self, path: &Path) -> PathBuf {
@@ -163,22 +164,21 @@ pub trait WriteMachine: ReadMachine {
         asset: &release_reading::ReleaseAsset,
     ) -> impl std::future::Future<Output = Result<Placement>>;
 
-    /// Reads the stored value raw, appends the directory and writes it back preserving its type,
-    /// then broadcasts the environment change. The read is its own, rather than one this change
-    /// set already took, because two entries converging in one pass would otherwise have the
-    /// second append to a value the first had already superseded.
+    /// Makes the search path carry a directory. The postcondition is membership, so calling it for
+    /// a directory the path already carries changes nothing — which is what keeps two resources
+    /// resolving to one directory from adding it twice within a single pass.
     ///
     /// ```no_run
     /// # use dotfiles_configurator::machine::WriteMachine;
     /// # use std::path::Path;
-    /// # fn add(machine: &impl WriteMachine) -> anyhow::Result<()> {
-    /// machine.add_to_search_path(Path::new("C:\\tools\\bin"))
+    /// # fn put(machine: &impl WriteMachine) -> anyhow::Result<()> {
+    /// machine.put_on_search_path(Path::new("C:\\tools\\bin"))
     /// # }
     /// ```
-    fn add_to_search_path(&self, directory: &Path) -> Result<()>;
+    fn put_on_search_path(&self, directory: &Path) -> Result<()>;
 
     // ADR 0017
-    fn set_environment_variable(&self, name: &VariableName, value: &str) -> Result<()>;
+    fn set_environment_variable(&self, name: &VariableName, value: &VariableValue) -> Result<()>;
 
     /// Runs one of the invocations this crate defines for changing state.
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;

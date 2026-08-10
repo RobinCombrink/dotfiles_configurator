@@ -156,8 +156,7 @@ fn shell_requirement(shell: Shell) -> Option<Requirement> {
     }
 }
 
-/// Which directory a search path entry names, resolved against everything the run holds that the
-/// configuration therefore does not declare. See ADR 0025.
+// ADR 0025
 pub(crate) fn search_path_directory(
     entry: &crate::configuration::SearchPathEntry,
     resource: &ResolvedResource,

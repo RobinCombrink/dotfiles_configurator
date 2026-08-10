@@ -28,7 +28,6 @@ pub enum Identity {
     WingetPackage(WingetPackageId),
     CargoCrate(CrateName),
     EnvironmentVariable(VariableName),
-    /// The directory the entry names, as declared.
     SearchPathEntry(SearchPathDirectory),
     /// The path of the link itself, as declared.
     Symlink(PathBuf),

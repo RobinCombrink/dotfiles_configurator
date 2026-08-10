@@ -11,7 +11,7 @@ use {
     dotfiles_configurator::{
         configuration::{
             ApplicationName, CrateName, GitHubAccount, GitHubRepository, Installer, PresenceCheck,
-            ReleasedBinary, Shell, VariableName, WingetPackageId,
+            ReleasedBinary, Shell, VariableName, VariableValue, WingetPackageId,
         },
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
@@ -67,7 +67,7 @@ struct MachineState {
     version_output_by_binary_path: BTreeMap<PathBuf, String>,
     user_search_path: Vec<PathBuf>,
     machine_search_path: Vec<PathBuf>,
-    environment_variables: BTreeMap<VariableName, String>,
+    environment_variables: BTreeMap<VariableName, VariableValue>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,14 +307,14 @@ impl FakeMachine {
         state.machine_search_path.clear();
     }
 
-    pub fn hold_environment_variable(&self, name: &VariableName, value: &str) {
+    pub fn hold_environment_variable(&self, name: &VariableName, value: &VariableValue) {
         self.state
             .borrow_mut()
             .environment_variables
-            .insert(name.clone(), value.to_owned());
+            .insert(name.clone(), value.clone());
     }
 
-    pub fn environment_variable(&self, name: &VariableName) -> Option<String> {
+    pub fn environment_variable(&self, name: &VariableName) -> Option<VariableValue> {
         self.state.borrow().environment_variables.get(name).cloned()
     }
 
@@ -570,7 +570,7 @@ impl ReadMachine for FakeMachine {
         ))
     }
 
-    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<String>> {
+    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>> {
         Ok(self.state.borrow().environment_variables.get(name).cloned())
     }
 
@@ -653,19 +653,22 @@ impl WriteMachine for FakeMachine {
         Ok(Placement::Placed)
     }
 
-    fn add_to_search_path(&self, directory: &Path) -> Result<()> {
-        self.state
-            .borrow_mut()
-            .user_search_path
-            .push(directory.to_path_buf());
+    /// Membership is the postcondition on a real machine, so the substitute has to answer the same
+    /// way: a directory the path already carries is not added a second time.
+    fn put_on_search_path(&self, directory: &Path) -> Result<()> {
+        let mut state = self.state.borrow_mut();
+        let carried = SearchPathReading::of(state.user_search_path.iter().cloned());
+        if !carried.carries(directory) {
+            state.user_search_path.push(directory.to_path_buf());
+        }
         Ok(())
     }
 
-    fn set_environment_variable(&self, name: &VariableName, value: &str) -> Result<()> {
+    fn set_environment_variable(&self, name: &VariableName, value: &VariableValue) -> Result<()> {
         self.state
             .borrow_mut()
             .environment_variables
-            .insert(name.clone(), value.to_owned());
+            .insert(name.clone(), value.clone());
         Ok(())
     }
 

@@ -663,7 +663,6 @@
       ]
     },
     "SearchPathDirectory": {
-      "description": "Which directory an entry names, derived rather than declared wherever the run already holds it.\nSee ADR 0025.",
       "oneOf": [
         {
           "type": "object",
@@ -686,7 +685,6 @@
           ]
         },
         {
-          "description": "Resolved against the home directory, leaving an absolute path alone, as a symlink's link\npath is.",
           "type": "object",
           "properties": {
             "in": {
@@ -705,7 +703,6 @@
       ]
     },
     "SearchPathEntry": {
-      "description": "A directory the search path contains, whose desired state is membership rather than the whole\npath, because the machine and other installers write there too.",
       "type": "object",
       "properties": {
         "directory": {
@@ -744,11 +741,10 @@
       ]
     },
     "Variable": {
-      "description": "A variable whose desired state is its whole value.",
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "$ref": "#/$defs/VariableName"
         },
         "value": {
           "type": "string"
@@ -758,6 +754,11 @@
         "name",
         "value"
       ]
+    },
+    "VariableName": {
+      "description": "The name of a variable to set. Every name except Path, which a search path entry declares instead.",
+      "type": "string",
+      "minLength": 1
     },
     "WingetPackage": {
       "type": "object",

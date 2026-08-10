@@ -3,7 +3,7 @@ use {
         configuration::{
             names::{
                 ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName,
-                RepositoryName, RepositoryOwner, VariableName, WingetPackageId,
+                RepositoryName, RepositoryOwner, VariableName, VariableValue, WingetPackageId,
             },
             presence_check::PresenceCheck,
         },
@@ -34,8 +34,7 @@ pub enum Resource {
 /// The declaration order below is the order kinds are converged in, and it is load-bearing for
 /// safety rather than presentation: a program initialising its configuration for the first time
 /// writes through a symlink into the dotfiles repository, so applications must be installed
-/// before anything links into their configuration directories. An environment variable follows
-/// the kinds that create the directories a search path entry names. See ADR 0004.
+/// before anything links into their configuration directories. See ADR 0004.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ResourceKind {
     Repository,
@@ -418,11 +417,10 @@ impl Display for EnvironmentVariable {
     }
 }
 
-/// A variable whose desired state is its whole value.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct Variable {
     pub name: VariableName,
-    pub value: String,
+    pub value: VariableValue,
 }
 
 impl Display for Variable {
@@ -431,22 +429,18 @@ impl Display for Variable {
     }
 }
 
-/// A directory the search path contains, whose desired state is membership rather than the whole
-/// path, because the machine and other installers write there too.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct SearchPathEntry {
     pub directory: SearchPathDirectory,
 }
 
-/// Which directory an entry names, derived rather than declared wherever the run already holds it.
-/// See ADR 0025.
+// ADR 0025
 #[derive(
     Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 #[serde(tag = "in", rename_all = "snake_case")]
 pub enum SearchPathDirectory {
-    /// The directory this program installs released binaries into, carried by every change set
-    /// rather than declared, which is why no configuration can name it. See ADR 0019.
+    // ADR 0019
     #[serde(skip_deserializing)]
     #[schemars(skip)]
     ToolBinaries,
@@ -454,9 +448,9 @@ pub enum SearchPathDirectory {
         repository: GitHubRepository,
         path: PathBuf,
     },
-    /// Resolved against the home directory, leaving an absolute path alone, as a symlink's link
-    /// path is.
-    Home { path: PathBuf },
+    Home {
+        path: PathBuf,
+    },
 }
 
 impl Display for SearchPathDirectory {

@@ -18,7 +18,7 @@ use {
             BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, CrateName,
             EnvironmentVariable, GitHubAccount, Installer, MachineClass, Notice,
             OLDEST_READABLE_GENERATION, PresenceCheck, Resource, SearchPathDirectory,
-            SearchPathEntry, Shell, Symlink, Variable, VariableName,
+            SearchPathEntry, Shell, Symlink, Variable, VariableName, VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
@@ -366,6 +366,18 @@ fn dotfiles_repository_is_not_cloned(_world: &mut MachineWorld) {
 #[given(expr = "Alice has a configuration declaring version {string}")]
 fn configuration_with_version(world: &mut MachineWorld, version: String) {
     world.documents.push(document(&version, "everywhere", "[]"));
+}
+
+#[given(expr = "Alice has a configuration declaring a variable named {string}")]
+fn configuration_declaring_a_variable_named(world: &mut MachineWorld, name: String) {
+    world.documents.push(document(
+        &BUILD_GENERATION.to_string(),
+        "everywhere",
+        &format!(
+            r#"[{{ "kind": "environment_variable", "shape": "variable",
+                   "name": "{name}", "value": "C:\\only\\this" }}]"#
+        ),
+    ));
 }
 
 #[given(expr = "Alice has a configuration for work machines declaring version {string}")]
@@ -1026,12 +1038,16 @@ fn inside_the_clone_of(owner_and_name: &str, path: &str) -> PathBuf {
         .join(path)
 }
 
+fn a_variable_named(name: &str) -> VariableName {
+    VariableName::try_from(name).expect("a name a configuration may set")
+}
+
 #[given(expr = "Alice declares the environment variable {string} as {string}")]
 fn declare_variable(world: &mut MachineWorld, name: String, value: String) {
     world.resources.push(Resource::EnvironmentVariable(
         EnvironmentVariable::Variable(Variable {
-            name: VariableName::from(name.as_str()),
-            value,
+            name: a_variable_named(&name),
+            value: VariableValue::from(value.as_str()),
         }),
     ));
 }
@@ -1064,13 +1080,19 @@ fn declare_search_path_entry_in_repository(
 }
 
 #[given(expr = "{string} is set to {string} on Alice's machine")]
+fn machine_already_sets_variable(world: &mut MachineWorld, name: String, value: String) {
+    world.machine.hold_environment_variable(
+        &a_variable_named(&name),
+        &VariableValue::from(value.as_str()),
+    );
+}
+
 #[then(expr = "{string} is set to {string} on Alice's machine")]
-fn variable_is_set_to(world: &mut MachineWorld, name: String, value: String) {
-    let name = VariableName::from(name.as_str());
-    match world.outcome.is_some() {
-        true => assert_eq!(world.machine.environment_variable(&name), Some(value)),
-        false => world.machine.hold_environment_variable(&name, &value),
-    }
+fn machine_now_sets_variable(world: &mut MachineWorld, name: String, value: String) {
+    assert_eq!(
+        world.machine.environment_variable(&a_variable_named(&name)),
+        Some(VariableValue::from(value.as_str()))
+    );
 }
 
 #[given(expr = "{string} is already on Alice's own search path")]
@@ -1104,6 +1126,18 @@ fn directory_is_now_on_alices_search_path(world: &mut MachineWorld, path: String
     let search_path = world.machine.user_search_path();
 
     assert!(search_path.contains(&directory), "{search_path:?}");
+}
+
+#[then(expr = "{string} is on Alice's own search path exactly once")]
+fn directory_is_on_alices_search_path_once(world: &mut MachineWorld, path: String) {
+    let directory = under_alices_home(world, &path);
+    let search_path = world.machine.user_search_path();
+    let named = search_path
+        .iter()
+        .filter(|entry| *entry == &directory)
+        .count();
+
+    assert_eq!(named, 1, "{search_path:?}");
 }
 
 #[then(expr = "{string} is not on Alice's own search path")]

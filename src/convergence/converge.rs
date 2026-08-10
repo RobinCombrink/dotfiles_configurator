@@ -64,7 +64,7 @@ pub async fn converge(
             .with_context(|| format!("Could not set {}", variable.name)),
         Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(entry)) => {
             let directory = search_path_directory(entry, resource, machine);
-            machine.add_to_search_path(&directory).with_context(|| {
+            machine.put_on_search_path(&directory).with_context(|| {
                 format!("Could not put {} on the search path", directory.display())
             })
         }

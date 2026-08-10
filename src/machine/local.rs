@@ -3,6 +3,7 @@ use {
         configuration::{
             ApplicationSource, ArchiveEntry, AssetPattern, CrateName, GitHubAccount,
             GitHubRepository, Installer, PresenceCheck, ReleasedBinary, Shell, VariableName,
+            VariableValue,
         },
         github::AuthenticatedAccount,
         machine::{
@@ -502,7 +503,7 @@ impl ReadMachine for LocalMachine<'_> {
         environment::read_search_path()
     }
 
-    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<String>> {
+    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>> {
         environment::read_variable(name)
     }
 }
@@ -636,11 +637,11 @@ impl WriteMachine for LocalMachine<'_> {
             })
     }
 
-    fn add_to_search_path(&self, directory: &Path) -> Result<()> {
-        environment::add_to_search_path(directory)
+    fn put_on_search_path(&self, directory: &Path) -> Result<()> {
+        environment::put_on_search_path(directory)
     }
 
-    fn set_environment_variable(&self, name: &VariableName, value: &str) -> Result<()> {
+    fn set_environment_variable(&self, name: &VariableName, value: &VariableValue) -> Result<()> {
         environment::set_variable(name, value)
     }
 

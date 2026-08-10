@@ -187,3 +187,15 @@ Feature: Applying a change set
     Given Alice declares the environment variable "EDITOR" as "nvim"
     When Alice applies
     Then the run reports a notice mentioning "open a new one"
+
+  Scenario: A directory the run already carries is not put on the search path a second time
+    Given nothing is on Alice's search path
+    And Alice declares the search path entry ".dotfiles_configurator/bin" under her home directory
+    When Alice applies
+    Then ".dotfiles_configurator/bin" is on Alice's own search path exactly once
+
+  Scenario: Two declarations differing only in case put one directory on the search path
+    Given Alice declares the search path entry "tools/bin" under her home directory
+    And Alice declares the search path entry "Tools/Bin" under her home directory
+    When Alice applies
+    Then "tools/bin" is on Alice's own search path exactly once

@@ -144,3 +144,9 @@ Feature: Loading a configuration
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "no checkout"
+
+  Scenario: A variable claiming the search path is refused, naming the shape that owns it
+    Given Alice has a configuration declaring a variable named "Path"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "search path entry"
