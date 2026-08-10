@@ -189,3 +189,19 @@ Feature: Planning what a machine needs
     And the dotfiles repository has not been cloned on Alice's machine
     When Alice plans
     Then the change set reports 0 changes
+
+  Scenario: A workspace crate is blocked without git, which is what fetches the repository it installs from
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And git is absent from Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set does not report the machine as converged
+
+  Scenario: A crate from the registry needs no git, since nothing is fetched to install it
+    Given Alice declares the cargo package "ripgrep"
+    And git is absent from Alice's machine
+    When Alice plans
+    Then the change set reports 1 change

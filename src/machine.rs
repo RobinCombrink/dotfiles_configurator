@@ -30,6 +30,7 @@ pub enum Tool {
     Cargo,
     Claude,
     Wsl,
+    Git,
 }
 
 impl Tool {
@@ -39,6 +40,7 @@ impl Tool {
             Tool::Cargo => "cargo",
             Tool::Claude => "claude",
             Tool::Wsl => "wsl",
+            Tool::Git => "git",
         }
     }
 }

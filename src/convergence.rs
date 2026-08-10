@@ -116,8 +116,16 @@ impl Resource {
             Resource::Package(crate::configuration::Package::Winget(_)) => {
                 vec![Requirement::Tool(Tool::Winget)]
             }
-            Resource::Package(crate::configuration::Package::Cargo(_)) => {
-                vec![Requirement::Tool(Tool::Cargo)]
+            Resource::Package(crate::configuration::Package::Cargo(package)) => {
+                match package.source {
+                    crate::configuration::CargoSource::Workspace { .. } => {
+                        vec![Requirement::Tool(Tool::Cargo), Requirement::Tool(Tool::Git)]
+                    }
+                    crate::configuration::CargoSource::Registry
+                    | crate::configuration::CargoSource::Path { .. } => {
+                        vec![Requirement::Tool(Tool::Cargo)]
+                    }
+                }
             }
             Resource::Symlink(_) => Vec::new(),
             Resource::Registration(_) => vec![Requirement::Tool(Tool::Claude)],

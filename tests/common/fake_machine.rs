@@ -89,7 +89,13 @@ impl Default for FakeMachine {
             state: RefCell::new(MachineState {
                 // Every shell but WSL ships with the machines that have it, and the fixed set of
                 // scenarios only ever takes tools away.
-                tools: BTreeSet::from([Tool::Winget, Tool::Cargo, Tool::Claude, Tool::Wsl]),
+                tools: BTreeSet::from([
+                    Tool::Winget,
+                    Tool::Cargo,
+                    Tool::Claude,
+                    Tool::Wsl,
+                    Tool::Git,
+                ]),
                 ..MachineState::default()
             }),
         };

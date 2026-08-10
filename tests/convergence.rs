@@ -342,6 +342,11 @@ fn winget_is_absent(world: &mut MachineWorld) {
     world.machine.remove_tool(Tool::Winget);
 }
 
+#[given(expr = "git is absent from Alice's machine")]
+fn git_is_absent(world: &mut MachineWorld) {
+    world.machine.remove_tool(Tool::Git);
+}
+
 #[given(expr = "the dotfiles repository holds {string}")]
 fn repository_holds(world: &mut MachineWorld, path: String) {
     world.machine.repository_holds(PathBuf::from(path));
@@ -522,6 +527,18 @@ fn document(version: &str, applies_to: &str, resources: &str) -> String {
             "resources": {resources}
         }}"#
     )
+}
+
+#[given(expr = "Alice declares the cargo package {string}")]
+fn declare_cargo_package(world: &mut MachineWorld, crate_name: String) {
+    world.resources.push(Resource::Package(
+        dotfiles_configurator::configuration::Package::Cargo(
+            dotfiles_configurator::configuration::CargoPackage {
+                crate_name: CrateName::from(crate_name.as_str()),
+                source: dotfiles_configurator::configuration::CargoSource::Registry,
+            },
+        ),
+    ));
 }
 
 #[given(expr = "Alice declares the cargo workspace in the dotfiles repository")]
