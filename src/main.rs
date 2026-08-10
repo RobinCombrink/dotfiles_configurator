@@ -15,7 +15,13 @@ use {
 };
 
 #[cfg(test)]
-use std::str::FromStr;
+use {
+    dotfiles_configurator::configuration::{
+        BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
+        OLDEST_READABLE_GENERATION,
+    },
+    std::str::FromStr,
+};
 
 /// Where configurations are read from when none is named.
 const DEFAULT_SOURCE: &str = "github:RobinCombrink/dotfiles/config";
@@ -280,5 +286,63 @@ mod tests {
     #[test]
     fn an_invocation_naming_no_machine_is_refused() {
         assert!(Arguments::try_parse_from(["dotfiles_configurator", "plan"]).is_err());
+    }
+
+    fn refusing(unreadable: Vec<Unreadable>) -> anyhow::Error {
+        Refusal::of(unreadable)
+            .expect("at least one configuration could not be read")
+            .into()
+    }
+
+    #[test]
+    fn a_configuration_needing_a_newer_build_sends_this_one_looking_for_its_own_release() {
+        let refusal = refusing(vec![Unreadable::TooNew {
+            source: "everywhere.dotconfig.json".to_owned(),
+            required: BEYOND_BUILD_GENERATION,
+            available: BUILD_GENERATION,
+        }]);
+
+        assert!(needs_a_newer_build(&refusal));
+    }
+
+    #[test]
+    fn a_configuration_a_person_must_repair_is_not_answered_by_updating_this_build() {
+        let refusal = refusing(vec![Unreadable::Malformed(anyhow::anyhow!(
+            "everywhere.dotconfig.json is not valid JSON"
+        ))]);
+
+        assert!(!needs_a_newer_build(&refusal));
+    }
+
+    #[test]
+    fn a_document_this_build_has_outgrown_is_not_answered_by_updating_this_build() {
+        let refusal = refusing(vec![Unreadable::TooOld {
+            source: "everywhere.dotconfig.json".to_owned(),
+            stated: BENEATH_OLDEST_READABLE_GENERATION,
+            oldest_readable: OLDEST_READABLE_GENERATION,
+        }]);
+
+        assert!(!needs_a_newer_build(&refusal));
+    }
+
+    #[test]
+    fn one_configuration_needing_a_newer_build_is_enough_to_go_looking_for_one() {
+        let refusal = refusing(vec![
+            Unreadable::Malformed(anyhow::anyhow!("personal.dotconfig.json is not valid JSON")),
+            Unreadable::TooNew {
+                source: "everywhere.dotconfig.json".to_owned(),
+                required: BEYOND_BUILD_GENERATION,
+                available: BUILD_GENERATION,
+            },
+        ]);
+
+        assert!(needs_a_newer_build(&refusal));
+    }
+
+    #[test]
+    fn a_failure_that_is_not_a_refusal_to_read_sends_this_build_looking_for_nothing() {
+        assert!(!needs_a_newer_build(&anyhow::anyhow!(
+            "No configurations were found in any of the sources given"
+        )));
     }
 }
