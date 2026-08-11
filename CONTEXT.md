@@ -229,6 +229,13 @@ clone under `Personal`, a configuration for every machine being written in a per
 repository wherever it is applied.
 _Avoid_: clone directory, workspace, projects directory
 
+**Machine manifest**:
+The document this program writes for programs it does not own, naming the repositories directory
+belonging to the class of machine a run names. A fact about the machine, which is what tells it
+apart from the repositories directory whose formula it shares: a work machine has two of those,
+and only one of them is the machine's. No configuration can declare it.
+_Avoid_: machine config, machine state, dotconfig
+
 **Tool directory**:
 The directory this program owns on a machine, holding the binaries it installs and the log of
 every run. Distinct from the dotfiles repository, which this program reads and does not own.
