@@ -425,6 +425,10 @@ impl ReadMachine for LocalMachine<'_> {
         fs::read_link(path).ok()
     }
 
+    fn text_file_at(&self, path: &Path) -> Option<String> {
+        fs::read_to_string(path).ok()
+    }
+
     fn tool_is_present(&self, tool: Tool) -> bool {
         program_is_on_path(tool.program())
     }
@@ -528,6 +532,16 @@ impl WriteMachine for LocalMachine<'_> {
                 target_path.display()
             )
         })
+    }
+
+    fn write_text_file(&self, path: &Path, contents: &str) -> Result<()> {
+        if let Some(parent_directory) = path.parent() {
+            fs::create_dir_all(parent_directory).with_context(|| {
+                format!("Could not create the directory holding {}", path.display())
+            })?;
+        }
+
+        fs::write(path, contents).with_context(|| format!("Could not write {}", path.display()))
     }
 
     async fn clone_repository(

@@ -42,9 +42,9 @@ pub use {
     presence_check::PresenceCheck,
     resource::{
         Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,
-        ClaudeMcpServer, Command, EnvironmentVariable, GitHubRepository, Installer, McpScope,
-        Package, Registration, ReleasedBinary, Resource, ResourceKind, SearchPathDirectory,
-        SearchPathEntry, Shell, Symlink, Variable, VersionWord, WingetPackage,
+        ClaudeMcpServer, Command, EnvironmentVariable, GitHubRepository, Installer,
+        MachineManifest, McpScope, Package, Registration, ReleasedBinary, Resource, ResourceKind,
+        SearchPathDirectory, SearchPathEntry, Shell, Symlink, Variable, VersionWord, WingetPackage,
     },
     unreadable::Unreadable,
     workspace::CargoWorkspace,

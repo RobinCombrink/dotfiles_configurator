@@ -6,8 +6,8 @@ use {
     dotfiles_configurator::{
         configuration::{
             ArchiveEntry, AssetPattern, BUILD_GENERATION, CargoWorkspace, Configuration, Context,
-            GitHubAccount, GitHubRepository, Notice, ReleasedBinary, RepositoryName,
-            RepositoryOwner, Resource, VersionWord,
+            GitHubAccount, GitHubRepository, MachineClass, MachineManifest, Notice, ReleasedBinary,
+            RepositoryName, RepositoryOwner, Resource, VersionWord,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
     },
@@ -18,6 +18,12 @@ use {
 };
 
 pub const REPOSITORIES_ROOT: &str = "/repositories";
+
+pub fn manifest_for(machine: MachineClass) -> MachineManifest {
+    MachineManifest {
+        repositories_directory_path: Path::new(REPOSITORIES_ROOT).join(machine.repositories_leaf()),
+    }
+}
 
 pub const DOTFILES_FILES_ROOT: &str = "/repositories/Personal/dotfiles";
 
@@ -103,24 +109,27 @@ pub fn read_as_two_accounts(
         notices: Vec::new(),
     };
 
-    DesiredState::of(vec![
-        (
-            "everywhere.dotconfig.json".to_owned(),
-            ResolvedConfiguration::read(
-                everywhere,
-                SourceLocation::Checkout(PathBuf::from(DOTFILES_FILES_ROOT)),
-                Path::new(REPOSITORIES_ROOT),
+    DesiredState::of(
+        vec![
+            (
+                "everywhere.dotconfig.json".to_owned(),
+                ResolvedConfiguration::read(
+                    everywhere,
+                    SourceLocation::Checkout(PathBuf::from(DOTFILES_FILES_ROOT)),
+                    Path::new(REPOSITORIES_ROOT),
+                ),
             ),
-        ),
-        (
-            "work.dotconfig.json".to_owned(),
-            ResolvedConfiguration::read(
-                work,
-                SourceLocation::Repository(employers_repository()),
-                Path::new(REPOSITORIES_ROOT),
+            (
+                "work.dotconfig.json".to_owned(),
+                ResolvedConfiguration::read(
+                    work,
+                    SourceLocation::Repository(employers_repository()),
+                    Path::new(REPOSITORIES_ROOT),
+                ),
             ),
-        ),
-    ])
+        ],
+        manifest_for(MachineClass::Work),
+    )
     .expect("a set holding one configuration for every machine and one for this class")
 }
 
@@ -147,15 +156,22 @@ fn read_from(
         notices: Vec::new(),
     };
 
-    DesiredState::of(vec![
-        (
-            "everywhere.dotconfig.json".to_owned(),
-            ResolvedConfiguration::read(everywhere, location.clone(), Path::new(REPOSITORIES_ROOT)),
-        ),
-        (
-            "personal.dotconfig.json".to_owned(),
-            ResolvedConfiguration::read(personal, location, Path::new(REPOSITORIES_ROOT)),
-        ),
-    ])
+    DesiredState::of(
+        vec![
+            (
+                "everywhere.dotconfig.json".to_owned(),
+                ResolvedConfiguration::read(
+                    everywhere,
+                    location.clone(),
+                    Path::new(REPOSITORIES_ROOT),
+                ),
+            ),
+            (
+                "personal.dotconfig.json".to_owned(),
+                ResolvedConfiguration::read(personal, location, Path::new(REPOSITORIES_ROOT)),
+            ),
+        ],
+        manifest_for(MachineClass::Personal),
+    )
     .expect("a set holding one configuration for every machine and one for this class")
 }

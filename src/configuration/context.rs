@@ -81,6 +81,25 @@ impl MachineClass {
             MachineClass::Work => "a work machine",
         }
     }
+
+    /// ```
+    /// use dotfiles_configurator::configuration::MachineClass;
+    ///
+    /// assert_eq!(MachineClass::Work.repositories_leaf(), "Work");
+    /// assert_eq!(MachineClass::Personal.repositories_leaf(), "Personal");
+    /// ```
+    pub fn repositories_leaf(self) -> &'static str {
+        Context::from(self).repositories_leaf()
+    }
+}
+
+impl From<MachineClass> for Context {
+    fn from(machine: MachineClass) -> Self {
+        match machine {
+            MachineClass::Personal => Context::Personal,
+            MachineClass::Work => Context::Work,
+        }
+    }
 }
 
 impl Display for MachineClass {

@@ -32,6 +32,7 @@ pub enum Identity {
     /// The path of the link itself, as declared.
     Symlink(PathBuf),
     ClaudeMcpServer(McpServerName),
+    MachineManifest,
 }
 
 impl Display for Identity {
@@ -56,6 +57,7 @@ impl Display for Identity {
             Identity::ClaudeMcpServer(name) => {
                 write!(formatter, "the claude mcp server {name}")
             }
+            Identity::MachineManifest => formatter.write_str("the machine manifest"),
         }
     }
 }
@@ -90,6 +92,9 @@ impl Resource {
             Resource::Registration(Registration::ClaudeMcpServer(ClaudeMcpServer {
                 name, ..
             })) => Some(Identity::ClaudeMcpServer(name.clone())),
+            Resource::Registration(Registration::MachineManifest(_)) => {
+                Some(Identity::MachineManifest)
+            }
             Resource::Command(_) => None,
         }
     }

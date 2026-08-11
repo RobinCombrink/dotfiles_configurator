@@ -1,8 +1,9 @@
 use {
     crate::{
         configuration::{
-            Configuration, GitHubAccount, GitHubRepository, MachineClass, Migration, Notice,
-            RepositoryName, RepositoryOwner, Unreadable, announcement, parse_configuration,
+            Configuration, GitHubAccount, GitHubRepository, MachineClass, MachineManifest,
+            Migration, Notice, RepositoryName, RepositoryOwner, Unreadable, announcement,
+            parse_configuration,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         github,
@@ -153,7 +154,11 @@ pub async fn load_desired_state(
         ));
     }
 
-    Ok(DesiredState::of(resolved)?.also_reporting(migrations, announcements))
+    let machine_manifest = MachineManifest {
+        repositories_directory_path: repositories_root.join(machine.repositories_leaf()),
+    };
+
+    Ok(DesiredState::of(resolved, machine_manifest)?.also_reporting(migrations, announcements))
 }
 
 /// A source is cloned into the tree its configurations' context names, so one yielding two
@@ -515,14 +520,7 @@ mod tests {
     /// Every change set carries the configurator's own currency, which these scenarios are not
     /// about.
     fn rendered(desired_state: &DesiredState) -> Vec<String> {
-        let carried = [
-            crate::configuration::Identity::InstalledBinary(
-                crate::currency::own_currency().installed_name(),
-            ),
-            crate::configuration::Identity::SearchPathEntry(
-                crate::configuration::SearchPathDirectory::ToolBinaries,
-            ),
-        ];
+        let carried = &desired_state.undeclared;
         desired_state
             .resources
             .iter()

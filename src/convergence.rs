@@ -156,6 +156,29 @@ fn shell_requirement(shell: Shell) -> Option<Requirement> {
     }
 }
 
+const MANIFEST_DIRECTORY: &str = ".dotconfig";
+const MANIFEST_FILE: &str = "machine.json";
+
+pub fn machine_manifest_path(machine: &impl crate::machine::ReadMachine) -> std::path::PathBuf {
+    machine
+        .home_directory()
+        .join(MANIFEST_DIRECTORY)
+        .join(MANIFEST_FILE)
+}
+
+pub fn machine_manifest_document(
+    manifest: &crate::configuration::MachineManifest,
+) -> anyhow::Result<String> {
+    #[derive(serde::Serialize)]
+    struct Document<'a> {
+        machine: &'a crate::configuration::MachineManifest,
+    }
+
+    Ok(serde_json::to_string_pretty(&Document {
+        machine: manifest,
+    })?)
+}
+
 // ADR 0025
 pub(crate) fn search_path_directory(
     entry: &crate::configuration::SearchPathEntry,
@@ -308,5 +331,23 @@ impl Display for ChangeSet {
             self.converged.len(),
             self.migrations.len()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, crate::configuration::MachineManifest, std::path::PathBuf};
+
+    #[test]
+    fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own() {
+        let document = machine_manifest_document(&MachineManifest {
+            repositories_directory_path: PathBuf::from("/repositories/Personal"),
+        })
+        .expect("a manifest that serialises");
+
+        assert_eq!(
+            document,
+            "{\n  \"machine\": {\n    \"repositories_directory_path\": \"/repositories/Personal\"\n  }\n}"
+        );
     }
 }

@@ -95,6 +95,8 @@ pub trait ReadMachine {
 
     fn tool_is_present(&self, tool: Tool) -> bool;
 
+    fn text_file_at(&self, path: &Path) -> Option<String>;
+
     /// Runs one of the invocations this crate defines for reading state. The set is closed, so
     /// plan cannot be handed the ability to run an installer.
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput>;
@@ -143,6 +145,8 @@ pub trait ReadMachine {
 /// plan holds none of them.
 pub trait WriteMachine: ReadMachine {
     fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<()>;
+
+    fn write_text_file(&self, path: &Path, contents: &str) -> Result<()>;
 
     fn clone_repository(
         &self,

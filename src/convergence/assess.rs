@@ -2,10 +2,14 @@ use {
     crate::{
         configuration::{
             Application, CargoPackage, CargoSource, ClaudeMcpServer, Command, CrateName,
-            EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, Package, Registration,
-            ReleasedBinary, Resource, SearchPathEntry, Symlink, Variable, WingetPackage,
+            EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, MachineManifest,
+            Package, Registration, ReleasedBinary, Resource, SearchPathEntry, Symlink, Variable,
+            WingetPackage,
         },
-        convergence::{Assessment, DriftReason, Impediment, Requirement, search_path_directory},
+        convergence::{
+            Assessment, DriftReason, Impediment, Requirement, machine_manifest_document,
+            machine_manifest_path, search_path_directory,
+        },
         desired_state::{DesiredState, ResolvedResource},
         machine::{
             ReadInvocation, ReadMachine,
@@ -214,6 +218,9 @@ pub fn assess(
         Resource::Symlink(symlink) => assess_symlink(symlink, resource, machine),
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
             assess_claude_mcp_server(server, machine)
+        }
+        Resource::Registration(Registration::MachineManifest(manifest)) => {
+            assess_machine_manifest(manifest, machine)
         }
         Resource::Command(command) => assess_command(command, machine),
     }
@@ -562,6 +569,21 @@ fn assess_symlink(
         Some(target) => {
             Assessment::Drifted(format!("links to {} instead", target.display()).into())
         }
+    }
+}
+
+fn assess_machine_manifest(manifest: &MachineManifest, machine: &impl ReadMachine) -> Assessment {
+    let declared = match machine_manifest_document(manifest) {
+        Ok(document) => document,
+        Err(error) => {
+            return Assessment::Drifted(format!("the manifest could not be built: {error}").into());
+        }
+    };
+
+    match machine.text_file_at(&machine_manifest_path(machine)) {
+        None => Assessment::Drifted("the machine holds no manifest".into()),
+        Some(held) if held == declared => Assessment::Converged,
+        Some(_) => Assessment::Drifted("the manifest says something else".into()),
     }
 }
 

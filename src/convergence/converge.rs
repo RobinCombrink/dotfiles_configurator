@@ -5,7 +5,9 @@ use {
             GitHubRepository, Package, Registration, ReleasedBinary, Resource, Symlink,
             WingetPackage,
         },
-        convergence::{SourceReadings, search_path_directory},
+        convergence::{
+            SourceReadings, machine_manifest_document, machine_manifest_path, search_path_directory,
+        },
         desired_state::ResolvedResource,
         machine::{DisplacingInvocation, Placement, WriteInvocation, WriteMachine},
     },
@@ -69,6 +71,13 @@ pub async fn converge(
             })
         }
         Resource::Symlink(symlink) => converge_symlink(symlink, resource, machine),
+        Resource::Registration(Registration::MachineManifest(manifest)) => {
+            let path = machine_manifest_path(machine);
+            let document = machine_manifest_document(manifest)?;
+            machine
+                .write_text_file(&path, &document)
+                .with_context(|| format!("Could not write {}", path.display()))
+        }
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
             let removal = WriteInvocation::RemoveClaudeMcpServer {
                 name: server.name.clone(),

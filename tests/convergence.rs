@@ -16,12 +16,12 @@ use {
         configuration::{
             Application, ApplicationName, ApplicationSource, BENEATH_OLDEST_READABLE_GENERATION,
             BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, CrateName,
-            EnvironmentVariable, GitHubAccount, Installer, MachineClass, Notice,
+            EnvironmentVariable, GitHubAccount, Installer, MachineClass, MachineManifest, Notice,
             OLDEST_READABLE_GENERATION, PresenceCheck, Resource, SearchPathDirectory,
             SearchPathEntry, Shell, Symlink, Variable, VariableName, VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
-        convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
+        convergence::{ApplyOutcome, ChangeSet, apply::apply, machine_manifest_document, plan},
         desired_state::DesiredState,
         machine::{
             ReadMachine, Tool,
@@ -1110,6 +1110,21 @@ fn directory_is_on_the_machine_search_path(world: &mut MachineWorld, path: Strin
 #[given(expr = "nothing is on Alice's search path")]
 fn nothing_is_on_the_search_path(world: &mut MachineWorld) {
     world.machine.clear_the_search_path();
+}
+
+#[given(expr = "Alice's machine holds no manifest")]
+fn the_machine_holds_no_manifest(world: &mut MachineWorld) {
+    world.machine.forget_the_machine_manifest();
+}
+
+#[then(expr = "Alice's machine holds a manifest naming the repositories directory {string}")]
+fn the_manifest_names_the_repositories_directory(world: &mut MachineWorld, leaf: String) {
+    let expected = machine_manifest_document(&MachineManifest {
+        repositories_directory_path: Path::new(REPOSITORIES_ROOT).join(leaf),
+    })
+    .expect("a manifest that serialises");
+
+    assert_eq!(world.machine.machine_manifest(), Some(expected));
 }
 
 #[then(expr = "the directory this program installs binaries into is on Alice's own search path")]

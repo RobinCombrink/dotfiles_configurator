@@ -10,9 +10,11 @@ use {
     anyhow::{Result, anyhow, bail},
     dotfiles_configurator::{
         configuration::{
-            ApplicationName, CrateName, GitHubAccount, GitHubRepository, Installer, PresenceCheck,
-            ReleasedBinary, Shell, VariableName, VariableValue, WingetPackageId,
+            ApplicationName, CrateName, GitHubAccount, GitHubRepository, Installer, MachineClass,
+            MachineManifest, PresenceCheck, ReleasedBinary, Shell, VariableName, VariableValue,
+            WingetPackageId,
         },
+        convergence::{machine_manifest_document, machine_manifest_path},
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine, Tool,
@@ -45,6 +47,7 @@ pub struct FakeMachine {
 struct MachineState {
     paths: BTreeSet<PathBuf>,
     links: BTreeMap<PathBuf, PathBuf>,
+    text_files: BTreeMap<PathBuf, String>,
     tools: BTreeSet<Tool>,
     installed_applications: BTreeSet<ApplicationName>,
     winget_packages: BTreeSet<WingetPackageId>,
@@ -122,6 +125,7 @@ impl Default for FakeMachine {
             format!("dotfiles_configurator {CONFIGURATOR_VERSION}"),
         );
         machine.hold_user_search_path_entry(machine.binaries_directory());
+        machine.hold_machine_manifest(MachineClass::Personal);
 
         machine
     }
@@ -307,6 +311,27 @@ impl FakeMachine {
         state.machine_search_path.clear();
     }
 
+    pub fn hold_machine_manifest(&self, machine: MachineClass) {
+        let manifest = MachineManifest {
+            repositories_directory_path: self.repositories_root.join(machine.repositories_leaf()),
+        };
+        let document = machine_manifest_document(&manifest).expect("a manifest that serialises");
+
+        self.write_text_file(&machine_manifest_path(self), &document)
+            .expect("a manifest on the fake machine");
+    }
+
+    pub fn forget_the_machine_manifest(&self) {
+        let path = machine_manifest_path(self);
+        let mut state = self.state.borrow_mut();
+        state.text_files.remove(&path);
+        state.paths.remove(&path);
+    }
+
+    pub fn machine_manifest(&self) -> Option<String> {
+        self.text_file_at(&machine_manifest_path(self))
+    }
+
     pub fn hold_environment_variable(&self, name: &VariableName, value: &VariableValue) {
         self.state
             .borrow_mut()
@@ -488,6 +513,10 @@ impl ReadMachine for FakeMachine {
         self.state.borrow().links.get(path).cloned()
     }
 
+    fn text_file_at(&self, path: &Path) -> Option<String> {
+        self.state.borrow().text_files.get(path).cloned()
+    }
+
     fn tool_is_present(&self, tool: Tool) -> bool {
         self.state.borrow().tools.contains(&tool)
     }
@@ -594,6 +623,15 @@ impl WriteMachine for FakeMachine {
             .borrow_mut()
             .links
             .insert(link_path.to_path_buf(), target_path.to_path_buf());
+        Ok(())
+    }
+
+    fn write_text_file(&self, path: &Path, contents: &str) -> Result<()> {
+        let mut state = self.state.borrow_mut();
+        state
+            .text_files
+            .insert(path.to_path_buf(), contents.to_owned());
+        state.paths.insert(path.to_path_buf());
         Ok(())
     }
 

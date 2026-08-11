@@ -2,8 +2,8 @@ use {
     crate::{
         configuration::{
             Application, CargoWorkspace, Configuration, Context, EnvironmentVariable,
-            GitHubAccount, GitHubRepository, Identity, Migration, Notice, Resource, ResourceKind,
-            SearchPathDirectory, SearchPathEntry,
+            GitHubAccount, GitHubRepository, Identity, MachineManifest, Migration, Notice,
+            Registration, Resource, ResourceKind, SearchPathDirectory, SearchPathEntry,
         },
         convergence::Requirement,
         currency,
@@ -229,6 +229,7 @@ pub struct DesiredState {
     pub notices: Vec<ResolvedNotice>,
     pub migrations: Vec<Migration>,
     pub announcements: Vec<Notice>,
+    pub undeclared: Vec<Identity>,
 }
 
 impl DesiredState {
@@ -243,7 +244,10 @@ impl DesiredState {
         self
     }
 
-    pub fn of(configurations: Vec<(String, ResolvedConfiguration)>) -> Result<Self> {
+    pub fn of(
+        configurations: Vec<(String, ResolvedConfiguration)>,
+        machine_manifest: MachineManifest,
+    ) -> Result<Self> {
         let for_every_machine = the_configuration_for_every_machine(&configurations)?;
         refuse_a_set_holding_nothing_for_this_class(&configurations)?;
 
@@ -262,10 +266,17 @@ impl DesiredState {
             }),
         ));
 
+        // ADR 0030
+        let machine_manifest = for_every_machine.pair(Resource::Registration(
+            Registration::MachineManifest(machine_manifest),
+        ));
+
         let mut resources: Vec<ResolvedResource> = Vec::new();
-        for carried in [own_currency, own_binaries_are_reachable] {
+        let mut undeclared: Vec<Identity> = Vec::new();
+        for carried in [own_currency, own_binaries_are_reachable, machine_manifest] {
             if let Some(identity) = carried.identity() {
-                claimed.insert(identity, ("this build".to_owned(), carried.clone()));
+                claimed.insert(identity.clone(), ("this build".to_owned(), carried.clone()));
+                undeclared.push(identity);
             }
             resources.push(carried);
         }
@@ -304,6 +315,7 @@ impl DesiredState {
             notices,
             migrations: Vec::new(),
             announcements: Vec::new(),
+            undeclared,
         })
     }
 }
@@ -342,7 +354,9 @@ fn refuse_a_set_holding_nothing_for_this_class(
 mod tests {
     use {
         super::*,
-        crate::configuration::{BUILD_GENERATION, RepositoryName, RepositoryOwner, Unreadable},
+        crate::configuration::{
+            BUILD_GENERATION, MachineClass, RepositoryName, RepositoryOwner, Unreadable,
+        },
     };
 
     const REPOSITORIES_ROOT: &str = "/repositories";
@@ -401,6 +415,10 @@ mod tests {
                 .into_iter()
                 .map(|(source, configuration)| (source.to_owned(), configuration))
                 .collect(),
+            MachineManifest {
+                repositories_directory_path: Path::new(REPOSITORIES_ROOT)
+                    .join(MachineClass::Personal.repositories_leaf()),
+            },
         )
     }
 
@@ -423,19 +441,12 @@ mod tests {
         ])
     }
 
-    fn carried_by_every_change_set() -> Vec<Identity> {
-        vec![
-            Identity::InstalledBinary(currency::own_currency().installed_name()),
-            Identity::SearchPathEntry(SearchPathDirectory::ToolBinaries),
-        ]
-    }
-
     /// Every change set carries the configurator's own currency and the directory it installs
     /// binaries into, which most of these are not about.
     fn other_than_what_every_change_set_carries(
         desired_state: &DesiredState,
     ) -> Vec<&ResolvedResource> {
-        let carried = carried_by_every_change_set();
+        let carried = &desired_state.undeclared;
         desired_state
             .resources
             .iter()
@@ -457,6 +468,40 @@ mod tests {
                 .map(ToString::to_string)
                 .collect::<Vec<_>>(),
             vec!["repository Alice/dotfiles".to_owned()]
+        );
+    }
+
+    #[test]
+    fn every_change_set_carries_the_machine_manifest() {
+        let desired_state = a_readable_set(EMPTY).unwrap();
+
+        assert!(
+            desired_state
+                .undeclared
+                .contains(&Identity::MachineManifest),
+            "{:?}",
+            desired_state.undeclared
+        );
+    }
+
+    #[test]
+    fn the_machine_manifest_names_the_repositories_directory_of_the_class_the_run_is_for() {
+        let desired_state = a_readable_set(EMPTY).unwrap();
+
+        let manifests: Vec<String> = desired_state
+            .resources
+            .iter()
+            .filter(|resource| resource.identity() == Some(Identity::MachineManifest))
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            manifests,
+            vec![format!(
+                "registration machine manifest naming {}",
+                Path::new(REPOSITORIES_ROOT)
+                    .join(MachineClass::Personal.repositories_leaf())
+                    .display()
+            )]
         );
     }
 

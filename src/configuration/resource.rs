@@ -482,6 +482,10 @@ pub struct Symlink {
 #[serde(tag = "registry", rename_all = "snake_case")]
 pub enum Registration {
     ClaudeMcpServer(ClaudeMcpServer),
+    // ADR 0030
+    #[serde(skip_deserializing)]
+    #[schemars(skip)]
+    MachineManifest(MachineManifest),
 }
 
 impl Display for Registration {
@@ -490,6 +494,11 @@ impl Display for Registration {
             Registration::ClaudeMcpServer(server) => {
                 write!(formatter, "claude mcp server {}", server.name)
             }
+            Registration::MachineManifest(manifest) => write!(
+                formatter,
+                "machine manifest naming {}",
+                manifest.repositories_directory_path.display()
+            ),
         }
     }
 }
@@ -503,6 +512,11 @@ pub struct ClaudeMcpServer {
     pub args: Vec<String>,
     #[serde(default)]
     pub environment: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct MachineManifest {
+    pub repositories_directory_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

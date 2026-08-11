@@ -183,6 +183,16 @@ Feature: Applying a change set
     When Alice applies
     Then the directory this program installs binaries into is on Alice's own search path
 
+  Scenario: Applying gives a machine with no manifest one naming where it keeps its repositories
+    Given Alice's machine holds no manifest
+    When Alice applies
+    Then Alice's machine holds a manifest naming the repositories directory "Personal"
+
+  Scenario: A work machine's manifest names the tree that machine's own repositories sit in
+    Given Alice's employer's configuration declares the repository "Employer/tooling"
+    When Alice applies
+    Then Alice's machine holds a manifest naming the repositories directory "Work"
+
   Scenario: An environment change is reported as reaching no process already running
     Given Alice declares the environment variable "EDITOR" as "nvim"
     When Alice applies
