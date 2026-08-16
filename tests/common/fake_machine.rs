@@ -54,7 +54,7 @@ struct MachineState {
     failing_applications: BTreeSet<ApplicationName>,
     /// Installers that exit zero without putting anything on the machine.
     silent_applications: BTreeSet<ApplicationName>,
-    install_attempts: BTreeMap<ApplicationName, usize>,
+    install_attempts: Vec<(ApplicationName, GitHubAccount)>,
     commands_run: Vec<Vec<String>>,
     /// What the dotfiles repository holds, which only appears on the machine once it is cloned.
     repository_contents: BTreeSet<PathBuf>,
@@ -256,6 +256,15 @@ impl FakeMachine {
             .map(|(_, account)| account.clone())
     }
 
+    pub fn account_installing(&self, name: &ApplicationName) -> Option<GitHubAccount> {
+        self.state
+            .borrow()
+            .install_attempts
+            .iter()
+            .find(|(attempted, _)| attempted == name)
+            .map(|(_, account)| account.clone())
+    }
+
     pub fn account_reading_releases_of(
         &self,
         repository: &GitHubRepository,
@@ -373,9 +382,9 @@ impl FakeMachine {
         self.state
             .borrow()
             .install_attempts
-            .get(name)
-            .copied()
-            .unwrap_or_default()
+            .iter()
+            .filter(|(attempted, _)| attempted == name)
+            .count()
     }
 
     /// A real file a person put there, which convergence must leave alone.
@@ -650,13 +659,12 @@ impl WriteMachine for FakeMachine {
     async fn install_application(
         &self,
         installer: &Installer,
-        _account: &GitHubAccount,
+        account: &GitHubAccount,
     ) -> Result<()> {
         let mut state = self.state.borrow_mut();
-        *state
+        state
             .install_attempts
-            .entry(installer.name.clone())
-            .or_default() += 1;
+            .push((installer.name.clone(), account.clone()));
 
         if state.failing_applications.contains(&installer.name) {
             bail!("the installer for {} exited non-zero", installer.name);

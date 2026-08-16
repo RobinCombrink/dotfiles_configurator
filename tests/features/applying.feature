@@ -157,6 +157,11 @@ Feature: Applying a change set
     When Alice applies
     Then "Employer/tooling" is cloned as "Employer"
 
+  Scenario: An application the work configuration declares is installed as the work account
+    Given Alice's employer's configuration declares the application "tooling" released by "Vendor/tooling"
+    When Alice applies
+    Then "tooling" is installed as "Employer"
+
   Scenario: Applying sets an environment variable the machine did not have
     Given Alice declares the environment variable "EDITOR" as "nvim"
     When Alice applies

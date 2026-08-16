@@ -14,11 +14,12 @@ use {
     },
     dotfiles_configurator::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, BENEATH_OLDEST_READABLE_GENERATION,
-            BEYOND_BUILD_GENERATION, BUILD_GENERATION, CargoWorkspace, CrateName,
-            EnvironmentVariable, GitHubAccount, Installer, MachineClass, MachineManifest, Notice,
-            OLDEST_READABLE_GENERATION, PresenceCheck, Resource, SearchPathDirectory,
-            SearchPathEntry, Shell, Symlink, Variable, VariableName, VariableValue,
+            Application, ApplicationName, ApplicationSource, AssetPattern,
+            BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
+            CargoWorkspace, CrateName, EnvironmentVariable, GitHubAccount, Installer, MachineClass,
+            MachineManifest, Notice, OLDEST_READABLE_GENERATION, PresenceCheck, Resource,
+            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Variable, VariableName,
+            VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, machine_manifest_document, plan},
@@ -178,6 +179,21 @@ fn application(name: &str) -> Application {
         source: ApplicationSource::Uri {
             uri: Url::parse("https://example.invalid/installer.exe").unwrap(),
             installer_file_name: format!("{name}.exe"),
+        },
+        presence_check: PresenceCheck::CommandOnPath {
+            command: name.to_owned(),
+        },
+    })
+}
+
+fn application_installed_from_a_release_of(name: &str, owner_and_name: &str) -> Application {
+    let repository = named_repository(owner_and_name);
+    Application::Installer(Installer {
+        name: ApplicationName::from(name),
+        source: ApplicationSource::GitHubRelease {
+            owner: repository.owner,
+            repository: repository.repository,
+            asset: AssetPattern::EndsWith(".exe".to_owned()),
         },
         presence_check: PresenceCheck::CommandOnPath {
             command: name.to_owned(),
@@ -463,12 +479,36 @@ fn employers_configuration_declares_a_repository(world: &mut MachineWorld, owner
         .push(Resource::Repository(named_repository(&owner_and_name)));
 }
 
+#[given(
+    expr = "Alice's employer's configuration declares the application {string} released by \
+            {string}"
+)]
+fn employers_configuration_declares_an_application(
+    world: &mut MachineWorld,
+    name: String,
+    owner_and_name: String,
+) {
+    world.employers_resources.push(Resource::Application(
+        application_installed_from_a_release_of(&name, &owner_and_name),
+    ));
+}
+
 #[then(expr = "{string} is cloned as {string}")]
 fn repository_is_cloned_as(world: &mut MachineWorld, owner_and_name: String, account: String) {
     assert_eq!(
         world
             .machine
             .account_cloning(&named_repository(&owner_and_name)),
+        Some(GitHubAccount::from(account.as_str()))
+    );
+}
+
+#[then(expr = "{string} is installed as {string}")]
+fn application_is_installed_as(world: &mut MachineWorld, name: String, account: String) {
+    assert_eq!(
+        world
+            .machine
+            .account_installing(&ApplicationName::from(name.as_str())),
         Some(GitHubAccount::from(account.as_str()))
     );
 }
