@@ -14,9 +14,10 @@ was replaced is not.
 
 Stopping the holder instead is refused because convergence is additive and a running process is
 undeclared state. The single instance to hand argues the same way from consequence: the receiver
-that holds `tool-use-statistics` open records to a file whose unclean shutdown leaves a run of NUL
-bytes where a page never reached disk, so killing it to upgrade it trades a stale binary for
-damage to the record it exists to keep.
+that holds `tool-use-statistics` open writes its decision log one request at a time, opening,
+appending, and closing within each call rather than holding the file open across requests, so
+killing it to upgrade it costs whatever request was in flight and nothing already written to
+disk.
 
 Displacement happens on denial rather than before it. The tool that was refused names the path it
 could not write, so the narrowest possible act is available at exactly the moment it is needed;
@@ -46,7 +47,7 @@ not a call a caller makes, it is what the operation does on its own failure path
 ## Considered options
 
 - **Stop the holder**, optionally behind a flag. It converges the case nothing else can. Rejected
-  on ADR 0005 and on the measured consequence above.
+  on ADR 0005 and on the consequence above.
 - **Report `held` and leave it to a person.** Honest, and the smallest possible change. Rejected
   because the holder need never exit: a receiver holds its own binary for as long as recording is
   on, so "stop it and re-run" is advice with no moment at which it can be taken.
