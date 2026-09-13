@@ -751,7 +751,7 @@ mod tests {
                 "kind": "application", "shape": "released_binary",
                 "repository": { "owner": "BurntSushi", "repository": "ripgrep" },
                 "asset": { "match": "ends_with", "value": ".zip" },
-                "entry": "bin/rg.exe",
+                "entry": "bin/rg",
                 "version_word": 2
             }]"#,
         )
@@ -764,7 +764,7 @@ mod tests {
         assert_eq!(
             binary.identity(Path::new(HOME_DIRECTORY)),
             Some(Identity::InstalledBinary(
-                crate::configuration::BinaryName::from("rg.exe")
+                crate::configuration::BinaryName::from("rg")
             ))
         );
     }

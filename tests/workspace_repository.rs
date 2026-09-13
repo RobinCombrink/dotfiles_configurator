@@ -2,11 +2,8 @@
 
 use {
     dotfiles_configurator::{
-        configuration::CrateName,
-        machine::{
-            local::workspace,
-            workspace_reading::{BinaryName, Revision},
-        },
+        configuration::{BinaryName, CrateName},
+        machine::{local::workspace, workspace_reading::Revision},
     },
     git2::{IndexAddOption, Repository, Signature},
     std::{collections::BTreeMap, fs, path::Path},

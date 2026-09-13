@@ -1,9 +1,9 @@
 use {
     crate::{
-        configuration::CrateName,
+        configuration::{BinaryName, CrateName},
         machine::workspace_reading::{
-            BinaryName, Fingerprint, InferableBinary, MemberReading, MemberTree, ObjectHash,
-            Revision, WorkspaceReading, member_paths, read_member_manifest,
+            Fingerprint, InferableBinary, MemberReading, MemberTree, ObjectHash, Revision,
+            WorkspaceReading, member_paths, read_member_manifest,
         },
     },
     anyhow::{Context, Result, anyhow},

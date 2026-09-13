@@ -16,9 +16,9 @@ use {
         configuration::{
             Application, ApplicationName, ApplicationSource, AssetPattern,
             BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
-            CargoWorkspace, CrateName, EnvironmentVariable, GitHubAccount, Installer, MachineClass,
-            MachineManifest, Notice, OLDEST_READABLE_GENERATION, PresenceCheck, Resource,
-            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Variable, VariableName,
+            BinaryName, CargoWorkspace, CrateName, EnvironmentVariable, GitHubAccount, Installer,
+            MachineClass, MachineManifest, Notice, OLDEST_READABLE_GENERATION, PresenceCheck,
+            Resource, SearchPathDirectory, SearchPathEntry, Shell, Symlink, Variable, VariableName,
             VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
@@ -29,7 +29,7 @@ use {
             CommandOutput, ReadInvocation, ReadMachine, Tool,
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
-                BinaryName, Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
+                Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
         reporting::{RunKind, RunReport},

@@ -54,8 +54,8 @@ mod tests {
     #[test]
     fn the_binary_this_build_installs_over_itself_carries_the_name_it_runs_under() {
         assert_eq!(
-            own_currency().installed_name(),
-            crate::configuration::BinaryName::from("dotfiles_configurator.exe")
+            own_currency().installed_name().file_name(),
+            "dotfiles_configurator.exe"
         );
     }
 

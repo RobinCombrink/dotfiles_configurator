@@ -125,7 +125,7 @@ impl Default for FakeMachine {
         machine.hold_binary(
             machine
                 .binaries_directory()
-                .join(own_currency().installed_name().as_ref()),
+                .join(own_currency().installed_name().file_name()),
             format!("dotfiles_configurator {CONFIGURATOR_VERSION}"),
         );
         machine.hold_user_search_path_entry(machine.binaries_directory());
@@ -182,7 +182,7 @@ impl FakeMachine {
         let displaced = superseded_name(
             &self
                 .binaries_directory()
-                .join(own_currency().installed_name().as_ref()),
+                .join(own_currency().installed_name().file_name()),
         );
         self.state.borrow_mut().superseded_images.insert(displaced);
     }
@@ -190,7 +190,7 @@ impl FakeMachine {
     pub fn own_binary_is_executing_and_will_not_release(&self) {
         self.state.borrow_mut().executing_binaries.insert(
             self.binaries_directory()
-                .join(own_currency().installed_name().as_ref()),
+                .join(own_currency().installed_name().file_name()),
             Displacement::Refused,
         );
     }
@@ -260,7 +260,7 @@ impl FakeMachine {
         self.binary_reports(
             &self
                 .binaries_directory()
-                .join(own_currency().installed_name().as_ref()),
+                .join(own_currency().installed_name().file_name()),
         )
     }
 
@@ -804,7 +804,7 @@ impl WriteMachine for FakeMachine {
     ) -> Result<Placement> {
         let installed_path = self
             .binaries_directory()
-            .join(binary.installed_name().as_ref());
+            .join(binary.installed_name().file_name());
         let mut state = self.state.borrow_mut();
 
         if state.executing_binaries.get(&installed_path) == Some(&Displacement::Refused) {

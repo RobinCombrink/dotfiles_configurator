@@ -1,5 +1,5 @@
 use {
-    crate::configuration::CrateName,
+    crate::configuration::{BinaryName, CrateName},
     anyhow::{Result, anyhow, bail},
     serde::Deserialize,
     std::{
@@ -42,13 +42,6 @@ macro_rules! object_identifier {
 
 object_identifier!(Revision);
 object_identifier!(ObjectHash);
-object_identifier!(BinaryName);
-
-impl BinaryName {
-    pub fn file_name(&self) -> String {
-        format!("{self}{}", std::env::consts::EXE_SUFFIX)
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fingerprint {

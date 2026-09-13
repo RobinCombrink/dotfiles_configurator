@@ -64,6 +64,22 @@ name!(
 
 name!(BinaryName);
 
+impl BinaryName {
+    /// The file a binary of this name occupies on this platform. The name itself is the bare
+    /// stem, so one binary compares equal to itself wherever it is read.
+    ///
+    /// ```
+    /// # use dotfiles_configurator::configuration::BinaryName;
+    /// assert_eq!(
+    ///     BinaryName::from("stop-gate").file_name(),
+    ///     format!("stop-gate{}", std::env::consts::EXE_SUFFIX)
+    /// );
+    /// ```
+    pub fn file_name(&self) -> String {
+        format!("{self}{}", std::env::consts::EXE_SUFFIX)
+    }
+}
+
 name!(
     /// The identifier winget knows a package by.
     WingetPackageId

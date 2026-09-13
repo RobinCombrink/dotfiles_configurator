@@ -215,7 +215,7 @@ impl ReleasedBinary {
 ///
 /// let nested = ArchiveEntry::try_from("bin/rg.exe".to_owned()).unwrap();
 ///
-/// assert_eq!(nested.installed_name().to_string(), "rg.exe");
+/// assert_eq!(nested.installed_name().file_name(), "rg.exe");
 /// assert!(ArchiveEntry::try_from("bin/".to_owned()).is_err());
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -224,7 +224,13 @@ pub struct ArchiveEntry(String);
 
 impl ArchiveEntry {
     pub fn installed_name(&self) -> BinaryName {
-        BinaryName::from(own_name(&self.0))
+        let own_name = own_name(&self.0);
+
+        BinaryName::from(
+            own_name
+                .strip_suffix(std::env::consts::EXE_SUFFIX)
+                .unwrap_or(own_name),
+        )
     }
 }
 
@@ -563,4 +569,17 @@ pub enum Shell {
     CommandPrompt,
     PowerShell,
     Wsl,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_archive_entry_is_known_by_a_name_carrying_no_platform_executable_suffix() {
+        let entry =
+            ArchiveEntry::try_from(format!("bin/rg{}", std::env::consts::EXE_SUFFIX)).unwrap();
+
+        assert_eq!(entry.installed_name(), BinaryName::from("rg"));
+    }
 }
