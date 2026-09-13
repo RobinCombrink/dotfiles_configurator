@@ -9,7 +9,10 @@ use {
             SourceReadings, machine_manifest_document, machine_manifest_path, search_path_directory,
         },
         desired_state::ResolvedResource,
-        machine::{DisplacingInvocation, Placement, WriteInvocation, WriteMachine},
+        machine::{
+            DisplacingInvocation, Placement, WriteInvocation, WriteMachine,
+            release_reading::ReleaseReading,
+        },
     },
     anyhow::{Context, Result, anyhow, bail},
     std::path::{Path, PathBuf},
@@ -106,7 +109,16 @@ async fn converge_released_binary(
     let released = readings
         .release_of(&binary.repository)
         .map_err(|reason| anyhow!("{reason}"))?;
-    let asset = released
+
+    install_release(binary, released, machine).await
+}
+
+pub async fn install_release(
+    binary: &ReleasedBinary,
+    release: &ReleaseReading,
+    machine: &impl WriteMachine,
+) -> Result<Placement> {
+    let asset = release
         .asset_matching(&binary.asset)
         .map_err(|refusal| anyhow!("{refusal}"))?;
 
