@@ -421,8 +421,12 @@ fn application_is_installed(world: &mut MachineWorld, name: String) {
 }
 
 #[given(regex = r"^(.+) is not installed on Alice's machine$")]
-fn application_is_not_installed(_world: &mut MachineWorld, _name: String) {
-    // A fresh machine has nothing installed; the step is here so the scenario says so.
+fn application_is_not_installed(world: &mut MachineWorld, name: String) {
+    let name = ApplicationName::from(name.as_str());
+    assert!(
+        !world.machine.application_is_installed(&name),
+        "{name} is installed on Alice's machine"
+    );
 }
 
 #[given(regex = r"^installing (.+) fails on Alice's machine$")]
@@ -471,8 +475,11 @@ fn dotfiles_repository_is_cloned(world: &mut MachineWorld) {
 }
 
 #[given(expr = "the dotfiles repository has not been cloned on Alice's machine")]
-fn dotfiles_repository_is_not_cloned(_world: &mut MachineWorld) {
-    // A fresh machine holds no clone; the step is here so the scenario says so.
+fn dotfiles_repository_is_not_cloned(world: &mut MachineWorld) {
+    assert!(
+        !world.machine.dotfiles_repository_is_cloned(),
+        "the dotfiles repository is cloned on Alice's machine"
+    );
 }
 
 #[given(expr = "Alice has a configuration declaring version {string}")]
