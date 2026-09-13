@@ -1,10 +1,10 @@
 use {
     crate::{
         configuration::{
-            Application, CargoPackage, CargoSource, ClaudeMcpServer, Command, CrateName,
-            EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, MachineManifest,
-            Package, Registration, ReleasedBinary, Resource, SearchPathEntry, Symlink, Variable,
-            WingetPackage,
+            Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
+            CrateName, EnvironmentVariable, GitHubAccount, GitHubRepository, Installer,
+            MachineManifest, Package, Registration, ReleasedBinary, Resource, SearchPathEntry,
+            Symlink, Variable, WingetPackage,
         },
         convergence::{
             Assessment, DriftReason, Impediment, Requirement, machine_manifest_document,
@@ -59,8 +59,20 @@ impl SourceReadings {
                         .entry(binary.repository.clone())
                         .or_insert_with(|| resource.account().clone());
                 }
-                Resource::Application(Application::Installer(_))
-                | Resource::Repository(_)
+                Resource::Application(Application::Installer(installer)) => {
+                    if let ApplicationSource::GitHubRelease {
+                        owner, repository, ..
+                    } = &installer.source
+                    {
+                        released_from
+                            .entry(GitHubRepository {
+                                owner: owner.clone(),
+                                repository: repository.clone(),
+                            })
+                            .or_insert_with(|| resource.account().clone());
+                    }
+                }
+                Resource::Repository(_)
                 | Resource::EnvironmentVariable(EnvironmentVariable::Variable(_))
                 | Resource::Symlink(_)
                 | Resource::Registration(_)
@@ -207,7 +219,7 @@ pub fn assess(
         }
         Resource::Package(Package::Winget(package)) => assess_winget_package(package, readings),
         Resource::Package(Package::Cargo(package)) => {
-            assess_cargo_package(package, resource, readings)
+            assess_cargo_package(package, resource, machine, readings)
         }
         Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => {
             assess_variable(variable, machine)
@@ -395,6 +407,7 @@ fn winget_id_column(listing: &str) -> Option<(usize, usize)> {
 fn assess_cargo_package(
     package: &CargoPackage,
     resource: &ResolvedResource,
+    machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Assessment {
     match &package.source {
@@ -404,7 +417,7 @@ fn assess_cargo_package(
             readings,
         ),
         CargoSource::Registry | CargoSource::Path { .. } => {
-            assess_declared_cargo_package(package, readings)
+            assess_declared_cargo_package(package, machine, readings)
         }
     }
 }
@@ -435,7 +448,11 @@ fn assess_workspace_member(
     }
 }
 
-fn assess_declared_cargo_package(package: &CargoPackage, readings: &SourceReadings) -> Assessment {
+fn assess_declared_cargo_package(
+    package: &CargoPackage,
+    machine: &impl ReadMachine,
+    readings: &SourceReadings,
+) -> Assessment {
     let installed = match &readings.cargo_crates {
         Some(Ok(listing)) => listing,
         Some(Err(reason)) => return Assessment::Drifted(reason.clone()),
@@ -449,7 +466,7 @@ fn assess_declared_cargo_package(package: &CargoPackage, readings: &SourceReadin
     match (&package.source, &actual) {
         (CargoSource::Registry, InstalledFrom::Registry) => Assessment::Converged,
         (CargoSource::Path { path }, InstalledFrom::Path(installed_path))
-            if paths_are_the_same(path, installed_path) =>
+            if paths_are_the_same(path, installed_path, machine) =>
         {
             Assessment::Converged
         }
@@ -515,11 +532,14 @@ fn installed_crate_source(listing: &str, crate_name: &str) -> Option<InstalledFr
         .map(|(_, source)| source)
 }
 
-fn paths_are_the_same(declared: &std::path::Path, installed: &str) -> bool {
-    let installed = std::path::Path::new(installed);
-    match (declared.canonicalize(), installed.canonicalize()) {
-        (Ok(declared), Ok(installed)) => declared == installed,
-        _ => declared == installed,
+fn paths_are_the_same(declared: &Path, installed: &str, machine: &impl ReadMachine) -> bool {
+    let installed_path = Path::new(installed);
+    match (
+        machine.canonical_path(declared),
+        machine.canonical_path(installed_path),
+    ) {
+        (Some(declared), Some(installed)) => declared == installed,
+        _ => declared == installed_path,
     }
 }
 

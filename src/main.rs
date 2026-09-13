@@ -7,6 +7,7 @@ use {
         convergence::{apply::apply, install_release, plan},
         currency::{RELEASE_OWNER, own_currency, own_release_repository},
         desired_state::DesiredState,
+        github::GitHubAccess,
         machine::{Placement, ReadMachine, local::LocalMachine},
         reporting::{RunKind, RunReport},
     },
@@ -89,20 +90,21 @@ async fn main() -> ExitCode {
 }
 
 async fn run(task: Task) -> Result<ExitCode> {
+    let github = GitHubAccess::new();
     match task {
         Task::Plan(arguments) => {
             let report = RunReport::open(RunKind::Plan)?;
-            let desired_state = load(&arguments).await?;
-            let machine = LocalMachine::new(&report)?;
+            let desired_state = load(&arguments, &github).await?;
+            let machine = LocalMachine::new(&report, &github)?;
             let change_set = plan(&desired_state, &machine, &report).await?;
             println!("{change_set}");
             Ok(exit_code_for(change_set.is_converged()))
         }
         Task::Apply(arguments) => {
             let report = RunReport::open(RunKind::Apply)?;
-            let machine = LocalMachine::new(&report)?;
+            let machine = LocalMachine::new(&report, &github)?;
             let desired_state =
-                load_after_updating_if_it_must(&arguments, &machine, &report).await?;
+                load_after_updating_if_it_must(&arguments, &machine, &report, &github).await?;
             let outcome = apply(&desired_state, &machine, &report).await?;
             println!("{outcome}");
             Ok(exit_code_for(outcome.is_converged()))
@@ -110,8 +112,14 @@ async fn run(task: Task) -> Result<ExitCode> {
     }
 }
 
-async fn load(arguments: &ConfigurationArguments) -> Result<DesiredState> {
-    load_desired_state(&arguments.sources, arguments.machine, &repositories_root()?).await
+async fn load(arguments: &ConfigurationArguments, github: &GitHubAccess) -> Result<DesiredState> {
+    load_desired_state(
+        &arguments.sources,
+        arguments.machine,
+        &repositories_root()?,
+        github,
+    )
+    .await
 }
 
 /// A configuration stating a generation above this build cannot be read, and a resource declaring
@@ -120,10 +128,11 @@ async fn load(arguments: &ConfigurationArguments) -> Result<DesiredState> {
 /// ends the run saying so rather than trying again. See ADR 0019.
 async fn load_after_updating_if_it_must(
     arguments: &ConfigurationArguments,
-    machine: &LocalMachine<'_>,
+    machine: &LocalMachine<'_, '_>,
     report: &RunReport,
+    github: &GitHubAccess,
 ) -> Result<DesiredState> {
-    let refusal = match load(arguments).await {
+    let refusal = match load(arguments, github).await {
         Ok(desired_state) => return Ok(desired_state),
         Err(refusal) => refusal,
     };
@@ -137,7 +146,7 @@ async fn load_after_updating_if_it_must(
         own_release_repository()
     ));
     obtain_a_newer_build(machine).await?;
-    load(arguments).await
+    load(arguments, github).await
 }
 
 fn needs_a_newer_build(refusal: &anyhow::Error) -> bool {
@@ -146,7 +155,7 @@ fn needs_a_newer_build(refusal: &anyhow::Error) -> bool {
         .is_some_and(|refusal| refusal.unreadable().iter().any(Unreadable::is_too_new))
 }
 
-async fn obtain_a_newer_build(machine: &LocalMachine<'_>) -> Result<()> {
+async fn obtain_a_newer_build(machine: &LocalMachine<'_, '_>) -> Result<()> {
     let binary = own_currency();
     let released = machine
         .latest_release(&binary.repository, &GitHubAccount::from(RELEASE_OWNER))

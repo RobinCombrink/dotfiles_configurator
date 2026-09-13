@@ -1,15 +1,16 @@
 use {
     crate::{
         configuration::{
-            ApplicationSource, ArchiveEntry, AssetPattern, CrateName, GitHubAccount,
-            GitHubRepository, Installer, PresenceCheck, ReleasedBinary, Shell, VariableName,
-            VariableValue,
+            ApplicationSource, ArchiveEntry, CrateName, GitHubAccount, GitHubRepository, Installer,
+            Migration, PresenceCheck, ReleasedBinary, Shell, VariableName, VariableValue,
         },
-        github::AuthenticatedAccount,
+        configuration_source::WriteSource,
+        github::GitHubAccess,
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
             SUPERSEDED_SUFFIX, Tool, WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
+            partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
             workspace_reading::{Revision, WorkspaceReading},
@@ -29,7 +30,6 @@ use {
         io::{BufRead, BufReader, Read},
         path::{Path, PathBuf},
         process::{Command as ProcessCommand, Stdio},
-        sync::{Arc, Mutex, PoisonError},
         thread,
     },
     url::Url,
@@ -39,17 +39,17 @@ pub mod environment;
 pub mod workspace;
 
 /// The machine this process is running on.
-pub struct LocalMachine<'report> {
+pub struct LocalMachine<'report, 'access> {
     home_directory: PathBuf,
     download_directory: PathBuf,
     cargo_binaries_directory: PathBuf,
-    authenticated_accounts: Mutex<BTreeMap<GitHubAccount, Arc<AuthenticatedAccount>>>,
+    github: &'access GitHubAccess,
     http_client: Client,
     report: &'report RunReport,
 }
 
-impl<'report> LocalMachine<'report> {
-    pub fn new(report: &'report RunReport) -> Result<Self> {
+impl<'report, 'access> LocalMachine<'report, 'access> {
+    pub fn new(report: &'report RunReport, github: &'access GitHubAccess) -> Result<Self> {
         let home_directory =
             env::home_dir().ok_or_else(|| anyhow!("Could not find the home directory"))?;
 
@@ -58,7 +58,7 @@ impl<'report> LocalMachine<'report> {
                 .ok_or_else(|| anyhow!("Could not find the download directory"))?,
             cargo_binaries_directory: cargo_binaries_directory(&home_directory),
             home_directory,
-            authenticated_accounts: Mutex::new(BTreeMap::new()),
+            github,
             http_client: Client::default(),
             report,
         })
@@ -78,29 +78,12 @@ impl<'report> LocalMachine<'report> {
         )
     }
 
-    fn authenticated_as(&self, account: &GitHubAccount) -> Result<Arc<AuthenticatedAccount>> {
-        let mut held = self
-            .authenticated_accounts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-
-        if let Some(authenticated) = held.get(account) {
-            return Ok(Arc::clone(authenticated));
-        }
-
-        let authenticated = Arc::new(AuthenticatedAccount::authenticate_as(account)?);
-        held.insert(account.clone(), Arc::clone(&authenticated));
-        Ok(authenticated)
-    }
-
     async fn download(&self, url: &Url, destination: &Path) -> Result<()> {
         if let Some(parent_directory) = destination.parent() {
             fs::create_dir_all(parent_directory)?;
         }
 
-        // Downloaded whole into a partial file and renamed on completion, so an interrupted run
-        // leaves nothing that a later run could mistake for a finished download.
-        let partial_path = destination.with_extension("partial");
+        let partial_path = partial_download_path(destination);
         let _ = fs::remove_file(&partial_path);
 
         let response = self
@@ -148,41 +131,6 @@ impl<'report> LocalMachine<'report> {
                 destination.display()
             )
         })
-    }
-
-    async fn release_asset_url(
-        &self,
-        owner: &str,
-        repo: &str,
-        asset: &AssetPattern,
-        account: &GitHubAccount,
-    ) -> Result<(Url, String)> {
-        let release = self
-            .authenticated_as(account)?
-            .client()
-            .repos(owner, repo)
-            .releases()
-            .get_latest()
-            .await
-            .with_context(|| format!("Could not read the latest release of {owner}/{repo}"))?;
-
-        let matched = release
-            .assets
-            .iter()
-            .find(|candidate| asset.matches(&candidate.name))
-            .ok_or_else(|| {
-                anyhow!(
-                    "No asset of the latest {owner}/{repo} release matches {asset:?}. Assets: {}",
-                    release
-                        .assets
-                        .iter()
-                        .map(|candidate| candidate.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })?;
-
-        Ok((matched.browser_download_url.clone(), matched.name.clone()))
     }
 
     fn run_installer(&self, installer_path: &Path) -> Result<()> {
@@ -409,7 +357,7 @@ fn program_is_on_path(program: &str) -> bool {
     })
 }
 
-impl ReadMachine for LocalMachine<'_> {
+impl ReadMachine for LocalMachine<'_, '_> {
     fn home_directory(&self) -> &Path {
         &self.home_directory
     }
@@ -438,6 +386,10 @@ impl ReadMachine for LocalMachine<'_> {
 
     fn link_target(&self, path: &Path) -> Option<PathBuf> {
         fs::read_link(path).ok()
+    }
+
+    fn canonical_path(&self, path: &Path) -> Option<PathBuf> {
+        path.canonicalize().ok()
     }
 
     fn text_file_at(&self, path: &Path) -> Option<String> {
@@ -490,7 +442,8 @@ impl ReadMachine for LocalMachine<'_> {
         let owner = repository.owner.as_ref();
         let name = repository.repository.as_ref();
         let release = self
-            .authenticated_as(account)?
+            .github
+            .account(account)?
             .client()
             .repos(owner, name)
             .releases()
@@ -527,7 +480,7 @@ impl ReadMachine for LocalMachine<'_> {
     }
 }
 
-impl WriteMachine for LocalMachine<'_> {
+impl WriteMachine for LocalMachine<'_, '_> {
     fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<()> {
         if let Some(parent_directory) = link_path.parent() {
             fs::create_dir_all(parent_directory).with_context(|| {
@@ -565,7 +518,7 @@ impl WriteMachine for LocalMachine<'_> {
         clone_directory: &Path,
         account: &GitHubAccount,
     ) -> Result<()> {
-        let authenticated = self.authenticated_as(account)?;
+        let authenticated = self.github.account(account)?;
         let owner = repository.owner.as_ref();
         let name = repository.repository.as_ref();
         let details = authenticated
@@ -609,21 +562,23 @@ impl WriteMachine for LocalMachine<'_> {
     async fn install_application(
         &self,
         installer: &Installer,
-        account: &GitHubAccount,
+        release_asset: Option<&ReleaseAsset>,
     ) -> Result<()> {
-        let (url, file_name) = match &installer.source {
-            ApplicationSource::Uri {
-                uri,
-                installer_file_name,
-            } => (uri.clone(), installer_file_name.clone()),
-            ApplicationSource::GitHubRelease {
-                owner,
-                repository,
-                asset,
-            } => {
-                self.release_asset_url(owner.as_ref(), repository.as_ref(), asset, account)
-                    .await?
+        let (url, file_name) = match (&installer.source, release_asset) {
+            (
+                ApplicationSource::Uri {
+                    uri,
+                    installer_file_name,
+                },
+                _,
+            ) => (uri.clone(), installer_file_name.clone()),
+            (ApplicationSource::GitHubRelease { .. }, Some(asset)) => {
+                (asset.download_url.clone(), asset.name.clone())
             }
+            (ApplicationSource::GitHubRelease { .. }, None) => bail!(
+                "{} could not be installed: its release asset was not read",
+                installer.name
+            ),
         };
 
         let installer_path = self.download_directory.join(file_name);
@@ -725,6 +680,13 @@ impl WriteMachine for LocalMachine<'_> {
     fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput> {
         let (program, arguments) = shell_invocation(shell, args);
         stream(Path::new(&program), &arguments, &[], self.report)
+    }
+}
+
+impl WriteSource for LocalMachine<'_, '_> {
+    fn rewrite(&self, migration: &Migration) -> Result<()> {
+        fs::write(migration.path(), migration.contents())
+            .with_context(|| format!("Could not rewrite {}", migration.path().display()))
     }
 }
 
@@ -853,6 +815,26 @@ mod tests {
     }
 
     #[test]
+    fn an_interrupted_download_leaves_nothing_at_the_destination_a_later_run_could_read_as_finished()
+     {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("rg.exe");
+        let partial_path = partial_download_path(&destination);
+        fs::write(&partial_path, "an interrupted body").unwrap();
+
+        assert!(!destination.exists());
+        assert_ne!(partial_path, destination);
+    }
+
+    #[test]
+    fn a_partial_download_path_cannot_collide_with_a_destination_that_shares_a_stem() {
+        let exe = partial_download_path(Path::new("C:\\tools\\rg.exe"));
+        let zip = partial_download_path(Path::new("C:\\tools\\rg.zip"));
+
+        assert_ne!(exe, zip);
+    }
+
+    #[test]
     fn displacing_a_binary_frees_its_name_and_keeps_the_image_beside_it() {
         let directory = tempfile::tempdir().unwrap();
         let destination = a_binary_at(directory.path(), "claude-session.exe", "the old image");
@@ -902,11 +884,12 @@ mod tests {
         );
 
         let report = RunReport::open_in(home_directory.path(), RunKind::Apply).unwrap();
+        let github = GitHubAccess::new();
         let machine = LocalMachine {
             home_directory: home_directory.path().to_path_buf(),
             download_directory: home_directory.path().to_path_buf(),
             cargo_binaries_directory: cargo_directory.path().to_path_buf(),
-            authenticated_accounts: Mutex::new(BTreeMap::new()),
+            github: &github,
             http_client: Client::default(),
             report: &report,
         };
