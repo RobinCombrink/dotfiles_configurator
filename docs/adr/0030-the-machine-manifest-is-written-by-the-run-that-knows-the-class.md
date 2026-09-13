@@ -61,9 +61,6 @@ and this is a change no document can express.
   program's interest in the file rather than delete it.
 - **The class of a machine becomes observable on disk**, where before it was only an argument to a
   run.
-- **The readers keep treating the manifest as optional.** A machine that has not applied since this
-  build degrades exactly as it did before, so nothing outside this program has to be sequenced with
-  it.
 - **The path and field name are a contract with repositories this program does not own**, held in
   two places at once and checked by neither compiler. A reader renaming the field reads a manifest
   that parses and says nothing.
