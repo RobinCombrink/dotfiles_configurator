@@ -122,12 +122,28 @@ pub trait ReadMachine {
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<bool>;
 
+    /// The latest release a repository has published, or `None` where it has published none at
+    /// all. A repository that could not be asked is an error rather than an empty answer.
+    ///
+    /// ```no_run
+    /// # use dotfiles_configurator::{
+    /// #     configuration::{GitHubAccount, GitHubRepository},
+    /// #     machine::ReadMachine,
+    /// # };
+    /// # async fn has_published(
+    /// #     machine: &impl ReadMachine,
+    /// #     repository: &GitHubRepository,
+    /// #     account: &GitHubAccount,
+    /// # ) -> anyhow::Result<bool> {
+    /// Ok(machine.latest_release(repository, account).await?.is_some())
+    /// # }
+    /// ```
     // ADR 0010
     fn latest_release(
         &self,
         repository: &GitHubRepository,
         account: &GitHubAccount,
-    ) -> impl std::future::Future<Output = Result<ReleaseReading>>;
+    ) -> impl std::future::Future<Output = Result<Option<ReleaseReading>>>;
 
     // ADR 0016
     fn report_version(&self, binary_path: &Path, arguments: &[String]) -> Result<CommandOutput>;

@@ -37,7 +37,7 @@ pub struct SourceReadings {
     winget_packages: Option<Result<String, DriftReason>>,
     cargo_crates: Option<Result<String, DriftReason>>,
     workspaces: BTreeMap<PathBuf, Result<Option<WorkspaceReading>, DriftReason>>,
-    releases: BTreeMap<GitHubRepository, Result<ReleaseReading, DriftReason>>,
+    releases: BTreeMap<GitHubRepository, Result<Option<ReleaseReading>, DriftReason>>,
     search_path: Option<Result<SearchPathReading, DriftReason>>,
 }
 
@@ -136,9 +136,9 @@ impl SourceReadings {
     pub fn release_of(
         &self,
         repository: &GitHubRepository,
-    ) -> Result<&ReleaseReading, DriftReason> {
+    ) -> Result<Option<&ReleaseReading>, DriftReason> {
         match self.releases.get(repository) {
-            Some(Ok(release)) => Ok(release),
+            Some(Ok(release)) => Ok(release.as_ref()),
             Some(Err(reason)) => Err(reason.clone()),
             None => Err(format!("{repository} was not read for its latest release").into()),
         }
@@ -286,7 +286,12 @@ fn assess_released_binary(
     readings: &SourceReadings,
 ) -> Assessment {
     let released = match readings.release_of(&binary.repository) {
-        Ok(release) => release,
+        Ok(Some(release)) => release,
+        Ok(None) => {
+            return Assessment::Drifted(
+                format!("{} has published no release", binary.repository).into(),
+            );
+        }
         Err(reason) => return Assessment::Drifted(reason),
     };
 

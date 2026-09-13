@@ -38,6 +38,8 @@ use {
 pub mod environment;
 pub mod workspace;
 
+const NOTHING_PUBLISHED: u16 = 404;
+
 /// The machine this process is running on.
 pub struct LocalMachine<'report, 'access> {
     home_directory: PathBuf,
@@ -438,23 +440,35 @@ impl ReadMachine for LocalMachine<'_, '_> {
         &self,
         repository: &GitHubRepository,
         account: &GitHubAccount,
-    ) -> Result<ReleaseReading> {
+    ) -> Result<Option<ReleaseReading>> {
         let owner = repository.owner.as_ref();
         let name = repository.repository.as_ref();
-        let release = self
+        let asked = self
             .github
             .account(account)?
             .client()
             .repos(owner, name)
             .releases()
             .get_latest()
-            .await
-            .with_context(|| format!("Could not read the latest release of {repository}"))?;
+            .await;
+
+        let release = match asked {
+            Ok(release) => release,
+            Err(octocrab::Error::GitHub { source, .. })
+                if source.status_code.as_u16() == NOTHING_PUBLISHED =>
+            {
+                return Ok(None);
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("Could not read the latest release of {repository}"));
+            }
+        };
 
         let version = Version::try_from(release.tag_name.as_str())
             .map_err(|fault| anyhow!("the latest release of {repository} is tagged {fault}"))?;
 
-        Ok(ReleaseReading {
+        Ok(Some(ReleaseReading {
             version,
             assets: release
                 .assets
@@ -464,7 +478,7 @@ impl ReadMachine for LocalMachine<'_, '_> {
                     download_url: asset.browser_download_url,
                 })
                 .collect(),
-        })
+        }))
     }
 
     fn report_version(&self, binary_path: &Path, arguments: &[String]) -> Result<CommandOutput> {
