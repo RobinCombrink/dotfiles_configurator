@@ -54,8 +54,7 @@ _Avoid_: locked, busy, in use, pinned
 ### Resources
 
 **Resource**:
-One declared fact about a machine, whose actual state can be read and whose drift can be
-closed. The unit a change set is composed of.
+The unit a change set is composed of. Defined by `Resource`.
 _Avoid_: item, entry, task, step
 
 **Resolved**:
@@ -113,8 +112,7 @@ claims no fact and so has no identity, which is part of what makes it the last r
 _Avoid_: key, id, name
 
 **Package**:
-A resource whose installation is owned by a package manager. Which manager owns it is part of
-what the resource is, not a setting on it.
+A resource a package manager owns. Defined by `Package`.
 _Avoid_: dependency, library, install
 
 **Tool**:
@@ -139,8 +137,7 @@ on every run. Unavailable on a released binary, which is asked for its version i
 _Avoid_: guard, precondition, unless, creates
 
 **Notice**:
-A message for a person about something the tool cannot do. Not a resource — it never
-converges, is reported by every change set, and is never applied.
+A message for a person, and not a resource. Defined by `Notice`.
 _Avoid_: reminder, warning, message
 
 **Command**:
@@ -201,13 +198,12 @@ files come from, a configuration's dotfiles being held by the repository it was 
 _Avoid_: config location, provider, backend
 
 **GitHub account**:
-The account a configuration acts as, inherited by every resource it declares. Not a repository's
-owner — an owner is an address, and a public repository is read by any account at all.
+Not a repository's owner — an owner is an address, and a public repository is read by any
+account at all. Defined by `GitHubAccount`.
 _Avoid_: identity, username, credential, login
 
 **Dotfile**:
-A configuration file or directory owned by the dotfiles repository of the configuration that
-declares it, and linked into place on the machine rather than copied.
+Owned by the dotfiles repository of the configuration that declares it. Defined by `Symlink`.
 _Avoid_: config file, rc file, setting
 
 **Dotfiles repository**:
