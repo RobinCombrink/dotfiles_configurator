@@ -96,9 +96,9 @@ pub fn set_variable(name: &VariableName, value: &VariableValue) -> Result<()> {
 
 #[cfg(target_family = "windows")]
 fn hive_search_path(hive: &Key, path: &str) -> Result<Vec<PathBuf>> {
-    let Ok(key) = hive.open(path) else {
-        return Ok(Vec::new());
-    };
+    let key = hive
+        .open(path)
+        .with_context(|| format!("Could not open {path} to read the search path it stores"))?;
     let Some(value) = stored(&key, SEARCH_PATH)? else {
         return Ok(Vec::new());
     };
