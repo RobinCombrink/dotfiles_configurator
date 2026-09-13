@@ -279,6 +279,11 @@ fn configurator_reports_the_latest_release(world: &mut MachineWorld) {
     assert!(printed.contains(A_NEWER_CONFIGURATOR), "{printed}");
 }
 
+#[given(expr = "Alice's machine is running the configurator and will not let it be replaced")]
+fn configurator_is_running_and_undisplaceable(world: &mut MachineWorld) {
+    world.machine.own_binary_is_executing_and_will_not_release();
+}
+
 #[given(expr = "Alice declares the winget package {string}")]
 fn declare_winget_package(world: &mut MachineWorld, id: String) {
     world.resources.push(Resource::Package(
@@ -639,6 +644,11 @@ fn machine_will_not_release(world: &mut MachineWorld, binary_name: String) {
 #[given(expr = "an earlier run superseded the binary {string} on Alice's machine")]
 fn an_earlier_run_superseded(world: &mut MachineWorld, binary_name: String) {
     world.machine.leave_superseded_image(&binary_name);
+}
+
+#[given(expr = "an earlier run superseded the configurator's own binary on Alice's machine")]
+fn an_earlier_run_superseded_the_configurator(world: &mut MachineWorld) {
+    world.machine.leave_a_superseded_image_of_the_configurator();
 }
 
 #[then(expr = "{int} resource(s) is/are reported as held")]

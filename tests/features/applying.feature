@@ -26,6 +26,13 @@ Feature: Applying a change set
     Then the configurator reports the version of its latest release
     And the machine is reported as converged
 
+  Scenario: A build that cannot replace its own running image is held rather than reported as updated
+    Given a newer configurator than this machine holds has been released
+    And Alice's machine is running the configurator and will not let it be replaced
+    When Alice applies
+    Then 1 resource is reported as held
+    And the machine is not reported as converged
+
   Scenario: A released binary is installed under the name its archive entry carries
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
     And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
@@ -125,6 +132,13 @@ Feature: Applying a change set
     Given Alice declares the application "Neovim"
     And Neovim is installed on Alice's machine
     And an earlier run superseded the binary "claude-session" on Alice's machine
+    When Alice applies
+    Then 0 binaries are superseded on Alice's machine
+
+  Scenario: Applying removes an image an earlier run left in the tool's own directory too
+    Given Alice declares the application "Neovim"
+    And Neovim is installed on Alice's machine
+    And an earlier run superseded the configurator's own binary on Alice's machine
     When Alice applies
     Then 0 binaries are superseded on Alice's machine
 
