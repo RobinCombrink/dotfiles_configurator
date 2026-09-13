@@ -11,7 +11,7 @@ use {
         },
         desired_state::ResolvedResource,
         machine::{
-            DisplacingInvocation, Placement, WriteInvocation, WriteMachine,
+            DisplacingInvocation, Placement, ResolvedCargoSource, WriteInvocation, WriteMachine,
             release_reading::{ReleaseAsset, ReleaseReading},
         },
     },
@@ -181,21 +181,13 @@ fn converge_cargo_package(
     machine: &impl WriteMachine,
     readings: &SourceReadings,
 ) -> Result<Convergence> {
-    let mut arguments = vec![
-        "install".to_owned(),
-        "--locked".to_owned(),
-        "--force".to_owned(),
-    ];
-    match &package.source {
-        CargoSource::Registry => arguments.push(package.crate_name.to_string()),
-        CargoSource::Path { path } => {
-            arguments.push("--path".to_owned());
-            arguments.push(path.display().to_string());
-        }
+    let source = match &package.source {
+        CargoSource::Registry => ResolvedCargoSource::Registry,
+        CargoSource::Path { path } => ResolvedCargoSource::Path { path: path.clone() },
         CargoSource::Workspace { repository } => {
             let clone_directory = resource.clone_directory(repository);
             let revision = match readings.workspace(&clone_directory) {
-                Ok(Some(reading)) => &reading.revision,
+                Ok(Some(reading)) => reading.revision.clone(),
                 Ok(None) => bail!(
                     "{repository} has not been cloned, so there is no revision to install from"
                 ),
@@ -204,16 +196,20 @@ fn converge_cargo_package(
                      {impediment}"
                 ),
             };
-            arguments.push("--git".to_owned());
-            arguments.push(repository.fetch_url_as(resource.account()));
-            arguments.push("--rev".to_owned());
-            arguments.push(revision.to_string());
-            arguments.push(package.crate_name.to_string());
+
+            ResolvedCargoSource::Repository {
+                repository: repository.clone(),
+                account: resource.account().clone(),
+                revision,
+            }
         }
-    }
+    };
 
     machine
-        .write_displacing(&DisplacingInvocation::InstallCargoCrate { arguments })
+        .write_displacing(&DisplacingInvocation::InstallCargoCrate {
+            crate_name: package.crate_name.clone(),
+            source,
+        })
         .map(Convergence::from)
 }
 

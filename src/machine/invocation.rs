@@ -1,7 +1,10 @@
 use {
     crate::{
-        configuration::{ClaudeMcpServer, McpScope, McpServerName, WingetPackageId},
-        machine::{CommandOutput, Tool},
+        configuration::{
+            ClaudeMcpServer, CrateName, GitHubAccount, GitHubRepository, McpScope, McpServerName,
+            WingetPackageId,
+        },
+        machine::{CommandOutput, Tool, workspace_reading::Revision},
     },
     std::path::PathBuf,
 };
@@ -75,8 +78,27 @@ pub enum WriteInvocation {
 /// which is what keeps a destination unreachable without displacing: no variant of the set above
 /// can name one. See ADR 0022.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolvedCargoSource {
+    Registry,
+    Path {
+        path: PathBuf,
+    },
+    Repository {
+        repository: GitHubRepository,
+        account: GitHubAccount,
+        revision: Revision,
+    },
+}
+
+/// The closed set of invocations that write where the machine may be executing what they replace,
+/// which is what keeps a destination unreachable without displacing: no variant of the set above
+/// can name one. See ADR 0022.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DisplacingInvocation {
-    InstallCargoCrate { arguments: Vec<String> },
+    InstallCargoCrate {
+        crate_name: CrateName,
+        source: ResolvedCargoSource,
+    },
 }
 
 impl DisplacingInvocation {
@@ -88,7 +110,43 @@ impl DisplacingInvocation {
 
     pub fn arguments(&self) -> Vec<String> {
         match self {
-            DisplacingInvocation::InstallCargoCrate { arguments } => arguments.clone(),
+            DisplacingInvocation::InstallCargoCrate {
+                crate_name,
+                source: ResolvedCargoSource::Registry,
+            } => vec![
+                "install".to_owned(),
+                "--locked".to_owned(),
+                "--force".to_owned(),
+                crate_name.to_string(),
+            ],
+            DisplacingInvocation::InstallCargoCrate {
+                source: ResolvedCargoSource::Path { path },
+                ..
+            } => vec![
+                "install".to_owned(),
+                "--locked".to_owned(),
+                "--force".to_owned(),
+                "--path".to_owned(),
+                path.display().to_string(),
+            ],
+            DisplacingInvocation::InstallCargoCrate {
+                crate_name,
+                source:
+                    ResolvedCargoSource::Repository {
+                        repository,
+                        account,
+                        revision,
+                    },
+            } => vec![
+                "install".to_owned(),
+                "--locked".to_owned(),
+                "--force".to_owned(),
+                "--git".to_owned(),
+                repository.fetch_url_as(account),
+                "--rev".to_owned(),
+                revision.to_string(),
+                crate_name.to_string(),
+            ],
         }
     }
 
@@ -177,6 +235,7 @@ fn destination_moved_to(text: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::configuration::{RepositoryName, RepositoryOwner};
     use std::collections::BTreeMap;
 
     fn cargo_said(standard_error: &str) -> CommandOutput {
@@ -188,8 +247,13 @@ mod tests {
     }
 
     fn installing_a_crate() -> DisplacingInvocation {
+        installing("claude-session", ResolvedCargoSource::Registry)
+    }
+
+    fn installing(crate_name: &str, source: ResolvedCargoSource) -> DisplacingInvocation {
         DisplacingInvocation::InstallCargoCrate {
-            arguments: vec!["install".to_owned(), "claude-session".to_owned()],
+            crate_name: CrateName::from(crate_name),
+            source,
         }
     }
 
@@ -238,6 +302,66 @@ mod tests {
         assert_eq!(
             installing_a_crate().environment(),
             vec![("CARGO_NET_GIT_FETCH_WITH_CLI", "true")]
+        );
+    }
+
+    #[test]
+    fn a_crate_from_the_registry_is_installed_by_name_with_the_lockfile_it_publishes() {
+        assert_eq!(
+            installing("ripgrep", ResolvedCargoSource::Registry).arguments(),
+            vec!["install", "--locked", "--force", "ripgrep"]
+        );
+    }
+
+    #[test]
+    fn a_crate_from_a_directory_is_installed_by_that_directory_rather_than_by_name() {
+        let arguments = installing(
+            "stop-gate",
+            ResolvedCargoSource::Path {
+                path: PathBuf::from("C:\\Repositories\\dotfiles\\tools\\stop-gate"),
+            },
+        )
+        .arguments();
+
+        assert_eq!(
+            arguments,
+            vec![
+                "install",
+                "--locked",
+                "--force",
+                "--path",
+                "C:\\Repositories\\dotfiles\\tools\\stop-gate",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_crate_from_a_repository_is_installed_at_the_revision_read_from_the_clone() {
+        let arguments = installing(
+            "stop-gate",
+            ResolvedCargoSource::Repository {
+                repository: GitHubRepository {
+                    owner: RepositoryOwner::from("Alice"),
+                    repository: RepositoryName::from("dotfiles"),
+                },
+                account: GitHubAccount::from("Alice"),
+                revision: Revision::from("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c"),
+            },
+        )
+        .arguments();
+
+        assert_eq!(
+            arguments,
+            vec![
+                "install",
+                "--locked",
+                "--force",
+                "--git",
+                "https://Alice@github.com/Alice/dotfiles",
+                "--rev",
+                "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c",
+                "stop-gate",
+            ]
         );
     }
 
