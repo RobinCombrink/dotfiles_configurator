@@ -3,11 +3,7 @@ use {
     std::fmt::{Display, Formatter, Result},
 };
 
-/// A configuration a run could not turn into desired state. Three causes with three closures:
-/// malformed is a fault in the repository it was read from and a person resolves it; too new is a
-/// fault in the build reading it and the program resolves it by updating itself; too old is a
-/// document this build has outgrown, and a person resolves it by running an intervening build once
-/// or by rewriting the document. See ADR 0026.
+// ADR 0026
 #[derive(Debug)]
 pub enum Unreadable {
     Malformed(anyhow::Error),

@@ -34,12 +34,6 @@ impl Display for LinkPath {
     }
 }
 
-/// The machine fact a resource claims, by which two declarations are recognised as the same
-/// resource. Identical claims collapse to one resource; conflicting claims on one fact are
-/// rejected when the configuration is loaded, because no machine could satisfy both.
-///
-/// A command claims no fact and so has no identity, which is part of what makes it the last
-/// resort.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Identity {
     ClonedRepository(PathBuf),

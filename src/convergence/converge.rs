@@ -90,8 +90,6 @@ pub async fn converge(
                 name: server.name.clone(),
                 scope: server.scope,
             };
-            // A server registered with the wrong details has to go before the right ones can be
-            // added, and one that was never registered makes the removal fail harmlessly.
             let _ = machine.write(&removal);
             machine
                 .write(&WriteInvocation::AddClaudeMcpServer {

@@ -373,18 +373,9 @@ fn assess_winget_package(package: &WingetPackage, readings: &SourceReadings) -> 
     }
 }
 
-/// The character winget puts at the end of a value it had to cut short.
 const TRUNCATION_MARKER: char = '…';
 
-/// winget publishes no machine-readable listing, so the `Id` column is located from the header row
-/// and read out of every row at that position. Columns are sized to the data whenever winget's
-/// output is redirected, which is the only way this crate runs it, so a value is not expected to
-/// be cut short — a listing that cuts one short is reported as unreadable rather than allowed to
-/// read as an absent package.
-///
-/// The header is matched on its English labels. A listing whose columns cannot be located is
-/// unreadable, which is why a machine that reports them in another language fails loudly here
-/// instead of reporting every declared package as missing. See ADR 0010.
+// ADR 0010
 fn winget_lists_package(listing: &str, id: &str) -> Result<bool, UnreadableReason> {
     let Some((first_column, last_column)) = winget_id_column(listing) else {
         return Err("winget's listing has no Id column, so it could not be read".into());

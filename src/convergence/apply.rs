@@ -158,8 +158,6 @@ pub async fn apply(
         }
     };
 
-    // The last pass converged nothing, so anything it still reports as drifted was either just
-    // converged and did not take, or declares no way to be read back at all.
     let unverified = change_set
         .changes
         .iter()
@@ -210,8 +208,6 @@ async fn attempt(
 ) -> usize {
     let mut count = 0;
     for change in &change_set.changes {
-        // A resource that failed on an earlier pass would otherwise be retried on every pass,
-        // and a command without a presence check would never stop being drifted.
         if failed
             .iter()
             .any(|failure| failure.resource == change.resource)
