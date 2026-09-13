@@ -16,9 +16,10 @@ use {
         configuration::{
             Application, ApplicationName, ApplicationSource, AssetPattern,
             BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
-            BinaryName, CargoWorkspace, CrateName, EnvironmentVariable, GitHubAccount, Installer,
-            MachineClass, MachineManifest, Notice, OLDEST_READABLE_GENERATION, PresenceCheck,
-            Resource, SearchPathDirectory, SearchPathEntry, Shell, Symlink, Variable, VariableName,
+            BinaryName, CargoWorkspace, ClaudeMcpServer, CrateName, EnvironmentVariable,
+            GitHubAccount, Installer, MachineClass, MachineManifest, McpScope, McpServerName,
+            Notice, OLDEST_READABLE_GENERATION, PresenceCheck, Registration, Resource,
+            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Variable, VariableName,
             VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
@@ -297,6 +298,87 @@ fn declare_winget_package(world: &mut MachineWorld, id: String) {
 #[given(expr = "winget holds {string} on Alice's machine")]
 fn winget_holds_package(world: &mut MachineWorld, id: String) {
     world.machine.install_winget_package(&id.into());
+}
+
+fn declared_mcp_server(name: &str) -> ClaudeMcpServer {
+    ClaudeMcpServer {
+        name: McpServerName::from(name),
+        scope: McpScope::User,
+        command: name.to_owned(),
+        args: vec!["start-mcp-server".to_owned()],
+        environment: BTreeMap::from([("MCP_LOG_LEVEL".to_owned(), "info".to_owned())]),
+    }
+}
+
+#[given(expr = "Alice declares the claude mcp server {string}")]
+fn declare_claude_mcp_server(world: &mut MachineWorld, name: String) {
+    world
+        .resources
+        .push(Resource::Registration(Registration::ClaudeMcpServer(
+            declared_mcp_server(&name),
+        )));
+}
+
+#[given(expr = "claude holds {string} as Alice declared it on Alice's machine")]
+fn claude_holds_the_declared_server(world: &mut MachineWorld, name: String) {
+    world
+        .machine
+        .hold_claude_mcp_server(declared_mcp_server(&name));
+}
+
+#[given(expr = "claude holds {string} started with {string} on Alice's machine")]
+fn claude_holds_a_server_started_with(world: &mut MachineWorld, name: String, arguments: String) {
+    world.machine.hold_claude_mcp_server(ClaudeMcpServer {
+        args: arguments.split(' ').map(str::to_owned).collect(),
+        ..declared_mcp_server(&name)
+    });
+}
+
+#[given(expr = "claude refuses to add {string} on Alice's machine")]
+fn claude_refuses_to_add(world: &mut MachineWorld, name: String) {
+    world
+        .machine
+        .refuse_to_add_claude_mcp_server(&McpServerName::from(name.as_str()));
+}
+
+#[then(expr = "claude holds {string} as Alice declared it")]
+fn claude_now_holds_the_declared_server(world: &mut MachineWorld, name: String) {
+    assert_eq!(
+        world
+            .machine
+            .claude_mcp_server(&McpServerName::from(name.as_str())),
+        Some(declared_mcp_server(&name))
+    );
+}
+
+#[then(expr = "claude holds no server {string}")]
+fn claude_holds_no_server(world: &mut MachineWorld, name: String) {
+    assert_eq!(
+        world
+            .machine
+            .claude_mcp_server(&McpServerName::from(name.as_str())),
+        None
+    );
+}
+
+#[then(expr = "the run reports a failure mentioning {string}")]
+fn run_reports_a_failure_mentioning(world: &mut MachineWorld, text: String) {
+    let rendered = world.outcome().to_string();
+
+    assert!(
+        rendered.contains(&text),
+        "expected a failure mentioning {text:?}, got:\n{rendered}"
+    );
+}
+
+#[then(expr = "the run reports no failure mentioning {string}")]
+fn run_reports_no_failure_mentioning(world: &mut MachineWorld, text: String) {
+    let rendered = world.outcome().to_string();
+
+    assert!(
+        !rendered.contains(&text),
+        "expected nothing mentioning {text:?}, got:\n{rendered}"
+    );
 }
 
 #[given(expr = "Alice declares the notice {string}")]

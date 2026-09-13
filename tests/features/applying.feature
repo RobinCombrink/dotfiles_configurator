@@ -177,6 +177,35 @@ Feature: Applying a change set
     When Alice applies
     Then "tooling" is installed as "Employer"
 
+  Scenario: A server claude does not hold yet is registered as Alice declared it
+    Given Alice declares the claude mcp server "serena"
+    When Alice applies
+    Then claude holds "serena" as Alice declared it
+    And the machine is reported as converged
+
+  Scenario: A server claude starts with other arguments is re-registered with the declared ones
+    Given Alice declares the claude mcp server "serena"
+    And claude holds "serena" started with "start-mcp-server --context ide" on Alice's machine
+    When Alice applies
+    Then claude holds "serena" as Alice declared it
+    And the machine is reported as converged
+
+  Scenario: A registration claude will not add leaves the name it was freed from holding nothing
+    Given Alice declares the claude mcp server "serena"
+    And claude holds "serena" started with "start-mcp-server --context ide" on Alice's machine
+    And claude refuses to add "serena" on Alice's machine
+    When Alice applies
+    Then claude holds no server "serena"
+    And the run reports a failure mentioning "claude now holds no server under that name"
+    And the machine is not reported as converged
+
+  Scenario: A registration claude will not add where it held none is not reported as losing one
+    Given Alice declares the claude mcp server "serena"
+    And claude refuses to add "serena" on Alice's machine
+    When Alice applies
+    Then the run reports no failure mentioning "was removed to make way"
+    And the machine is not reported as converged
+
   Scenario: Applying sets an environment variable the machine did not have
     Given Alice declares the environment variable "EDITOR" as "nvim"
     When Alice applies
