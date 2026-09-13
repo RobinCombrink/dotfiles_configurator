@@ -30,7 +30,6 @@ fn write_configuration_schema() -> io::Result<()> {
     let mut rendered = serde_json::to_string_pretty(&schema)?;
     rendered.push('\n');
 
-    // Only written when it would change, so a build does not dirty the working tree for nothing.
     if fs::read_to_string(&path).is_ok_and(|existing| existing == rendered) {
         return Ok(());
     }

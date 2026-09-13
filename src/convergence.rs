@@ -226,7 +226,6 @@ pub struct Blocked {
     pub impediment: Impediment,
 }
 
-/// The ordered set of changes that would close every drift, inspectable without being enacted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangeSet {
     pub changes: Vec<Change>,

@@ -26,9 +26,6 @@ pub mod workspace_reading;
 
 pub use invocation::{DisplacingInvocation, ReadInvocation, WriteInvocation};
 
-/// A program a resource kind needs in order to read or converge a resource. A tool's presence is
-/// probed on the machine, never declared, so a tool installed by hand counts exactly as much as
-/// one this tool installed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Tool {
     Winget,
@@ -112,8 +109,6 @@ pub trait ReadMachine {
     /// plan cannot be handed the ability to run an installer.
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput>;
 
-    /// Runs a check the configuration's author wrote and declared as a check. Two of the three
-    /// forms cannot change anything by construction; the third is the deliberate escape hatch.
     fn read_cargo_workspace(
         &self,
         repository_path: &Path,
