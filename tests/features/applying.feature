@@ -173,6 +173,7 @@ Feature: Applying a change set
 
   Scenario: An application the work configuration declares is installed as the work account
     Given Alice's employer's configuration declares the application "tooling" released by "Vendor/tooling"
+    And the latest release of "Vendor/tooling" is "v1.0.0"
     When Alice applies
     Then "tooling" is installed as "Employer"
 

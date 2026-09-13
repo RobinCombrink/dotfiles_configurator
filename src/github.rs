@@ -3,7 +3,10 @@ use {
     anyhow::{Context, Result, anyhow},
     github_authentication::{GitHubToken, cli},
     octocrab::Octocrab,
-    std::sync::Arc,
+    std::{
+        collections::BTreeMap,
+        sync::{Arc, Mutex, PoisonError},
+    },
 };
 
 pub struct AuthenticatedAccount {
@@ -12,7 +15,7 @@ pub struct AuthenticatedAccount {
 }
 
 impl AuthenticatedAccount {
-    pub fn authenticate_as(account: &GitHubAccount) -> Result<Self> {
+    fn authenticate_as(account: &GitHubAccount) -> Result<Self> {
         let token =
             cli::token_for(account.as_ref()).map_err(|refusal| match remedy_for(&refusal) {
                 Some(remedy) => anyhow!("{refusal}. {remedy}"),
@@ -34,6 +37,32 @@ impl AuthenticatedAccount {
 
     pub fn token(&self) -> &GitHubToken {
         &self.token
+    }
+}
+
+#[derive(Default)]
+pub struct GitHubAccess {
+    authenticated_accounts: Mutex<BTreeMap<GitHubAccount, Arc<AuthenticatedAccount>>>,
+}
+
+impl GitHubAccess {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn account(&self, account: &GitHubAccount) -> Result<Arc<AuthenticatedAccount>> {
+        let mut held = self
+            .authenticated_accounts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+
+        if let Some(authenticated) = held.get(account) {
+            return Ok(Arc::clone(authenticated));
+        }
+
+        let authenticated = Arc::new(AuthenticatedAccount::authenticate_as(account)?);
+        held.insert(account.clone(), Arc::clone(&authenticated));
+        Ok(authenticated)
     }
 }
 

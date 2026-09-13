@@ -1,9 +1,9 @@
 use {
     crate::{
         configuration::{
-            Application, CargoPackage, CargoSource, Command, EnvironmentVariable, GitHubAccount,
-            GitHubRepository, Package, Registration, ReleasedBinary, Resource, Symlink,
-            WingetPackage,
+            Application, ApplicationSource, CargoPackage, CargoSource, Command,
+            EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, Package, Registration,
+            ReleasedBinary, Resource, Symlink, WingetPackage,
         },
         convergence::{
             SourceReadings, machine_manifest_document, machine_manifest_path,
@@ -12,7 +12,7 @@ use {
         desired_state::ResolvedResource,
         machine::{
             DisplacingInvocation, Placement, WriteInvocation, WriteMachine,
-            release_reading::ReleaseReading,
+            release_reading::{ReleaseAsset, ReleaseReading},
         },
     },
     anyhow::{Context, Result, anyhow, bail},
@@ -54,10 +54,13 @@ pub async fn converge(
             )
             .await
         }
-        Resource::Application(Application::Installer(installer)) => machine
-            .install_application(installer, resource.account())
-            .await
-            .with_context(|| format!("Could not install {}", installer.name)),
+        Resource::Application(Application::Installer(installer)) => {
+            let release_asset = resolved_release_asset(installer, readings)?;
+            machine
+                .install_application(installer, release_asset)
+                .await
+                .with_context(|| format!("Could not install {}", installer.name))
+        }
         Resource::Application(Application::ReleasedBinary(binary)) => {
             return converge_released_binary(binary, machine, readings)
                 .await
@@ -100,6 +103,33 @@ pub async fn converge(
     };
 
     closed.map(|()| Convergence::Converged)
+}
+
+fn resolved_release_asset<'readings>(
+    installer: &Installer,
+    readings: &'readings SourceReadings,
+) -> Result<Option<&'readings ReleaseAsset>> {
+    let ApplicationSource::GitHubRelease {
+        owner,
+        repository,
+        asset,
+    } = &installer.source
+    else {
+        return Ok(None);
+    };
+
+    let repository = GitHubRepository {
+        owner: owner.clone(),
+        repository: repository.clone(),
+    };
+    let released = readings
+        .release_of(&repository)
+        .map_err(|reason| anyhow!("{reason}"))?;
+    let matched = released
+        .asset_matching(asset)
+        .map_err(|refusal| anyhow!("{refusal}"))?;
+
+    Ok(Some(matched))
 }
 
 async fn converge_released_binary(

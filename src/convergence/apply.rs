@@ -1,6 +1,7 @@
 use {
     crate::{
         configuration::{Migration, Notice, ResourceKind},
+        configuration_source::WriteSource,
         convergence::{
             Blocked, Change, ChangeSet,
             converge::{Convergence, converge},
@@ -119,7 +120,7 @@ impl Display for ApplyOutcome {
 /// of unconverged resources. See ADR 0004.
 pub async fn apply(
     desired_state: &DesiredState,
-    machine: &impl WriteMachine,
+    machine: &(impl WriteMachine + WriteSource),
     report: &RunReport,
 ) -> anyhow::Result<ApplyOutcome> {
     let mut converged: Vec<ResolvedResource> = Vec::new();
@@ -134,7 +135,7 @@ pub async fn apply(
 
     for migration in &desired_state.migrations {
         let _doing = report.doing(format!("rewriting {migration}"));
-        migration.perform()?;
+        machine.rewrite(migration)?;
     }
 
     let change_set = loop {
