@@ -207,10 +207,7 @@ impl FakeMachine {
         let mut state = self.state.borrow_mut();
         state.cargo_installs += 1;
 
-        let crate_name = invocation
-            .arguments()
-            .last()
-            .map(|name| CrateName::from(name.as_str()));
+        let DisplacingInvocation::InstallCargoCrate { crate_name, .. } = invocation;
 
         if let Some(destination) = state.executing_binaries.keys().next().cloned() {
             return CommandOutput {
@@ -225,14 +222,12 @@ impl FakeMachine {
             };
         }
 
-        if let Some(crate_name) = crate_name {
-            for reading in state.cargo_workspaces.values_mut() {
-                let Some(member) = reading.members.get_mut(&crate_name) else {
-                    continue;
-                };
-                member.installed = Some(member.desired.clone());
-                member.absent_binaries.clear();
-            }
+        for reading in state.cargo_workspaces.values_mut() {
+            let Some(member) = reading.members.get_mut(crate_name) else {
+                continue;
+            };
+            member.installed = Some(member.desired.clone());
+            member.absent_binaries.clear();
         }
 
         CommandOutput {

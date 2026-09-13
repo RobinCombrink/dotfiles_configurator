@@ -24,7 +24,7 @@ pub mod local;
 pub mod release_reading;
 pub mod workspace_reading;
 
-pub use invocation::{DisplacingInvocation, ReadInvocation, WriteInvocation};
+pub use invocation::{DisplacingInvocation, ReadInvocation, ResolvedCargoSource, WriteInvocation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Tool {
