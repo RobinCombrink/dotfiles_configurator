@@ -1,13 +1,13 @@
 use {
-    anyhow::Result,
+    anyhow::{Result, bail},
     clap::{Args, Parser, Subcommand},
     dotfiles_configurator::{
         configuration::{GitHubAccount, MachineClass, Unreadable},
         configuration_source::{ConfigurationSource, Refusal, load_desired_state},
-        convergence::{apply::apply, plan},
+        convergence::{apply::apply, install_release, plan},
         currency::{RELEASE_OWNER, own_currency, own_release_repository},
         desired_state::DesiredState,
-        machine::{ReadMachine, WriteMachine, local::LocalMachine},
+        machine::{Placement, ReadMachine, local::LocalMachine},
         reporting::{RunKind, RunReport},
     },
     log::{LevelFilter, trace},
@@ -100,8 +100,9 @@ async fn run(task: Task) -> Result<ExitCode> {
         }
         Task::Apply(arguments) => {
             let report = RunReport::open(RunKind::Apply)?;
-            let desired_state = load_after_updating_if_it_must(&arguments, &report).await?;
             let machine = LocalMachine::new(&report)?;
+            let desired_state =
+                load_after_updating_if_it_must(&arguments, &machine, &report).await?;
             let outcome = apply(&desired_state, &machine, &report).await?;
             println!("{outcome}");
             Ok(exit_code_for(outcome.is_converged()))
@@ -119,6 +120,7 @@ async fn load(arguments: &ConfigurationArguments) -> Result<DesiredState> {
 /// ends the run saying so rather than trying again. See ADR 0019.
 async fn load_after_updating_if_it_must(
     arguments: &ConfigurationArguments,
+    machine: &LocalMachine<'_>,
     report: &RunReport,
 ) -> Result<DesiredState> {
     let refusal = match load(arguments).await {
@@ -134,7 +136,7 @@ async fn load_after_updating_if_it_must(
         "{refusal:#}\nObtaining a newer build from {} and reading again.",
         own_release_repository()
     ));
-    obtain_a_newer_build(report).await?;
+    obtain_a_newer_build(machine).await?;
     load(arguments).await
 }
 
@@ -144,18 +146,19 @@ fn needs_a_newer_build(refusal: &anyhow::Error) -> bool {
         .is_some_and(|refusal| refusal.unreadable().iter().any(Unreadable::is_too_new))
 }
 
-async fn obtain_a_newer_build(report: &RunReport) -> Result<()> {
-    let machine = LocalMachine::new(report)?;
+async fn obtain_a_newer_build(machine: &LocalMachine<'_>) -> Result<()> {
     let binary = own_currency();
     let released = machine
         .latest_release(&binary.repository, &GitHubAccount::from(RELEASE_OWNER))
         .await?;
-    let asset = released
-        .asset_matching(&binary.asset)
-        .map_err(|refusal| anyhow::anyhow!("{refusal}"))?;
 
-    machine.install_released_binary(&binary, asset).await?;
-    Ok(())
+    match install_release(&binary, &released, machine).await? {
+        Placement::Placed => Ok(()),
+        Placement::Held(path) => bail!(
+            "{} is running and could not be moved aside to install the newer build",
+            path.display()
+        ),
+    }
 }
 
 // ADR 0025

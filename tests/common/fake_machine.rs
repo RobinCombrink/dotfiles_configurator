@@ -174,6 +174,23 @@ impl FakeMachine {
         self.state.borrow_mut().superseded_images.insert(displaced);
     }
 
+    pub fn leave_a_superseded_image_of_the_configurator(&self) {
+        let displaced = superseded_name(
+            &self
+                .binaries_directory()
+                .join(own_currency().installed_name().as_ref()),
+        );
+        self.state.borrow_mut().superseded_images.insert(displaced);
+    }
+
+    pub fn own_binary_is_executing_and_will_not_release(&self) {
+        self.state.borrow_mut().executing_binaries.insert(
+            self.binaries_directory()
+                .join(own_currency().installed_name().as_ref()),
+            Displacement::Refused,
+        );
+    }
+
     pub fn superseded_image_count(&self) -> usize {
         self.state.borrow().superseded_images.len()
     }
@@ -694,11 +711,21 @@ impl WriteMachine for FakeMachine {
             .join(binary.installed_name().as_ref());
         let mut state = self.state.borrow_mut();
 
+        if state.executing_binaries.get(&installed_path) == Some(&Displacement::Refused) {
+            return Ok(Placement::Held(installed_path));
+        }
+        let was_executing = state.executing_binaries.remove(&installed_path).is_some();
+
         let Some(release) = state.releases.get(&binary.repository) else {
             bail!("{} has published no release", binary.repository);
         };
         let reported = format!("{} {}", binary.installed_name(), release.version);
 
+        if was_executing {
+            state
+                .superseded_images
+                .insert(superseded_name(&installed_path));
+        }
         state.paths.insert(installed_path.clone());
         state
             .version_output_by_binary_path
