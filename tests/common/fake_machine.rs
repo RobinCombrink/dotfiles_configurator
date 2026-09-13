@@ -61,6 +61,10 @@ struct MachineState {
     /// What the dotfiles repository holds, which only appears on the machine once it is cloned.
     repository_contents: BTreeSet<PathBuf>,
     reads: Vec<ReadInvocation>,
+    reads_answered_with: Vec<(ReadInvocation, CommandOutput)>,
+    presence_check_answers: Vec<(PresenceCheck, bool)>,
+    unreadable_presence_checks: Vec<PresenceCheck>,
+    unreadable_releases: BTreeSet<GitHubRepository>,
     cargo_workspaces: BTreeMap<PathBuf, WorkspaceReading>,
     workspace_reads: Vec<PathBuf>,
     executing_binaries: BTreeMap<PathBuf, Displacement>,
@@ -264,6 +268,45 @@ impl FakeMachine {
 
     pub fn publish_release(&self, repository: GitHubRepository, reading: ReleaseReading) {
         self.state.borrow_mut().releases.insert(repository, reading);
+    }
+
+    pub fn make_release_reading_fail(&self, repository: GitHubRepository) {
+        self.state
+            .borrow_mut()
+            .unreadable_releases
+            .insert(repository);
+    }
+
+    pub fn answer_reading_with(&self, invocation: ReadInvocation, output: CommandOutput) {
+        self.state
+            .borrow_mut()
+            .reads_answered_with
+            .push((invocation, output));
+    }
+
+    pub fn make_reading_fail(&self, invocation: ReadInvocation, standard_error: &str) {
+        self.answer_reading_with(
+            invocation,
+            CommandOutput {
+                succeeded: false,
+                standard_output: String::new(),
+                standard_error: standard_error.to_owned(),
+            },
+        );
+    }
+
+    pub fn answer_presence_check(&self, check: PresenceCheck, answer: bool) {
+        self.state
+            .borrow_mut()
+            .presence_check_answers
+            .push((check, answer));
+    }
+
+    pub fn make_presence_check_fail_to_run(&self, check: PresenceCheck) {
+        self.state
+            .borrow_mut()
+            .unreadable_presence_checks
+            .push(check);
     }
 
     pub fn account_cloning(&self, repository: &GitHubRepository) -> Option<GitHubAccount> {
@@ -563,6 +606,17 @@ impl ReadMachine for FakeMachine {
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput> {
         self.state.borrow_mut().reads.push(invocation.clone());
 
+        let declared = self
+            .state
+            .borrow()
+            .reads_answered_with
+            .iter()
+            .find(|(asked, _)| asked == invocation)
+            .map(|(_, output)| output.clone());
+        if let Some(output) = declared {
+            return Ok(output);
+        }
+
         let (succeeded, standard_output) = match invocation {
             ReadInvocation::WingetInstalledPackages => {
                 (true, winget_listing(&self.state.borrow().winget_packages))
@@ -595,6 +649,21 @@ impl ReadMachine for FakeMachine {
     }
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<bool> {
+        let declared = {
+            let state = self.state.borrow();
+            if state.unreadable_presence_checks.contains(check) {
+                bail!("the check could not be run on this machine");
+            }
+            state
+                .presence_check_answers
+                .iter()
+                .find(|(declared, _)| declared == check)
+                .map(|(_, answer)| *answer)
+        };
+        if let Some(answer) = declared {
+            return Ok(answer);
+        }
+
         match check {
             PresenceCheck::PathExists { path } => {
                 Ok(self.path_exists(&self.resolve_against_home(path)))
@@ -605,7 +674,9 @@ impl ReadMachine for FakeMachine {
                 .installed_applications
                 .iter()
                 .any(|installed| installed.to_string() == *command)),
-            PresenceCheck::CommandOutputContains { .. } => Ok(false),
+            PresenceCheck::CommandOutputContains { .. } => {
+                bail!("no scenario declared what {check} answers on this machine")
+            }
         }
     }
 
@@ -618,6 +689,10 @@ impl ReadMachine for FakeMachine {
         state
             .release_reads
             .push((repository.clone(), account.clone()));
+
+        if state.unreadable_releases.contains(repository) {
+            bail!("{repository} could not be asked for its latest release");
+        }
 
         Ok(state.releases.get(repository).cloned())
     }
