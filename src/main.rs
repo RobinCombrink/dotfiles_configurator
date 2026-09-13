@@ -1,5 +1,5 @@
 use {
-    anyhow::{Result, bail},
+    anyhow::{Result, anyhow, bail},
     clap::{Args, Parser, Subcommand},
     dotfiles_configurator::{
         configuration::{GitHubAccount, MachineClass, Unreadable},
@@ -159,7 +159,8 @@ async fn obtain_a_newer_build(machine: &LocalMachine<'_, '_>) -> Result<()> {
     let binary = own_currency();
     let released = machine
         .latest_release(&binary.repository, &GitHubAccount::from(RELEASE_OWNER))
-        .await?;
+        .await?
+        .ok_or_else(|| anyhow!("{} has published no release", binary.repository))?;
 
     match install_release(&binary, &released, machine).await? {
         Placement::Placed => Ok(()),
