@@ -268,6 +268,26 @@ Feature: Planning what a machine needs
     When Alice plans
     Then the change set reports 1 change
 
+  Scenario: A server claude does not hold is reported as a change
+    Given Alice declares the claude mcp server "serena"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "serena"
+
+  Scenario: A server claude holds as Alice declared it is reported as converged
+    Given Alice declares the claude mcp server "serena"
+    And claude holds "serena" as Alice declared it on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A server claude starts with other arguments is a change naming the ones it holds
+    Given Alice declares the claude mcp server "serena"
+    And claude holds "serena" started with "start-mcp-server --context ide" on Alice's machine
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "start-mcp-server --context ide"
+
   Scenario: An environment variable the machine does not set is reported as a change
     Given Alice declares the environment variable "EDITOR" as "nvim"
     When Alice plans
