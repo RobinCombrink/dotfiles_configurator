@@ -130,7 +130,7 @@
       ]
     },
     "ArchiveEntry": {
-      "description": "```\nuse dotfiles_configurator::configuration::ArchiveEntry;\n\nlet nested = ArchiveEntry::try_from(\"bin/rg.exe\".to_owned()).unwrap();\n\nassert_eq!(nested.installed_name().to_string(), \"rg.exe\");\nassert!(ArchiveEntry::try_from(\"bin/\".to_owned()).is_err());\n```",
+      "description": "```\nuse dotfiles_configurator::configuration::ArchiveEntry;\n\nlet nested = ArchiveEntry::try_from(\"bin/rg.exe\".to_owned()).unwrap();\n\nassert_eq!(nested.installed_name().file_name(), \"rg.exe\");\nassert!(ArchiveEntry::try_from(\"bin/\".to_owned()).is_err());\n```",
       "type": "string"
     },
     "AssetPattern": {

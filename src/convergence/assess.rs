@@ -311,7 +311,7 @@ fn assess_released_binary(
 
     let installed_path = machine
         .binaries_directory()
-        .join(binary.installed_name().as_ref());
+        .join(binary.installed_name().file_name());
     if !machine.path_exists(&installed_path) {
         return Assessment::Drifted(
             format!(

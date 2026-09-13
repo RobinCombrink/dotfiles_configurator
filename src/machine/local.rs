@@ -611,7 +611,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
         let contents = read_archive_entry(&archive_path, &binary.entry)?;
         let installed_path = self
             .binaries_directory()
-            .join(binary.installed_name().as_ref());
+            .join(binary.installed_name().file_name());
 
         fs::create_dir_all(self.binaries_directory())
             .with_context(|| format!("Could not create {}", self.binaries_directory().display()))?;
