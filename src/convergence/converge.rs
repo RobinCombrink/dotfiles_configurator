@@ -6,7 +6,8 @@ use {
             WingetPackage,
         },
         convergence::{
-            SourceReadings, machine_manifest_document, machine_manifest_path, search_path_directory,
+            SourceReadings, machine_manifest_document, machine_manifest_path,
+            search_path_directory, symlink_location,
         },
         desired_state::ResolvedResource,
         machine::{
@@ -184,24 +185,12 @@ fn converge_symlink(
     resource: &ResolvedResource,
     machine: &impl WriteMachine,
 ) -> Result<()> {
-    let link_path = machine.resolve_against_home(&symlink.link_path);
-    let source_path = resource.files_root().join(&symlink.source_path);
+    let (link_path, source_path) = symlink_location(symlink, resource, machine);
 
     if !machine.path_exists(&source_path) {
         bail!(
             "The dotfiles repository holds nothing at {}",
             source_path.display()
-        );
-    }
-
-    // A link is this tool's own work, so one pointing elsewhere is replaced. Anything else at
-    // that path was put there by a person, and convergence never makes undeclared things false.
-    // See ADR 0005.
-    if machine.link_target(&link_path).is_none() && machine.path_exists(&link_path) {
-        bail!(
-            "{} already exists and is not a link. Move it aside to let the dotfiles repository \
-             own it; this tool will not delete something it did not create.",
-            link_path.display()
         );
     }
 
