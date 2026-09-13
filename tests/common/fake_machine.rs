@@ -628,8 +628,16 @@ impl ReadMachine for FakeMachine {
 
 impl WriteMachine for FakeMachine {
     fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<()> {
-        self.state
-            .borrow_mut()
+        let mut state = self.state.borrow_mut();
+        if state.paths.contains(link_path) && !state.links.contains_key(link_path) {
+            bail!(
+                "{} already exists and is not a link. Move it aside to let the dotfiles \
+                 repository own it; this tool will not delete something it did not create.",
+                link_path.display()
+            );
+        }
+
+        state
             .links
             .insert(link_path.to_path_buf(), target_path.to_path_buf());
         Ok(())

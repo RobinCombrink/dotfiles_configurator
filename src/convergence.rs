@@ -1,6 +1,8 @@
 use {
     crate::{
-        configuration::{GitHubRepository, Migration, Notice, Resource, ResourceKind, Shell},
+        configuration::{
+            GitHubRepository, Migration, Notice, Resource, ResourceKind, Shell, Symlink,
+        },
         desired_state::{DesiredState, ResolvedResource},
         machine::Tool,
         reporting::RunReport,
@@ -194,6 +196,17 @@ pub(crate) fn search_path_directory(
             machine.resolve_against_home(path)
         }
     }
+}
+
+pub(crate) fn symlink_location(
+    symlink: &Symlink,
+    resource: &ResolvedResource,
+    machine: &impl crate::machine::ReadMachine,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    (
+        machine.resolve_against_home(&symlink.link_path),
+        resource.files_root().join(&symlink.source_path),
+    )
 }
 
 /// One resource that has drifted, together with why.
