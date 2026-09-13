@@ -26,7 +26,7 @@ use {
         desired_state::DesiredState,
         github::GitHubAccess,
         machine::{
-            ReadMachine, Tool,
+            CommandOutput, ReadInvocation, ReadMachine, Tool,
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
                 BinaryName, Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
@@ -328,6 +328,91 @@ fn declare_command_without_check(world: &mut MachineWorld, command: String) {
     ));
 }
 
+fn output_check(invocation: &str, shell: Shell) -> PresenceCheck {
+    PresenceCheck::CommandOutputContains {
+        shell,
+        args: invocation.split(' ').map(str::to_owned).collect(),
+        contains: "ready".to_owned(),
+    }
+}
+
+#[given(expr = "Alice declares the command {string} checked by the output of {string}")]
+fn declare_command_checked_by_output(world: &mut MachineWorld, command: String, check: String) {
+    world.resources.push(Resource::Command(
+        dotfiles_configurator::configuration::Command {
+            shell: Shell::Bash,
+            args: vec![command],
+            presence_check: Some(output_check(&check, Shell::Bash)),
+        },
+    ));
+}
+
+#[given(expr = "Alice declares the command {string} checked through WSL")]
+fn declare_command_checked_through_wsl(world: &mut MachineWorld, command: String) {
+    world.resources.push(Resource::Command(
+        dotfiles_configurator::configuration::Command {
+            shell: Shell::Bash,
+            args: vec![command],
+            presence_check: Some(output_check("completions --status", Shell::Wsl)),
+        },
+    ));
+}
+
+#[given(expr = "the check {string} already passes on Alice's machine")]
+fn the_check_already_passes(world: &mut MachineWorld, invocation: String) {
+    world
+        .machine
+        .answer_presence_check(output_check(&invocation, Shell::Bash), true);
+}
+
+#[given(expr = "the check {string} does not pass on Alice's machine")]
+fn the_check_does_not_pass(world: &mut MachineWorld, invocation: String) {
+    world
+        .machine
+        .answer_presence_check(output_check(&invocation, Shell::Bash), false);
+}
+
+#[given(expr = "the check {string} cannot be run on Alice's machine")]
+fn the_check_cannot_be_run(world: &mut MachineWorld, invocation: String) {
+    world
+        .machine
+        .make_presence_check_fail_to_run(output_check(&invocation, Shell::Bash));
+}
+
+#[given(expr = "the presence check for {string} cannot be run on Alice's machine")]
+fn the_presence_check_for_an_application_cannot_be_run(world: &mut MachineWorld, name: String) {
+    world
+        .machine
+        .make_presence_check_fail_to_run(PresenceCheck::CommandOnPath { command: name });
+}
+
+#[given(expr = "{string} cannot be asked for its latest release")]
+fn the_latest_release_cannot_be_read(world: &mut MachineWorld, owner_and_name: String) {
+    world
+        .machine
+        .make_release_reading_fail(named_repository(&owner_and_name));
+}
+
+#[given(expr = "winget cannot be read on Alice's machine")]
+fn winget_cannot_be_read(world: &mut MachineWorld) {
+    world.machine.make_reading_fail(
+        ReadInvocation::WingetInstalledPackages,
+        "winget exited with an error",
+    );
+}
+
+#[given(expr = "winget lists its packages without the columns that name them")]
+fn winget_lists_without_columns(world: &mut MachineWorld) {
+    world.machine.answer_reading_with(
+        ReadInvocation::WingetInstalledPackages,
+        CommandOutput {
+            succeeded: true,
+            standard_output: "a listing with no header row\n".to_owned(),
+            standard_error: String::new(),
+        },
+    );
+}
+
 #[given(regex = r"^(.+) is installed on Alice's machine$")]
 fn application_is_installed(world: &mut MachineWorld, name: String) {
     world
@@ -368,6 +453,11 @@ fn winget_is_absent(world: &mut MachineWorld) {
 #[given(expr = "git is absent from Alice's machine")]
 fn git_is_absent(world: &mut MachineWorld) {
     world.machine.remove_tool(Tool::Git);
+}
+
+#[given(expr = "wsl is absent from Alice's machine")]
+fn wsl_is_absent(world: &mut MachineWorld) {
+    world.machine.remove_tool(Tool::Wsl);
 }
 
 #[given(expr = "the dotfiles repository holds {string}")]
