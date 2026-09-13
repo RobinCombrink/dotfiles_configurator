@@ -684,6 +684,7 @@ fn assess_command(command: &Command, machine: &impl ReadMachine) -> Assessment {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::configuration::{McpScope, McpServerName};
 
     /// Taken verbatim from `cargo install --list`, so the parser is exercised against the shape
     /// cargo actually emits rather than one assumed for it.
@@ -836,5 +837,106 @@ mod tests {
         let listing = "committed v1.1.11:\n    committed.exe\n";
 
         assert!(installed_revisions(listing).is_empty());
+    }
+
+    // 2026-09-13: taken verbatim from `claude mcp get probe-server` against a stdio server
+    // registered for the measurement, on Claude Code 2.1.270 under Windows 11.
+    const REGISTERED: &str = concat!(
+        "probe-server:\n",
+        "  Scope: Local config (private to you in this project)\n",
+        "  Status: \u{2718} Failed to connect\n",
+        "  Issue: CONNECTION_CLOSED: Connection closed\n",
+        "  Type: stdio\n",
+        "  Command: my-program\n",
+        "  Args: start --port 1234\n",
+        "  Environment:\n",
+        "    ALPHA=one\n",
+        "    BETA=two\n",
+        "\n",
+        "To remove this server, run: claude mcp remove probe-server -s local\n",
+    );
+
+    fn probe_server() -> ClaudeMcpServer {
+        ClaudeMcpServer {
+            name: McpServerName::from("probe-server"),
+            scope: McpScope::Local,
+            command: "my-program".to_owned(),
+            args: vec!["start".to_owned(), "--port".to_owned(), "1234".to_owned()],
+            environment: BTreeMap::from([
+                ("ALPHA".to_owned(), "one".to_owned()),
+                ("BETA".to_owned(), "two".to_owned()),
+            ]),
+        }
+    }
+
+    #[test]
+    fn a_registration_holding_everything_that_was_declared_has_not_drifted() {
+        assert_eq!(first_difference(&probe_server(), REGISTERED), None);
+    }
+
+    #[test]
+    fn a_registration_running_another_program_drifts_and_names_the_one_it_runs() {
+        let declared = ClaudeMcpServer {
+            command: "another-program".to_owned(),
+            ..probe_server()
+        };
+
+        assert_eq!(
+            first_difference(&declared, REGISTERED),
+            Some("registered to run my-program".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_registration_started_with_other_arguments_drifts_and_names_the_ones_it_holds() {
+        let declared = ClaudeMcpServer {
+            args: vec!["start".to_owned(), "--port".to_owned(), "9999".to_owned()],
+            ..probe_server()
+        };
+
+        assert_eq!(
+            first_difference(&declared, REGISTERED),
+            Some("registered with the arguments start --port 1234".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_registration_missing_a_declared_environment_entry_drifts_and_names_the_variable() {
+        let mut environment = probe_server().environment;
+        environment.insert("GAMMA".to_owned(), "three".to_owned());
+        let declared = ClaudeMcpServer {
+            environment,
+            ..probe_server()
+        };
+
+        assert_eq!(
+            first_difference(&declared, REGISTERED),
+            Some("registered without GAMMA set as declared".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_registration_holding_a_declared_variable_at_another_value_drifts() {
+        let mut environment = probe_server().environment;
+        environment.insert("ALPHA".to_owned(), "something else".to_owned());
+        let declared = ClaudeMcpServer {
+            environment,
+            ..probe_server()
+        };
+
+        assert_eq!(
+            first_difference(&declared, REGISTERED),
+            Some("registered without ALPHA set as declared".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_report_naming_no_command_at_all_drifts_rather_than_reading_as_no_command_declared() {
+        let reported = "probe-server:\n  Scope: Local config\n  Type: http\n";
+
+        assert_eq!(
+            first_difference(&probe_server(), reported),
+            Some("claude reports no command for it".to_owned())
+        );
     }
 }
