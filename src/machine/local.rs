@@ -8,7 +8,8 @@ use {
         github::GitHubAccess,
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
-            SUPERSEDED_SUFFIX, Tool, WriteInvocation, WriteMachine,
+            Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WriteInvocation,
+            WriteMachine,
             environment_reading::SearchPathReading,
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -681,6 +682,22 @@ impl WriteMachine for LocalMachine<'_, '_> {
             )),
             Err(error) => Err(restoring(&superseded, &destination, error)),
         }
+    }
+
+    fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement> {
+        let tool = invocation.tool();
+        let commands = invocation.commands();
+
+        let the_name_was_freed = self.run(tool, &commands.free_the_name, &[])?.succeeded;
+        let claimed = self.run(tool, &commands.claim_the_name, &[])?;
+        if claimed.succeeded {
+            return Ok(Replacement::Replaced);
+        }
+
+        invocation.refused_claim(
+            the_name_was_freed,
+            refused(tool, &commands.claim_the_name, &claimed),
+        )
     }
 
     fn sweep_superseded_images(&self) {

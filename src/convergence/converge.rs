@@ -1,7 +1,7 @@
 use {
     crate::{
         configuration::{
-            Application, ApplicationSource, CargoPackage, CargoSource, Command,
+            Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
             EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, Package, Registration,
             ReleasedBinary, Resource, Symlink, WingetPackage,
         },
@@ -11,7 +11,8 @@ use {
         },
         desired_state::ResolvedResource,
         machine::{
-            DisplacingInvocation, Placement, ResolvedCargoSource, WriteInvocation, WriteMachine,
+            DisplacingInvocation, Placement, Replacement, ReplacingInvocation, ResolvedCargoSource,
+            WriteInvocation, WriteMachine,
             release_reading::{ReleaseAsset, ReleaseReading},
         },
     },
@@ -86,16 +87,7 @@ pub async fn converge(
                 .with_context(|| format!("Could not write {}", path.display()))
         }
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
-            let removal = WriteInvocation::RemoveClaudeMcpServer {
-                name: server.name.clone(),
-                scope: server.scope,
-            };
-            let _ = machine.write(&removal);
-            machine
-                .write(&WriteInvocation::AddClaudeMcpServer {
-                    server: Box::new(server.clone()),
-                })
-                .map(|_| ())
+            converge_claude_mcp_server(server, machine)
         }
         Resource::Command(command) => converge_command(command, machine),
     };
@@ -165,6 +157,20 @@ async fn converge_repository(
     machine
         .clone_repository(repository, clone_directory, account)
         .await
+}
+
+fn converge_claude_mcp_server(server: &ClaudeMcpServer, machine: &impl WriteMachine) -> Result<()> {
+    let replacement = machine.replace(&ReplacingInvocation::ClaudeMcpServer {
+        server: Box::new(server.clone()),
+    })?;
+
+    match replacement {
+        Replacement::Replaced => Ok(()),
+        Replacement::RemovedButCouldNotAdd { name, cause } => Err(cause.context(format!(
+            "The registration claude held for {name} was removed to make way for the declared \
+             one, which could not be added, so claude now holds no server under that name"
+        ))),
+    }
 }
 
 fn converge_winget_package(package: &WingetPackage, machine: &impl WriteMachine) -> Result<()> {

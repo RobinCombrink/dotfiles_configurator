@@ -2,8 +2,8 @@ use {
     crate::{
         TOOL_DIRECTORY,
         configuration::{
-            CrateName, GitHubAccount, GitHubRepository, PresenceCheck, Shell, VariableName,
-            VariableValue, path_folding,
+            CrateName, GitHubAccount, GitHubRepository, McpServerName, PresenceCheck, Shell,
+            VariableName, VariableValue, path_folding,
         },
         machine::{
             environment_reading::SearchPathReading,
@@ -24,7 +24,10 @@ pub mod local;
 pub mod release_reading;
 pub mod workspace_reading;
 
-pub use invocation::{DisplacingInvocation, ReadInvocation, ResolvedCargoSource, WriteInvocation};
+pub use invocation::{
+    DisplacingInvocation, ReadInvocation, ReplacementCommands, ReplacingInvocation,
+    ResolvedCargoSource, WriteInvocation,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Tool {
@@ -84,6 +87,15 @@ pub fn partial_download_path(destination: &Path) -> PathBuf {
 pub enum Placement {
     Placed,
     Held(PathBuf),
+}
+
+#[derive(Debug)]
+pub enum Replacement {
+    Replaced,
+    RemovedButCouldNotAdd {
+        name: McpServerName,
+        cause: anyhow::Error,
+    },
 }
 
 /// The capabilities that can only read a machine. Plan holds exactly these, which is what makes
@@ -210,6 +222,26 @@ pub trait WriteMachine: ReadMachine {
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;
 
     fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement>;
+
+    /// Runs both commands of one replacement, in the order the invocation gives them. A refusal
+    /// of the second after the first has taken the name away is a `Replacement` rather than an
+    /// error, because the machine has been changed and the caller has to say so.
+    ///
+    /// ```no_run
+    /// # use dotfiles_configurator::machine::{Replacement, ReplacingInvocation, WriteMachine};
+    /// # fn register(
+    /// #     machine: &impl WriteMachine,
+    /// #     invocation: &ReplacingInvocation,
+    /// # ) -> anyhow::Result<()> {
+    /// match machine.replace(invocation)? {
+    ///     Replacement::Replaced => Ok(()),
+    ///     Replacement::RemovedButCouldNotAdd { name, cause } => {
+    ///         Err(cause.context(format!("nothing holds the name {name} now")))
+    ///     }
+    /// }
+    /// # }
+    /// ```
+    fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement>;
 
     fn sweep_superseded_images(&self);
 
