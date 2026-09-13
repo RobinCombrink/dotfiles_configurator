@@ -5,12 +5,13 @@ use {
         desired_state::{DesiredState, ResolvedResource},
     },
     anyhow::{Result, bail},
-    std::collections::BTreeMap,
+    std::{collections::BTreeMap, path::Path},
 };
 
 pub fn resolve(
     desired_state: &DesiredState,
     readings: &SourceReadings,
+    home_directory: &Path,
 ) -> Result<Vec<ResolvedResource>> {
     let mut resources = desired_state.resources.clone();
 
@@ -38,15 +39,15 @@ pub fn resolve(
         }
     }
 
-    reject_conflicting_claims(&resources)?;
+    reject_conflicting_claims(&resources, home_directory)?;
     Ok(resources)
 }
 
-fn reject_conflicting_claims(resources: &[ResolvedResource]) -> Result<()> {
+fn reject_conflicting_claims(resources: &[ResolvedResource], home_directory: &Path) -> Result<()> {
     let mut claimed: BTreeMap<Identity, &ResolvedResource> = BTreeMap::new();
 
     for resource in resources {
-        let Some(identity) = resource.identity() else {
+        let Some(identity) = resource.identity(home_directory) else {
             continue;
         };
 

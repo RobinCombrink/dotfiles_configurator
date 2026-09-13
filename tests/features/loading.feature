@@ -105,6 +105,13 @@ Feature: Loading a configuration
     Then loading is refused
     And the refusal mentions "conflicting claims"
 
+  Scenario: Two configurations spelling the same link differently are refused
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".GITCONFIG" to "gitconfig/.gitconfig"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "conflicting claims"
+
   Scenario: A run reports every configuration it could not read
     Given Alice has a configuration declaring version "0.1.0"
     And Alice has a configuration declaring version "0.2.0"

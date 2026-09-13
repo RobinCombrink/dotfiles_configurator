@@ -3,6 +3,7 @@ use {
         names::{
             ApplicationName, BinaryName, CrateName, McpServerName, VariableName, WingetPackageId,
         },
+        path_folding,
         resource::{
             Application, ClaudeMcpServer, EnvironmentVariable, GitHubRepository, Package,
             Registration, Resource, SearchPathDirectory, SearchPathEntry, Symlink, Variable,
@@ -13,6 +14,25 @@ use {
         path::{Path, PathBuf},
     },
 };
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct LinkPath(String);
+
+impl LinkPath {
+    pub fn under_home(home_directory: &Path, declared: &Path) -> Self {
+        LinkPath(path_folding::comparable(&path_folding::home_relative_path(
+            home_directory,
+            declared,
+        )))
+    }
+}
+
+impl Display for LinkPath {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
 
 /// The machine fact a resource claims, by which two declarations are recognised as the same
 /// resource. Identical claims collapse to one resource; conflicting claims on one fact are
@@ -29,8 +49,7 @@ pub enum Identity {
     CargoCrate(CrateName),
     EnvironmentVariable(VariableName),
     SearchPathEntry(SearchPathDirectory),
-    /// The path of the link itself, as declared.
-    Symlink(PathBuf),
+    Symlink(LinkPath),
     ClaudeMcpServer(McpServerName),
     MachineManifest,
 }
@@ -53,7 +72,7 @@ impl Display for Identity {
             Identity::SearchPathEntry(directory) => {
                 write!(formatter, "the search path entry {directory}")
             }
-            Identity::Symlink(path) => write!(formatter, "the link at {}", path.display()),
+            Identity::Symlink(link_path) => write!(formatter, "the link at {link_path}"),
             Identity::ClaudeMcpServer(name) => {
                 write!(formatter, "the claude mcp server {name}")
             }
@@ -63,7 +82,11 @@ impl Display for Identity {
 }
 
 impl Resource {
-    pub(crate) fn identity_within(&self, repositories_directory: &Path) -> Option<Identity> {
+    pub(crate) fn identity_within(
+        &self,
+        repositories_directory: &Path,
+        home_directory: &Path,
+    ) -> Option<Identity> {
         match self {
             Resource::Repository(GitHubRepository { repository, .. }) => Some(
                 Identity::ClonedRepository(repositories_directory.join(repository.as_ref())),
@@ -86,9 +109,9 @@ impl Resource {
             Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(
                 SearchPathEntry { directory },
             )) => Some(Identity::SearchPathEntry(directory.clone())),
-            Resource::Symlink(Symlink { link_path, .. }) => {
-                Some(Identity::Symlink(link_path.clone()))
-            }
+            Resource::Symlink(Symlink { link_path, .. }) => Some(Identity::Symlink(
+                LinkPath::under_home(home_directory, link_path),
+            )),
             Resource::Registration(Registration::ClaudeMcpServer(ClaudeMcpServer {
                 name, ..
             })) => Some(Identity::ClaudeMcpServer(name.clone())),
@@ -97,5 +120,55 @@ impl Resource {
             }
             Resource::Command(_) => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn two_link_paths_spelled_in_different_case_resolve_to_the_same_identity() {
+        let home_directory = Path::new("C:\\Users\\Alice");
+
+        assert_eq!(
+            LinkPath::under_home(home_directory, Path::new(".gitconfig")),
+            LinkPath::under_home(home_directory, Path::new(".GITCONFIG"))
+        );
+    }
+
+    #[test]
+    fn two_link_paths_spelled_with_different_separators_resolve_to_the_same_identity() {
+        let home_directory = Path::new("C:\\Users\\Alice");
+
+        assert_eq!(
+            LinkPath::under_home(home_directory, Path::new("config/git/config")),
+            LinkPath::under_home(home_directory, Path::new("config\\git\\config"))
+        );
+    }
+
+    #[test]
+    fn two_link_paths_naming_different_files_resolve_to_different_identities() {
+        let home_directory = Path::new("C:\\Users\\Alice");
+
+        assert_ne!(
+            LinkPath::under_home(home_directory, Path::new(".gitconfig")),
+            LinkPath::under_home(home_directory, Path::new(".npmrc"))
+        );
+    }
+
+    #[test]
+    fn an_absolute_link_path_is_resolved_without_the_home_directory() {
+        let absolute = if cfg!(windows) {
+            "C:\\elsewhere\\.gitconfig"
+        } else {
+            "/elsewhere/.gitconfig"
+        };
+        let declared = Path::new(absolute);
+
+        assert_eq!(
+            LinkPath::under_home(Path::new("C:\\Users\\Alice"), declared),
+            LinkPath::under_home(Path::new("C:\\Users\\Bob"), declared)
+        );
     }
 }
