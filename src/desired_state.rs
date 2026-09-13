@@ -107,9 +107,9 @@ impl ResolvedResource {
         self.value.kind()
     }
 
-    pub fn identity(&self) -> Option<Identity> {
+    pub fn identity(&self, home_directory: &Path) -> Option<Identity> {
         self.value
-            .identity_within(&self.origin.repositories_directory)
+            .identity_within(&self.origin.repositories_directory, home_directory)
     }
 
     pub fn requirements(&self) -> Vec<Requirement> {
@@ -247,6 +247,7 @@ impl DesiredState {
     pub fn of(
         configurations: Vec<(String, ResolvedConfiguration)>,
         machine_manifest: MachineManifest,
+        home_directory: &Path,
     ) -> Result<Self> {
         let for_every_machine = the_configuration_for_every_machine(&configurations)?;
         refuse_a_set_holding_nothing_for_this_class(&configurations)?;
@@ -274,7 +275,7 @@ impl DesiredState {
         let mut resources: Vec<ResolvedResource> = Vec::new();
         let mut undeclared: Vec<Identity> = Vec::new();
         for carried in [own_currency, own_binaries_are_reachable, machine_manifest] {
-            if let Some(identity) = carried.identity() {
+            if let Some(identity) = carried.identity(home_directory) {
                 claimed.insert(identity.clone(), ("this build".to_owned(), carried.clone()));
                 undeclared.push(identity);
             }
@@ -283,7 +284,7 @@ impl DesiredState {
 
         for (source, configuration) in &configurations {
             for resource in configuration.resources() {
-                match resource.identity() {
+                match resource.identity(home_directory) {
                     None => resources.push(resource),
                     Some(identity) => match claimed.get(&identity) {
                         None => {
@@ -360,6 +361,7 @@ mod tests {
     };
 
     const REPOSITORIES_ROOT: &str = "/repositories";
+    const HOME_DIRECTORY: &str = "/home/Alice";
 
     fn dotfiles() -> GitHubRepository {
         GitHubRepository {
@@ -419,6 +421,7 @@ mod tests {
                 repositories_directory_path: Path::new(REPOSITORIES_ROOT)
                     .join(MachineClass::Personal.repositories_leaf()),
             },
+            Path::new(HOME_DIRECTORY),
         )
     }
 
@@ -452,7 +455,7 @@ mod tests {
             .iter()
             .filter(|resource| {
                 resource
-                    .identity()
+                    .identity(Path::new(HOME_DIRECTORY))
                     .is_none_or(|identity| !carried.contains(&identity))
             })
             .collect()
@@ -491,7 +494,9 @@ mod tests {
         let manifests: Vec<String> = desired_state
             .resources
             .iter()
-            .filter(|resource| resource.identity() == Some(Identity::MachineManifest))
+            .filter(|resource| {
+                resource.identity(Path::new(HOME_DIRECTORY)) == Some(Identity::MachineManifest)
+            })
             .map(ToString::to_string)
             .collect();
         assert_eq!(
@@ -512,7 +517,7 @@ mod tests {
         let claimed: Vec<Identity> = desired_state
             .resources
             .iter()
-            .filter_map(ResolvedResource::identity)
+            .filter_map(|resource| resource.identity(Path::new(HOME_DIRECTORY)))
             .collect();
         assert!(
             claimed.contains(&Identity::InstalledBinary(
@@ -529,7 +534,7 @@ mod tests {
         let claimed: Vec<Identity> = desired_state
             .resources
             .iter()
-            .filter_map(ResolvedResource::identity)
+            .filter_map(|resource| resource.identity(Path::new(HOME_DIRECTORY)))
             .collect();
         assert!(
             claimed.contains(&Identity::SearchPathEntry(
@@ -594,7 +599,7 @@ mod tests {
         let claimed: Vec<Identity> = desired_state
             .resources
             .iter()
-            .filter_map(ResolvedResource::identity)
+            .filter_map(|resource| resource.identity(Path::new(HOME_DIRECTORY)))
             .collect();
         assert!(
             claimed.contains(&Identity::ClonedRepository(
@@ -736,7 +741,7 @@ mod tests {
             .iter()
             .find(|resource| resource.kind() == ResourceKind::Command)
             .expect("the personal configuration declared a command");
-        assert_eq!(command.identity(), None);
+        assert_eq!(command.identity(Path::new(HOME_DIRECTORY)), None);
     }
 
     #[test]
@@ -757,7 +762,7 @@ mod tests {
             .find(|resource| resource.kind() == ResourceKind::Application)
             .expect("the personal configuration declared a released binary");
         assert_eq!(
-            binary.identity(),
+            binary.identity(Path::new(HOME_DIRECTORY)),
             Some(Identity::InstalledBinary(
                 crate::configuration::BinaryName::from("rg.exe")
             ))

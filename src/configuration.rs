@@ -18,6 +18,8 @@ pub mod identity;
 pub mod migration;
 #[path = "configuration/names.rs"]
 pub mod names;
+#[path = "configuration/path_folding.rs"]
+pub(crate) mod path_folding;
 #[path = "configuration/presence_check.rs"]
 pub mod presence_check;
 #[path = "configuration/resource.rs"]
@@ -33,7 +35,7 @@ pub use {
         BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION, Generation,
         OLDEST_READABLE_GENERATION,
     },
-    identity::Identity,
+    identity::{Identity, LinkPath},
     migration::{Migration, announcement},
     names::{
         ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName, RepositoryName,

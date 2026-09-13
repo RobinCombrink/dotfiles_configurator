@@ -18,6 +18,7 @@ use {
 };
 
 pub const REPOSITORIES_ROOT: &str = "/repositories";
+pub const HOME_DIRECTORY: &str = "/home/Alice";
 
 pub fn manifest_for(machine: MachineClass) -> MachineManifest {
     MachineManifest {
@@ -129,6 +130,7 @@ pub fn read_as_two_accounts(
             ),
         ],
         manifest_for(MachineClass::Work),
+        Path::new(HOME_DIRECTORY),
     )
     .expect("a set holding one configuration for every machine and one for this class")
 }
@@ -172,6 +174,7 @@ fn read_from(
             ),
         ],
         manifest_for(MachineClass::Personal),
+        Path::new(HOME_DIRECTORY),
     )
     .expect("a set holding one configuration for every machine and one for this class")
 }

@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use {
+    crate::configuration::path_folding,
+    std::path::{Path, PathBuf},
+};
 
 const SEPARATOR: char = ';';
 
@@ -28,18 +31,11 @@ impl SearchPathReading {
     /// assert!(!reading.carries(Path::new("C:\\Program Files\\Git")));
     /// ```
     pub fn carries(&self, directory: &Path) -> bool {
-        let wanted = comparable(directory);
-        self.entries.iter().any(|entry| comparable(entry) == wanted)
+        let wanted = path_folding::comparable(directory);
+        self.entries
+            .iter()
+            .any(|entry| path_folding::comparable(entry) == wanted)
     }
-}
-
-fn comparable(directory: &Path) -> String {
-    directory
-        .display()
-        .to_string()
-        .replace('/', "\\")
-        .trim_end_matches('\\')
-        .to_lowercase()
 }
 
 /// The directories a raw search path value names, each still exactly as it is stored.
@@ -100,10 +96,10 @@ pub fn carrying(raw: &str, directory: &Path) -> String {
 }
 
 fn already_carries(raw: &str, directory: &Path) -> bool {
-    let wanted = comparable(directory);
+    let wanted = path_folding::comparable(directory);
     entries_of(raw)
         .into_iter()
-        .any(|entry| comparable(Path::new(entry)) == wanted)
+        .any(|entry| path_folding::comparable(Path::new(entry)) == wanted)
 }
 
 #[cfg(test)]

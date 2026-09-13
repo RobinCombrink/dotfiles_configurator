@@ -158,7 +158,15 @@ pub async fn load_desired_state(
         repositories_directory_path: repositories_root.join(machine.repositories_leaf()),
     };
 
-    Ok(DesiredState::of(resolved, machine_manifest)?.also_reporting(migrations, announcements))
+    Ok(
+        DesiredState::of(resolved, machine_manifest, &home_directory()?)?
+            .also_reporting(migrations, announcements),
+    )
+}
+
+fn home_directory() -> Result<PathBuf> {
+    std::env::home_dir()
+        .ok_or_else(|| anyhow!("Could not find the home directory to resolve symlinks against"))
 }
 
 /// A source is cloned into the tree its configurations' context names, so one yielding two
@@ -526,7 +534,7 @@ mod tests {
             .iter()
             .filter(|resource| {
                 resource
-                    .identity()
+                    .identity(Path::new("/home/Alice"))
                     .is_none_or(|identity| !carried.contains(&identity))
             })
             .map(ToString::to_string)
