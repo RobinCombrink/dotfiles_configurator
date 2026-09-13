@@ -44,6 +44,13 @@ To move a running image aside so that its name is free to be written, leaving wh
 running on the moved file. The alternative to stopping that process, which this program never does.
 _Avoid_: evict, rename aside, unlock, replace
 
+**Replace**:
+To free a name another system holds and then claim it for what a configuration declares, where that
+system offers no way to do both at once. Unlike displacing, what held the name is destroyed rather
+than moved aside, so a replacement whose claim is refused leaves the name holding nothing, which
+the result names rather than hides.
+_Avoid_: displace, swap, overwrite, re-register
+
 **Held**:
 Describes a resource that could not converge because the machine is executing the file it must
 replace, and displacing that file was refused as well. Neither blocked, where something is missing
