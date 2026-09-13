@@ -3,7 +3,7 @@ use {
         TOOL_DIRECTORY,
         configuration::{
             CrateName, GitHubAccount, GitHubRepository, PresenceCheck, Shell, VariableName,
-            VariableValue,
+            VariableValue, path_folding,
         },
         machine::{
             environment_reading::SearchPathReading,
@@ -129,10 +129,7 @@ pub trait ReadMachine {
 
     /// Resolves a path declared relative to the home directory. Absolute paths are left alone.
     fn resolve_against_home(&self, path: &Path) -> PathBuf {
-        match path.is_absolute() {
-            true => path.to_path_buf(),
-            false => self.home_directory().join(path),
-        }
+        path_folding::home_relative_path(self.home_directory(), path)
     }
 
     // ADR 0015

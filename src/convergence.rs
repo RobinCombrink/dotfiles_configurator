@@ -246,7 +246,7 @@ pub async fn plan(
         let _doing = report.doing("reading what the machine already has");
         SourceReadings::read_for(desired_state, machine).await
     };
-    let resources = resolve(desired_state, &readings)?;
+    let resources = resolve(desired_state, &readings, machine.home_directory())?;
 
     let mut assessed: Vec<(ResourceKind, usize, ResolvedResource, Assessment)> = resources
         .iter()
