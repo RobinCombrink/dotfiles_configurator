@@ -124,7 +124,7 @@ fn resolved_release_asset<'readings>(
     };
     let released = readings
         .release_of(&repository)
-        .map_err(|reason| anyhow!("{reason}"))?
+        .map_err(|impediment| anyhow!("{impediment}"))?
         .ok_or_else(|| anyhow!("{repository} has published no release"))?;
     let matched = released
         .asset_matching(asset)
@@ -140,7 +140,7 @@ async fn converge_released_binary(
 ) -> Result<Placement> {
     let released = readings
         .release_of(&binary.repository)
-        .map_err(|reason| anyhow!("{reason}"))?
+        .map_err(|impediment| anyhow!("{impediment}"))?
         .ok_or_else(|| anyhow!("{} has published no release", binary.repository))?;
 
     install_release(binary, released, machine).await
@@ -196,8 +196,15 @@ fn converge_cargo_package(
         }
         CargoSource::Workspace { repository } => {
             let clone_directory = resource.clone_directory(repository);
-            let Some(revision) = readings.workspace_revision(&clone_directory) else {
-                bail!("{repository} was not read, so there is no revision to install from");
+            let revision = match readings.workspace(&clone_directory) {
+                Ok(Some(reading)) => &reading.revision,
+                Ok(None) => bail!(
+                    "{repository} has not been cloned, so there is no revision to install from"
+                ),
+                Err(impediment) => bail!(
+                    "{repository} could not be read, so there is no revision to install from: \
+                     {impediment}"
+                ),
             };
             arguments.push("--git".to_owned());
             arguments.push(repository.fetch_url_as(resource.account()));

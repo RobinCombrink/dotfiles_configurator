@@ -18,7 +18,7 @@ pub fn resolve(
     for workspace in &desired_state.workspaces {
         let repository = &workspace.declared().repository;
         match readings.workspace(&workspace.clone_directory(repository)) {
-            Some(Ok(Some(reading))) => {
+            Ok(Some(reading)) => {
                 for crate_name in reading.members.keys() {
                     resources.push(workspace.alongside(Resource::Package(Package::Cargo(
                         CargoPackage {
@@ -30,10 +30,10 @@ pub fn resolve(
                     ))));
                 }
             }
-            Some(Ok(None)) | None => {}
-            Some(Err(reason)) => bail!(
-                "{} could not be read, so which crates it holds is unknown: {reason}. Nothing was \
-                 applied.",
+            Ok(None) => {}
+            Err(impediment) => bail!(
+                "{} could not be read, so which crates it holds is unknown: {impediment}. Nothing \
+                 was applied.",
                 workspace.declared()
             ),
         }

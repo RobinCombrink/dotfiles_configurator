@@ -14,12 +14,14 @@ pub mod apply;
 pub mod assess;
 pub mod converge;
 pub mod resolve;
+pub mod source_reading;
 
 pub use {
     apply::ApplyOutcome,
     assess::{SourceReadings, assess},
     converge::install_release,
     resolve::resolve,
+    source_reading::{ReadSource, SourceReading, UnreadableReason},
 };
 
 /// What a resource kind answers when asked to compare its desired state against the machine.
@@ -36,7 +38,7 @@ pub enum Assessment {
 pub enum Impediment {
     // ADR 0004
     Absent(Requirement),
-    ActualStateUnreadable(DriftReason),
+    ActualStateUnreadable(UnreadableReason),
 }
 
 impl Display for Impediment {
