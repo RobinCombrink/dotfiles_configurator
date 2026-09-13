@@ -7,8 +7,9 @@ use {
             Symlink, Variable, WingetPackage,
         },
         convergence::{
-            Assessment, DriftReason, Impediment, Requirement, machine_manifest_document,
-            machine_manifest_path, search_path_directory, symlink_location,
+            Assessment, Impediment, ReadSource, Requirement, SourceReading, UnreadableReason,
+            machine_manifest_document, machine_manifest_path, search_path_directory,
+            symlink_location,
         },
         desired_state::{DesiredState, ResolvedResource},
         machine::{
@@ -34,11 +35,11 @@ use {
 /// from an assessment, because a resource's requirements are read before its source is consulted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceReadings {
-    winget_packages: Option<Result<String, DriftReason>>,
-    cargo_crates: Option<Result<String, DriftReason>>,
-    workspaces: BTreeMap<PathBuf, Result<Option<WorkspaceReading>, DriftReason>>,
-    releases: BTreeMap<GitHubRepository, Result<Option<ReleaseReading>, DriftReason>>,
-    search_path: Option<Result<SearchPathReading, DriftReason>>,
+    winget_packages: SourceReading<String>,
+    cargo_crates: SourceReading<String>,
+    workspaces: BTreeMap<PathBuf, SourceReading<Option<WorkspaceReading>>>,
+    releases: BTreeMap<GitHubRepository, SourceReading<Option<ReleaseReading>>>,
+    search_path: SourceReading<SearchPathReading>,
 }
 
 impl SourceReadings {
@@ -82,10 +83,10 @@ impl SourceReadings {
 
         let mut releases = BTreeMap::new();
         for (repository, account) in released_from {
-            let reading = machine
-                .latest_release(&repository, &account)
-                .await
-                .map_err(|error| DriftReason::from(format!("{error:#}")));
+            let reading = match machine.latest_release(&repository, &account).await {
+                Ok(release) => SourceReading::Read(release),
+                Err(error) => SourceReading::Unreadable(format!("{error:#}").into()),
+            };
             releases.insert(repository, reading);
         }
 
@@ -95,16 +96,17 @@ impl SourceReadings {
             machine,
         );
         let installed = match &cargo_crates {
-            Some(Ok(listing)) => installed_revisions(listing),
-            Some(Err(_)) | None => BTreeMap::new(),
+            SourceReading::Read(listing) => installed_revisions(listing),
+            SourceReading::Unreadable(_) | SourceReading::NotRequested(_) => BTreeMap::new(),
         };
 
         let mut workspaces = BTreeMap::new();
         for workspace in &desired_state.workspaces {
             let repository_path = workspace.clone_directory(&workspace.declared().repository);
-            let reading = machine
-                .read_cargo_workspace(&repository_path, &installed)
-                .map_err(|error| DriftReason::from(format!("{error:#}")));
+            let reading = match machine.read_cargo_workspace(&repository_path, &installed) {
+                Ok(reading) => SourceReading::Read(reading),
+                Err(error) => SourceReading::Unreadable(format!("{error:#}").into()),
+            };
             workspaces.insert(repository_path, reading);
         }
 
@@ -117,44 +119,52 @@ impl SourceReadings {
             cargo_crates,
             workspaces,
             releases,
-            search_path: search_path_is_needed.then(|| {
-                machine
-                    .read_search_path()
-                    .map_err(|error| DriftReason::from(format!("{error:#}")))
-            }),
+            search_path: match search_path_is_needed {
+                false => SourceReading::NotRequested(ReadSource::SearchPath),
+                true => match machine.read_search_path() {
+                    Ok(reading) => SourceReading::Read(reading),
+                    Err(error) => SourceReading::Unreadable(format!("{error:#}").into()),
+                },
+            },
         }
     }
 
-    pub fn search_path(&self) -> Result<&SearchPathReading, DriftReason> {
-        match &self.search_path {
-            Some(Ok(reading)) => Ok(reading),
-            Some(Err(reason)) => Err(reason.clone()),
-            None => Err("the search path was not read for this change set".into()),
-        }
+    pub fn search_path(&self) -> Result<&SearchPathReading, Impediment> {
+        self.search_path.read()
     }
 
+    /// The latest release of a repository, or the typed absence of one where the repository has
+    /// published nothing at all.
+    ///
+    /// ```no_run
+    /// # use dotfiles_configurator::{
+    /// #     configuration::GitHubRepository, convergence::SourceReadings,
+    /// # };
+    /// # fn version_of(readings: &SourceReadings, repository: &GitHubRepository) -> String {
+    /// match readings.release_of(repository) {
+    ///     Ok(Some(release)) => release.version.to_string(),
+    ///     Ok(None) => "nothing published".to_owned(),
+    ///     Err(impediment) => impediment.to_string(),
+    /// }
+    /// # }
+    /// ```
     pub fn release_of(
         &self,
         repository: &GitHubRepository,
-    ) -> Result<Option<&ReleaseReading>, DriftReason> {
+    ) -> Result<Option<&ReleaseReading>, Impediment> {
         match self.releases.get(repository) {
-            Some(Ok(release)) => Ok(release.as_ref()),
-            Some(Err(reason)) => Err(reason.clone()),
-            None => Err(format!("{repository} was not read for its latest release").into()),
+            Some(reading) => reading.read().map(Option::as_ref),
+            None => Err(ReadSource::LatestRelease(repository.clone()).was_not_read()),
         }
     }
 
     pub fn workspace(
         &self,
         clone_directory: &Path,
-    ) -> Option<&Result<Option<WorkspaceReading>, DriftReason>> {
-        self.workspaces.get(clone_directory)
-    }
-
-    pub fn workspace_revision(&self, clone_directory: &Path) -> Option<&Revision> {
+    ) -> Result<Option<&WorkspaceReading>, Impediment> {
         match self.workspaces.get(clone_directory) {
-            Some(Ok(Some(reading))) => Some(&reading.revision),
-            Some(Ok(None)) | Some(Err(_)) | None => None,
+            Some(reading) => reading.read().map(Option::as_ref),
+            None => Err(ReadSource::CargoWorkspace(clone_directory.to_path_buf()).was_not_read()),
         }
     }
 }
@@ -179,19 +189,21 @@ fn read_listing(
     is_needed: bool,
     invocation: ReadInvocation,
     machine: &impl ReadMachine,
-) -> Option<Result<String, DriftReason>> {
+) -> SourceReading<String> {
     let tool = invocation.tool();
     if !is_needed || !machine.tool_is_present(tool) {
-        return None;
+        return SourceReading::NotRequested(ReadSource::Tool(tool));
     }
 
-    Some(match machine.read(&invocation) {
-        Ok(output) if output.succeeded => Ok(output.standard_output),
-        Ok(output) => {
-            Err(format!("{tool} could not be read: {}", output.standard_error.trim()).into())
+    match machine.read(&invocation) {
+        Ok(output) if output.succeeded => SourceReading::Read(output.standard_output),
+        Ok(output) => SourceReading::Unreadable(
+            format!("{tool} could not be read: {}", output.standard_error.trim()).into(),
+        ),
+        Err(error) => {
+            SourceReading::Unreadable(format!("{tool} could not be read: {error}").into())
         }
-        Err(error) => Err(format!("{tool} could not be read: {error}").into()),
-    })
+    }
 }
 
 /// Reads the actual state of one resource and compares it against what was declared.
@@ -276,7 +288,9 @@ fn assess_installer(installer: &Installer, machine: &impl ReadMachine) -> Assess
         Ok(false) => {
             Assessment::Drifted(format!("not installed — {}", installer.presence_check).into())
         }
-        Err(error) => Assessment::Drifted(format!("presence could not be read: {error}").into()),
+        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            format!("presence could not be read: {error}").into(),
+        )),
     }
 }
 
@@ -292,7 +306,7 @@ fn assess_released_binary(
                 format!("{} has published no release", binary.repository).into(),
             );
         }
-        Err(reason) => return Assessment::Drifted(reason),
+        Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
     let installed_path = machine
@@ -327,10 +341,10 @@ fn installed_version(
     binary: &ReleasedBinary,
     installed_path: &Path,
     machine: &impl ReadMachine,
-) -> Result<Version, DriftReason> {
+) -> Result<Version, UnreadableReason> {
     let output = machine
         .report_version(installed_path, &binary.version_arguments)
-        .map_err(|error| DriftReason::from(format!("{error:#}")))?;
+        .map_err(|error| UnreadableReason::from(format!("{error:#}")))?;
 
     if !output.succeeded {
         return Err(format!(
@@ -343,20 +357,19 @@ fn installed_version(
 
     binary
         .reported_version(&output.standard_output)
-        .map_err(DriftReason::from)
+        .map_err(UnreadableReason::from)
 }
 
 fn assess_winget_package(package: &WingetPackage, readings: &SourceReadings) -> Assessment {
-    let listing = match &readings.winget_packages {
-        Some(Ok(listing)) => listing,
-        Some(Err(reason)) => return Assessment::Drifted(reason.clone()),
-        None => return Assessment::Drifted("winget was not read for this change set".into()),
+    let listing = match readings.winget_packages.read() {
+        Ok(listing) => listing,
+        Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
     match winget_lists_package(listing, package.id.to_string().as_str()) {
         Ok(true) => Assessment::Converged,
         Ok(false) => Assessment::Drifted("winget reports it as not installed".into()),
-        Err(reason) => Assessment::Drifted(reason),
+        Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(reason)),
     }
 }
 
@@ -372,7 +385,7 @@ const TRUNCATION_MARKER: char = '…';
 /// The header is matched on its English labels. A listing whose columns cannot be located is
 /// unreadable, which is why a machine that reports them in another language fails loudly here
 /// instead of reporting every declared package as missing. See ADR 0010.
-fn winget_lists_package(listing: &str, id: &str) -> Result<bool, DriftReason> {
+fn winget_lists_package(listing: &str, id: &str) -> Result<bool, UnreadableReason> {
     let Some((first_column, last_column)) = winget_id_column(listing) else {
         return Err("winget's listing has no Id column, so it could not be read".into());
     };
@@ -433,14 +446,11 @@ fn assess_workspace_member(
     readings: &SourceReadings,
 ) -> Assessment {
     let reading = match readings.workspace(clone_directory) {
-        Some(Ok(Some(reading))) => reading,
-        Some(Ok(None)) => {
+        Ok(Some(reading)) => reading,
+        Ok(None) => {
             return Assessment::Drifted("its repository has not been cloned".into());
         }
-        Some(Err(reason)) => return Assessment::Drifted(reason.clone()),
-        None => {
-            return Assessment::Drifted("its workspace was not read for this change set".into());
-        }
+        Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
     let Some(member) = reading.members.get(crate_name) else {
@@ -458,10 +468,9 @@ fn assess_declared_cargo_package(
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Assessment {
-    let installed = match &readings.cargo_crates {
-        Some(Ok(listing)) => listing,
-        Some(Err(reason)) => return Assessment::Drifted(reason.clone()),
-        None => return Assessment::Drifted("cargo was not read for this change set".into()),
+    let installed = match readings.cargo_crates.read() {
+        Ok(listing) => listing,
+        Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
     let Some(actual) = installed_crate_source(installed, package.crate_name.as_ref()) else {
@@ -567,7 +576,7 @@ fn assess_search_path_entry(
 ) -> Assessment {
     let reading = match readings.search_path() {
         Ok(reading) => reading,
-        Err(reason) => return Assessment::Unassessable(Impediment::ActualStateUnreadable(reason)),
+        Err(impediment) => return Assessment::Unassessable(impediment),
     };
     let directory = search_path_directory(entry, resource, machine);
 
@@ -618,7 +627,9 @@ fn assess_claude_mcp_server(server: &ClaudeMcpServer, machine: &impl ReadMachine
     let output = match machine.read(&invocation) {
         Ok(output) => output,
         Err(error) => {
-            return Assessment::Drifted(format!("claude could not be read: {error}").into());
+            return Assessment::Unassessable(Impediment::ActualStateUnreadable(
+                format!("claude could not be read: {error}").into(),
+            ));
         }
     };
 
@@ -673,7 +684,9 @@ fn assess_command(command: &Command, machine: &impl ReadMachine) -> Assessment {
     match machine.check_presence(check) {
         Ok(true) => Assessment::Converged,
         Ok(false) => Assessment::Drifted(format!("not yet done — {check}").into()),
-        Err(error) => Assessment::Drifted(format!("presence could not be read: {error}").into()),
+        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            format!("presence could not be read: {error}").into(),
+        )),
     }
 }
 

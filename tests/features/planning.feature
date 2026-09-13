@@ -65,6 +65,14 @@ Feature: Planning what a machine needs
     Then the change set reports 1 change
     And the change set mentions "no release"
 
+  Scenario: A released binary whose repository cannot be asked is blocked rather than a change
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    And "BurntSushi/ripgrep" cannot be asked for its latest release
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set does not report the machine as converged
+
   Scenario: A build behind its own latest release is a change no configuration declared
     Given a newer configurator than this machine holds has been released
     When Alice plans
@@ -99,6 +107,30 @@ Feature: Planning what a machine needs
   Scenario: A package whose manager is absent is reported as blocked rather than as drift
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget is absent from Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set does not report the machine as converged
+
+  Scenario: A package whose manager cannot be read is reported as blocked rather than as drift
+    Given Alice declares the winget package "Microsoft.PowerShell"
+    And winget cannot be read on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set does not report the machine as converged
+
+  Scenario: A listing whose columns cannot be located is blocked rather than read as absent
+    Given Alice declares the winget package "Microsoft.PowerShell"
+    And winget lists its packages without the columns that name them
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set does not report the machine as converged
+
+  Scenario: An application whose presence check cannot be run is blocked rather than drifted
+    Given Alice declares the application "Neovim"
+    And the presence check for "Neovim" cannot be run on Alice's machine
     When Alice plans
     Then the change set reports 0 changes
     And the change set reports 1 blocked resource
@@ -151,6 +183,14 @@ Feature: Planning what a machine needs
     When Alice plans
     Then the change set reports 1 change
     And the change set mentions "refresh-completions"
+
+  Scenario: A command whose presence check cannot be run is blocked rather than drifted
+    Given Alice declares the command "refresh-completions" checked by the output of "completions --status"
+    And the check "completions --status" cannot be run on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set does not report the machine as converged
 
   Scenario: A command checked through WSL is blocked without it, which is what runs the check
     Given Alice declares the command "refresh-completions" checked through WSL
