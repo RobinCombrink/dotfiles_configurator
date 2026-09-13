@@ -513,6 +513,13 @@ impl ReadMachine for FakeMachine {
             .collect()
     }
 
+    fn displacement_directories(&self) -> Vec<PathBuf> {
+        vec![
+            self.cargo_binaries_directory.clone(),
+            self.binaries_directory(),
+        ]
+    }
+
     fn path_exists(&self, path: &Path) -> bool {
         let state = self.state.borrow();
         state.paths.contains(path) || state.links.contains_key(path)

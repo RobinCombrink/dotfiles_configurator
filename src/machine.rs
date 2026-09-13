@@ -139,6 +139,9 @@ pub trait ReadMachine {
     fn binaries_directory(&self) -> PathBuf {
         self.home_directory().join(TOOL_DIRECTORY).join("bin")
     }
+
+    // ADR 0022
+    fn displacement_directories(&self) -> Vec<PathBuf>;
 }
 
 /// The capabilities that can change a machine. Apply holds these as well as the reading ones;

@@ -379,6 +379,18 @@ fn cargo_binaries_directory(home_directory: &Path) -> PathBuf {
     }
 }
 
+fn superseded_images_in(directory: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Vec::new();
+    };
+
+    entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.to_string_lossy().ends_with(SUPERSEDED_SUFFIX) && path.is_file())
+        .collect()
+}
+
 fn program_is_on_path(program: &str) -> bool {
     let Some(path) = env::var_os("PATH") else {
         return false;
@@ -403,18 +415,21 @@ impl ReadMachine for LocalMachine<'_> {
     }
 
     fn superseded_images(&self) -> Vec<PathBuf> {
-        let Ok(entries) = fs::read_dir(&self.cargo_binaries_directory) else {
-            return Vec::new();
-        };
-
-        let mut images: Vec<PathBuf> = entries
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| path.to_string_lossy().ends_with(SUPERSEDED_SUFFIX) && path.is_file())
+        let mut images: Vec<PathBuf> = self
+            .displacement_directories()
+            .iter()
+            .flat_map(|directory| superseded_images_in(directory))
             .collect();
         images.sort();
 
         images
+    }
+
+    fn displacement_directories(&self) -> Vec<PathBuf> {
+        vec![
+            self.cargo_binaries_directory.clone(),
+            self.binaries_directory(),
+        ]
     }
 
     fn path_exists(&self, path: &Path) -> bool {
@@ -864,6 +879,49 @@ mod tests {
             fs::read_to_string(&superseded).unwrap(),
             "the current image"
         );
+    }
+
+    #[test]
+    fn superseded_images_are_found_in_every_directory_the_program_can_displace_into() {
+        let home_directory = tempfile::tempdir().unwrap();
+        let cargo_directory = tempfile::tempdir().unwrap();
+        let tool_binaries_directory = home_directory
+            .path()
+            .join(crate::TOOL_DIRECTORY)
+            .join("bin");
+        fs::create_dir_all(&tool_binaries_directory).unwrap();
+        a_binary_at(
+            &tool_binaries_directory,
+            "dotfiles_configurator.exe.superseded",
+            "an old tool image",
+        );
+        a_binary_at(
+            cargo_directory.path(),
+            "claude-session.exe.superseded",
+            "an old cargo image",
+        );
+
+        let report = RunReport::open_in(home_directory.path(), RunKind::Apply).unwrap();
+        let machine = LocalMachine {
+            home_directory: home_directory.path().to_path_buf(),
+            download_directory: home_directory.path().to_path_buf(),
+            cargo_binaries_directory: cargo_directory.path().to_path_buf(),
+            authenticated_accounts: Mutex::new(BTreeMap::new()),
+            http_client: Client::default(),
+            report: &report,
+        };
+
+        let images = machine.superseded_images();
+
+        assert!(
+            images.contains(&cargo_directory.path().join("claude-session.exe.superseded")),
+            "{images:?}"
+        );
+        assert!(
+            images.contains(&tool_binaries_directory.join("dotfiles_configurator.exe.superseded")),
+            "{images:?}"
+        );
+        assert_eq!(images.len(), 2, "{images:?}");
     }
 
     #[test]
