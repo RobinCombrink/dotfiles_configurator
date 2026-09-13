@@ -10,10 +10,11 @@ use {
     anyhow::{Result, anyhow, bail},
     dotfiles_configurator::{
         configuration::{
-            ApplicationName, CrateName, GitHubAccount, GitHubRepository, Installer, MachineClass,
-            MachineManifest, PresenceCheck, ReleasedBinary, Shell, VariableName, VariableValue,
-            WingetPackageId,
+            ApplicationName, ApplicationSource, CrateName, GitHubAccount, GitHubRepository,
+            Installer, MachineClass, MachineManifest, Migration, PresenceCheck, ReleasedBinary,
+            Shell, VariableName, VariableValue, WingetPackageId,
         },
+        configuration_source::WriteSource,
         convergence::{machine_manifest_document, machine_manifest_path},
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
@@ -54,7 +55,8 @@ struct MachineState {
     failing_applications: BTreeSet<ApplicationName>,
     /// Installers that exit zero without putting anything on the machine.
     silent_applications: BTreeSet<ApplicationName>,
-    install_attempts: Vec<(ApplicationName, GitHubAccount)>,
+    install_attempts: Vec<ApplicationName>,
+    installed_as: BTreeMap<ApplicationName, GitHubAccount>,
     commands_run: Vec<Vec<String>>,
     /// What the dotfiles repository holds, which only appears on the machine once it is cloned.
     repository_contents: BTreeSet<PathBuf>,
@@ -274,12 +276,7 @@ impl FakeMachine {
     }
 
     pub fn account_installing(&self, name: &ApplicationName) -> Option<GitHubAccount> {
-        self.state
-            .borrow()
-            .install_attempts
-            .iter()
-            .find(|(attempted, _)| attempted == name)
-            .map(|(_, account)| account.clone())
+        self.state.borrow().installed_as.get(name).cloned()
     }
 
     pub fn account_reading_releases_of(
@@ -400,7 +397,7 @@ impl FakeMachine {
             .borrow()
             .install_attempts
             .iter()
-            .filter(|(attempted, _)| attempted == name)
+            .filter(|attempted| *attempted == name)
             .count()
     }
 
@@ -544,6 +541,15 @@ impl ReadMachine for FakeMachine {
 
     fn link_target(&self, path: &Path) -> Option<PathBuf> {
         self.state.borrow().links.get(path).cloned()
+    }
+
+    fn canonical_path(&self, path: &Path) -> Option<PathBuf> {
+        let state = self.state.borrow();
+        match state.links.get(path) {
+            Some(target) => Some(target.clone()),
+            None if state.paths.contains(path) => Some(path.to_path_buf()),
+            None => None,
+        }
     }
 
     fn text_file_at(&self, path: &Path) -> Option<String> {
@@ -691,12 +697,28 @@ impl WriteMachine for FakeMachine {
     async fn install_application(
         &self,
         installer: &Installer,
-        account: &GitHubAccount,
+        _release_asset: Option<&ReleaseAsset>,
     ) -> Result<()> {
         let mut state = self.state.borrow_mut();
-        state
-            .install_attempts
-            .push((installer.name.clone(), account.clone()));
+        state.install_attempts.push(installer.name.clone());
+
+        if let ApplicationSource::GitHubRelease {
+            owner, repository, ..
+        } = &installer.source
+        {
+            let repository = GitHubRepository {
+                owner: owner.clone(),
+                repository: repository.clone(),
+            };
+            if let Some(account) = state
+                .release_reads
+                .iter()
+                .find(|(read, _)| *read == repository)
+                .map(|(_, account)| account.clone())
+            {
+                state.installed_as.insert(installer.name.clone(), account);
+            }
+        }
 
         if state.failing_applications.contains(&installer.name) {
             bail!("the installer for {} exited non-zero", installer.name);
@@ -818,5 +840,17 @@ impl WriteMachine for FakeMachine {
             standard_output: String::new(),
             standard_error: String::new(),
         })
+    }
+}
+
+impl WriteSource for FakeMachine {
+    fn rewrite(&self, migration: &Migration) -> Result<()> {
+        let mut state = self.state.borrow_mut();
+        state.text_files.insert(
+            migration.path().to_path_buf(),
+            migration.contents().to_owned(),
+        );
+        state.paths.insert(migration.path().to_path_buf());
+        Ok(())
     }
 }

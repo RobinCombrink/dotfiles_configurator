@@ -74,6 +74,15 @@ pub fn superseded_name(destination: &Path) -> PathBuf {
     destination.with_file_name(name)
 }
 
+pub const PARTIAL_DOWNLOAD_SUFFIX: &str = ".partial";
+
+pub fn partial_download_path(destination: &Path) -> PathBuf {
+    let mut name = destination.file_name().unwrap_or_default().to_os_string();
+    name.push(PARTIAL_DOWNLOAD_SUFFIX);
+
+    destination.with_file_name(name)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Placement {
     Placed,
@@ -92,6 +101,8 @@ pub trait ReadMachine {
 
     /// The target of the link at `path`, or `None` when nothing is there or it is not a link.
     fn link_target(&self, path: &Path) -> Option<PathBuf>;
+
+    fn canonical_path(&self, path: &Path) -> Option<PathBuf>;
 
     fn tool_is_present(&self, tool: Tool) -> bool;
 
@@ -158,7 +169,7 @@ pub trait WriteMachine: ReadMachine {
     fn install_application(
         &self,
         installer: &crate::configuration::Installer,
-        account: &GitHubAccount,
+        release_asset: Option<&release_reading::ReleaseAsset>,
     ) -> impl std::future::Future<Output = Result<()>>;
 
     // ADR 0016

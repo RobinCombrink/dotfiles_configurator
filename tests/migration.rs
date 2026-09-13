@@ -3,10 +3,11 @@
 
 use {
     dotfiles_configurator::{
-        configuration::{BUILD_GENERATION, MachineClass, OLDEST_READABLE_GENERATION},
-        configuration_source::{ConfigurationSource, load_desired_state},
+        configuration::{BUILD_GENERATION, MachineClass, Migration, OLDEST_READABLE_GENERATION},
+        configuration_source::{ConfigurationSource, WriteSource, load_desired_state},
         convergence::plan,
         desired_state::DesiredState,
+        github::GitHubAccess,
         reporting::RunReport,
     },
     std::{
@@ -60,9 +61,25 @@ async fn load(checkout: &Path) -> DesiredState {
         &[ConfigurationSource::LocalDirectory(checkout.join("config"))],
         MachineClass::Personal,
         Path::new("/repositories"),
+        &GitHubAccess::new(),
     )
     .await
     .unwrap()
+}
+
+struct RealFilesystem;
+
+impl WriteSource for RealFilesystem {
+    fn rewrite(&self, migration: &Migration) -> anyhow::Result<()> {
+        fs::write(migration.path(), migration.contents())?;
+        Ok(())
+    }
+}
+
+fn rewrite_all(migrations: &[Migration]) {
+    for migration in migrations {
+        RealFilesystem.rewrite(migration).unwrap();
+    }
 }
 
 #[tokio::test]
@@ -71,9 +88,7 @@ async fn a_generation_5_document_is_rewritten_as_the_generation_6_document_besid
     let checkout = a_checkout_holding("rewritten_document", &documents);
 
     let desired_state = load(&checkout).await;
-    for migration in &desired_state.migrations {
-        migration.perform().unwrap();
-    }
+    rewrite_all(&desired_state.migrations);
 
     assert_eq!(
         personal_document(&checkout),
@@ -134,9 +149,7 @@ async fn a_document_rewritten_once_is_read_as_the_same_desired_state_and_migrate
     let checkout = a_checkout_holding("read_back_migrated", &documents);
 
     let before_the_rewrite = load(&checkout).await;
-    for migration in &before_the_rewrite.migrations {
-        migration.perform().unwrap();
-    }
+    rewrite_all(&before_the_rewrite.migrations);
     let after_the_rewrite = load(&checkout).await;
 
     assert_eq!(before_the_rewrite.resources, after_the_rewrite.resources);

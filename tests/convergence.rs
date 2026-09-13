@@ -24,6 +24,7 @@ use {
         configuration_source::{ConfigurationSource, load_desired_state},
         convergence::{ApplyOutcome, ChangeSet, apply::apply, machine_manifest_document, plan},
         desired_state::DesiredState,
+        github::GitHubAccess,
         machine::{
             ReadMachine, Tool,
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -193,7 +194,7 @@ fn application_installed_from_a_release_of(name: &str, owner_and_name: &str) -> 
         source: ApplicationSource::GitHubRelease {
             owner: repository.owner,
             repository: repository.repository,
-            asset: AssetPattern::EndsWith(".exe".to_owned()),
+            asset: AssetPattern::EndsWith(".zip".to_owned()),
         },
         presence_check: PresenceCheck::CommandOnPath {
             command: name.to_owned(),
@@ -770,7 +771,14 @@ async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
         )));
     }
 
-    match load_desired_state(&sources, machine, Path::new(REPOSITORIES_ROOT)).await {
+    match load_desired_state(
+        &sources,
+        machine,
+        Path::new(REPOSITORIES_ROOT),
+        &GitHubAccess::new(),
+    )
+    .await
+    {
         Ok(desired_state) => world.loaded = Some(desired_state),
         Err(error) => world.loading_error = Some(format!("{error:#}")),
     }

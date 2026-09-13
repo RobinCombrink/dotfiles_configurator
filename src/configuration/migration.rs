@@ -13,7 +13,6 @@ use {
     serde_json::ser::PrettyFormatter,
     std::{
         fmt::Display,
-        fs,
         path::{Path, PathBuf},
     },
 };
@@ -67,9 +66,12 @@ impl Migration {
         })
     }
 
-    pub fn perform(&self) -> Result<()> {
-        fs::write(&self.path, &self.rewritten)
-            .with_context(|| format!("Could not rewrite {}", self.path.display()))
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn contents(&self) -> &str {
+        &self.rewritten
     }
 }
 

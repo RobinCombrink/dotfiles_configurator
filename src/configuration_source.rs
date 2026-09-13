@@ -6,7 +6,7 @@ use {
             parse_configuration,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
-        github,
+        github::{self, GitHubAccess},
     },
     anyhow::{Context as _, Error, Result, anyhow, bail},
     std::{
@@ -16,6 +16,10 @@ use {
         str::FromStr,
     },
 };
+
+pub trait WriteSource {
+    fn rewrite(&self, migration: &Migration) -> Result<()>;
+}
 
 /// Where a configuration is read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,12 +96,13 @@ pub async fn load_desired_state(
     sources: &[ConfigurationSource],
     machine: MachineClass,
     repositories_root: &Path,
+    github: &GitHubAccess,
 ) -> Result<DesiredState> {
     let mut per_source: Vec<(&ConfigurationSource, Vec<LoadedConfiguration>)> = Vec::new();
     let mut unreadable: Vec<Unreadable> = Vec::new();
     for source in sources {
         let mut from_this_source: Vec<LoadedConfiguration> = Vec::new();
-        for attempt in source.load().await {
+        for attempt in source.load(github).await {
             match attempt {
                 Ok(configuration) => from_this_source.push(configuration),
                 Err(refusal) => unreadable.push(refusal),
@@ -284,14 +289,16 @@ impl ConfigurationSource {
         }
     }
 
-    async fn load(&self) -> Vec<Result<LoadedConfiguration, Unreadable>> {
+    async fn load(&self, github: &GitHubAccess) -> Vec<Result<LoadedConfiguration, Unreadable>> {
         match self {
             ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory),
             ConfigurationSource::GitHubRepository {
                 owner,
                 repository,
                 directory,
-            } => Self::load_from_github(owner.as_ref(), repository.as_ref(), directory).await,
+            } => {
+                Self::load_from_github(owner.as_ref(), repository.as_ref(), directory, github).await
+            }
         }
     }
 
@@ -341,8 +348,9 @@ impl ConfigurationSource {
         owner: &str,
         repository: &str,
         directory: &str,
+        github: &GitHubAccess,
     ) -> Vec<Result<LoadedConfiguration, Unreadable>> {
-        let account = match github::AuthenticatedAccount::authenticate_as(&owner.into()) {
+        let account = match github.account(&owner.into()) {
             Ok(account) => account,
             Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
         };
@@ -521,6 +529,7 @@ mod tests {
             &[ConfigurationSource::LocalDirectory(checkout.join("config"))],
             machine,
             Path::new("/repositories"),
+            &GitHubAccess::new(),
         )
         .await
     }
@@ -549,6 +558,7 @@ mod tests {
             )],
             MachineClass::Personal,
             Path::new("/repositories"),
+            &GitHubAccess::new(),
         )
         .await
         .unwrap_err();
@@ -575,6 +585,7 @@ mod tests {
             &[ConfigurationSource::LocalDirectory(outside_any_checkout)],
             MachineClass::Personal,
             Path::new("/repositories"),
+            &GitHubAccess::new(),
         )
         .await
         .unwrap_err();
