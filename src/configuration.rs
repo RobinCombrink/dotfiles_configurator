@@ -5,9 +5,7 @@ use {
     std::fmt::Display,
 };
 
-// The build script includes this file to generate the configuration schema, and resolves a
-// `#[path]`-loaded module's children against its own directory rather than a directory named
-// after it. Naming each child outright resolves the same way from both roots.
+// ADR 0031
 #[path = "configuration/context.rs"]
 pub mod context;
 #[path = "configuration/generation.rs"]
