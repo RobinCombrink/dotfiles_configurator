@@ -7,19 +7,19 @@
 #![allow(dead_code)]
 
 use {
-    anyhow::{Result, bail},
+    anyhow::{Result, anyhow, bail},
     dotfiles_configurator::{
         configuration::{
-            ApplicationName, ApplicationSource, CrateName, GitHubAccount, GitHubRepository,
-            Installer, MachineClass, MachineManifest, Migration, PresenceCheck, ReleasedBinary,
-            Shell, VariableName, VariableValue, WingetPackageId,
+            ApplicationName, ApplicationSource, ClaudeMcpServer, CrateName, GitHubAccount,
+            GitHubRepository, Installer, MachineClass, MachineManifest, McpServerName, Migration,
+            PresenceCheck, ReleasedBinary, Shell, VariableName, VariableValue, WingetPackageId,
         },
         configuration_source::WriteSource,
         convergence::{machine_manifest_document, machine_manifest_path},
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
-            CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine, Tool,
-            WriteInvocation, WriteMachine,
+            CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
+            Replacement, ReplacingInvocation, Tool, WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
@@ -77,6 +77,8 @@ struct MachineState {
     user_search_path: Vec<PathBuf>,
     machine_search_path: Vec<PathBuf>,
     environment_variables: BTreeMap<VariableName, VariableValue>,
+    claude_mcp_servers: BTreeMap<McpServerName, ClaudeMcpServer>,
+    mcp_servers_claude_refuses_to_add: BTreeSet<McpServerName>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -268,6 +270,24 @@ impl FakeMachine {
             .borrow_mut()
             .unreadable_releases
             .insert(repository);
+    }
+
+    pub fn hold_claude_mcp_server(&self, server: ClaudeMcpServer) {
+        self.state
+            .borrow_mut()
+            .claude_mcp_servers
+            .insert(server.name.clone(), server);
+    }
+
+    pub fn refuse_to_add_claude_mcp_server(&self, name: &McpServerName) {
+        self.state
+            .borrow_mut()
+            .mcp_servers_claude_refuses_to_add
+            .insert(name.clone());
+    }
+
+    pub fn claude_mcp_server(&self, name: &McpServerName) -> Option<ClaudeMcpServer> {
+        self.state.borrow().claude_mcp_servers.get(name).cloned()
     }
 
     pub fn answer_reading_with(&self, invocation: ReadInvocation, output: CommandOutput) {
@@ -505,6 +525,24 @@ fn materialise_clone(state: &mut MachineState, clone_directory: &Path) {
     state.paths.extend(held);
 }
 
+fn claude_mcp_get_output(server: &ClaudeMcpServer) -> String {
+    let mut reported = format!(
+        "{}:\n  Scope: User config (available in all your projects)\n  Status: Connected\n  \
+         Type: stdio\n  Command: {}\n  Args: {}\n",
+        server.name,
+        server.command,
+        server.args.join(" ")
+    );
+
+    if !server.environment.is_empty() {
+        reported.push_str("  Environment:\n");
+        for (key, value) in &server.environment {
+            reported.push_str(&format!("    {key}={value}\n"));
+        }
+    }
+    reported
+}
+
 fn winget_listing(packages: &BTreeSet<WingetPackageId>) -> String {
     /// Every row carries the same name, so the name column is only ever as wide as this.
     const PACKAGE_NAME: &str = "A package";
@@ -612,7 +650,12 @@ impl ReadMachine for FakeMachine {
                 (true, winget_listing(&self.state.borrow().winget_packages))
             }
             ReadInvocation::CargoInstalledCrates => (true, String::new()),
-            ReadInvocation::ClaudeMcpServer { .. } => (false, String::new()),
+            ReadInvocation::ClaudeMcpServer { name } => {
+                match self.state.borrow().claude_mcp_servers.get(name) {
+                    None => (false, String::new()),
+                    Some(server) => (true, claude_mcp_get_output(server)),
+                }
+            }
         };
 
         Ok(CommandOutput {
@@ -844,15 +887,35 @@ impl WriteMachine for FakeMachine {
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        if let WriteInvocation::InstallWingetPackage { id } = invocation {
-            self.state.borrow_mut().winget_packages.insert(id.clone());
-        }
+        let WriteInvocation::InstallWingetPackage { id } = invocation;
+        self.state.borrow_mut().winget_packages.insert(id.clone());
 
         Ok(CommandOutput {
             succeeded: true,
             standard_output: String::new(),
             standard_error: String::new(),
         })
+    }
+
+    fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement> {
+        let ReplacingInvocation::ClaudeMcpServer { server } = invocation;
+        let mut state = self.state.borrow_mut();
+        let the_name_was_freed = state.claude_mcp_servers.remove(&server.name).is_some();
+
+        if state
+            .mcp_servers_claude_refuses_to_add
+            .contains(&server.name)
+        {
+            return invocation.refused_claim(
+                the_name_was_freed,
+                anyhow!("claude refused to add {}", server.name),
+            );
+        }
+
+        state
+            .claude_mcp_servers
+            .insert(server.name.clone(), (**server).clone());
+        Ok(Replacement::Replaced)
     }
 
     fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {

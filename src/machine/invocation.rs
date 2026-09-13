@@ -1,10 +1,10 @@
 use {
     crate::{
         configuration::{
-            ClaudeMcpServer, CrateName, GitHubAccount, GitHubRepository, McpScope, McpServerName,
+            ClaudeMcpServer, CrateName, GitHubAccount, GitHubRepository, McpServerName,
             WingetPackageId,
         },
-        machine::{CommandOutput, Tool, workspace_reading::Revision},
+        machine::{CommandOutput, Replacement, Tool, workspace_reading::Revision},
     },
     std::path::PathBuf,
 };
@@ -62,21 +62,9 @@ impl ReadInvocation {
 /// The closed set of invocations this crate defines for changing state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteInvocation {
-    InstallWingetPackage {
-        id: WingetPackageId,
-    },
-    RemoveClaudeMcpServer {
-        name: McpServerName,
-        scope: McpScope,
-    },
-    AddClaudeMcpServer {
-        server: Box<ClaudeMcpServer>,
-    },
+    InstallWingetPackage { id: WingetPackageId },
 }
 
-/// The closed set of invocations that write where the machine may be executing what they replace,
-/// which is what keeps a destination unreachable without displacing: no variant of the set above
-/// can name one. See ADR 0022.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedCargoSource {
     Registry,
@@ -180,8 +168,6 @@ impl WriteInvocation {
     pub fn tool(&self) -> Tool {
         match self {
             WriteInvocation::InstallWingetPackage { .. } => Tool::Winget,
-            WriteInvocation::RemoveClaudeMcpServer { .. }
-            | WriteInvocation::AddClaudeMcpServer { .. } => Tool::Claude,
         }
     }
 
@@ -196,15 +182,56 @@ impl WriteInvocation {
                 "--accept-source-agreements".to_owned(),
                 "--disable-interactivity".to_owned(),
             ],
-            WriteInvocation::RemoveClaudeMcpServer { name, scope } => vec![
-                "mcp".to_owned(),
-                "remove".to_owned(),
-                "--scope".to_owned(),
-                scope.as_argument().to_owned(),
-                name.to_string(),
-            ],
-            WriteInvocation::AddClaudeMcpServer { server } => {
-                let mut arguments = vec![
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReplacingInvocation {
+    ClaudeMcpServer { server: Box<ClaudeMcpServer> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplacementCommands {
+    pub free_the_name: Vec<String>,
+    pub claim_the_name: Vec<String>,
+}
+
+impl ReplacingInvocation {
+    pub fn tool(&self) -> Tool {
+        match self {
+            ReplacingInvocation::ClaudeMcpServer { .. } => Tool::Claude,
+        }
+    }
+
+    pub fn name(&self) -> &McpServerName {
+        match self {
+            ReplacingInvocation::ClaudeMcpServer { server } => &server.name,
+        }
+    }
+
+    pub fn refused_claim(
+        &self,
+        the_name_was_freed: bool,
+        cause: anyhow::Error,
+    ) -> anyhow::Result<Replacement> {
+        match the_name_was_freed {
+            true => Ok(Replacement::RemovedButCouldNotAdd {
+                name: self.name().clone(),
+                cause,
+            }),
+            false => Err(cause),
+        }
+    }
+
+    // 2026-09-13: `claude mcp add` refuses a name it already holds, reporting "MCP server <name>
+    // already exists in local config", exiting 1 and leaving the registration unchanged, so the
+    // name has to be freed before it can be claimed. `claude mcp remove` exits 0 when it removed
+    // something and 1 when nothing was held under that name. Claude Code 2.1.270 on Windows 11.
+    pub fn commands(&self) -> ReplacementCommands {
+        match self {
+            ReplacingInvocation::ClaudeMcpServer { server } => {
+                let mut claim_the_name = vec![
                     "mcp".to_owned(),
                     "add".to_owned(),
                     "--scope".to_owned(),
@@ -212,13 +239,23 @@ impl WriteInvocation {
                     server.name.to_string(),
                 ];
                 for (key, value) in &server.environment {
-                    arguments.push("--env".to_owned());
-                    arguments.push(format!("{key}={value}"));
+                    claim_the_name.push("--env".to_owned());
+                    claim_the_name.push(format!("{key}={value}"));
                 }
-                arguments.push("--".to_owned());
-                arguments.push(server.command.clone());
-                arguments.extend(server.args.iter().cloned());
-                arguments
+                claim_the_name.push("--".to_owned());
+                claim_the_name.push(server.command.clone());
+                claim_the_name.extend(server.args.iter().cloned());
+
+                ReplacementCommands {
+                    free_the_name: vec![
+                        "mcp".to_owned(),
+                        "remove".to_owned(),
+                        "--scope".to_owned(),
+                        server.scope.as_argument().to_owned(),
+                        server.name.to_string(),
+                    ],
+                    claim_the_name,
+                }
             }
         }
     }
@@ -235,7 +272,7 @@ fn destination_moved_to(text: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::configuration::{RepositoryName, RepositoryOwner};
+    use crate::configuration::{McpScope, RepositoryName, RepositoryOwner};
     use std::collections::BTreeMap;
 
     fn cargo_said(standard_error: &str) -> CommandOutput {
@@ -365,25 +402,29 @@ mod tests {
         );
     }
 
-    #[test]
-    fn adding_an_mcp_server_passes_its_environment_before_the_command() {
+    fn registering(server: ClaudeMcpServer) -> ReplacingInvocation {
+        ReplacingInvocation::ClaudeMcpServer {
+            server: Box::new(server),
+        }
+    }
+
+    fn serena() -> ClaudeMcpServer {
         let mut environment = BTreeMap::new();
         environment.insert("SERENA_HOME".to_owned(), "C:\\dotfiles\\serena".to_owned());
-        let server = ClaudeMcpServer {
+
+        ClaudeMcpServer {
             name: McpServerName::from("serena"),
             scope: McpScope::User,
             command: "serena".to_owned(),
             args: vec!["start-mcp-server".to_owned()],
             environment,
-        };
-
-        let arguments = WriteInvocation::AddClaudeMcpServer {
-            server: Box::new(server),
         }
-        .arguments();
+    }
 
+    #[test]
+    fn registering_a_server_passes_its_environment_before_the_command() {
         assert_eq!(
-            arguments,
+            registering(serena()).commands().claim_the_name,
             vec![
                 "mcp",
                 "add",
@@ -397,5 +438,36 @@ mod tests {
                 "start-mcp-server",
             ]
         );
+    }
+
+    #[test]
+    fn registering_a_server_frees_its_name_in_the_scope_the_new_registration_claims() {
+        assert_eq!(
+            registering(serena()).commands().free_the_name,
+            vec!["mcp", "remove", "--scope", "user", "serena"]
+        );
+    }
+
+    #[test]
+    fn a_refused_claim_on_a_name_something_was_removed_from_leaves_that_name_holding_nothing() {
+        let outcome = registering(serena())
+            .refused_claim(true, anyhow::anyhow!("claude refused"))
+            .expect("a half-applied replacement is an outcome rather than an error");
+
+        match outcome {
+            Replacement::RemovedButCouldNotAdd { name, .. } => {
+                assert_eq!(name, McpServerName::from("serena"));
+            }
+            Replacement::Replaced => panic!("a refused claim did not replace anything"),
+        }
+    }
+
+    #[test]
+    fn a_refused_claim_on_a_name_nothing_was_removed_from_took_nothing_away_to_report() {
+        let error = registering(serena())
+            .refused_claim(false, anyhow::anyhow!("claude refused"))
+            .expect_err("a refusal that changed nothing is an error");
+
+        assert_eq!(error.to_string(), "claude refused");
     }
 }
