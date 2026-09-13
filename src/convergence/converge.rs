@@ -124,7 +124,8 @@ fn resolved_release_asset<'readings>(
     };
     let released = readings
         .release_of(&repository)
-        .map_err(|reason| anyhow!("{reason}"))?;
+        .map_err(|reason| anyhow!("{reason}"))?
+        .ok_or_else(|| anyhow!("{repository} has published no release"))?;
     let matched = released
         .asset_matching(asset)
         .map_err(|refusal| anyhow!("{refusal}"))?;
@@ -139,7 +140,8 @@ async fn converge_released_binary(
 ) -> Result<Placement> {
     let released = readings
         .release_of(&binary.repository)
-        .map_err(|reason| anyhow!("{reason}"))?;
+        .map_err(|reason| anyhow!("{reason}"))?
+        .ok_or_else(|| anyhow!("{} has published no release", binary.repository))?;
 
     install_release(binary, released, machine).await
 }

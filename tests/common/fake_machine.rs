@@ -7,7 +7,7 @@
 #![allow(dead_code)]
 
 use {
-    anyhow::{Result, anyhow, bail},
+    anyhow::{Result, bail},
     dotfiles_configurator::{
         configuration::{
             ApplicationName, ApplicationSource, CrateName, GitHubAccount, GitHubRepository,
@@ -613,17 +613,13 @@ impl ReadMachine for FakeMachine {
         &self,
         repository: &GitHubRepository,
         account: &GitHubAccount,
-    ) -> Result<ReleaseReading> {
+    ) -> Result<Option<ReleaseReading>> {
         let mut state = self.state.borrow_mut();
         state
             .release_reads
             .push((repository.clone(), account.clone()));
 
-        state
-            .releases
-            .get(repository)
-            .cloned()
-            .ok_or_else(|| anyhow!("{repository} has published no release"))
+        Ok(state.releases.get(repository).cloned())
     }
 
     fn read_search_path(&self) -> Result<SearchPathReading> {
