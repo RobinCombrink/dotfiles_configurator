@@ -100,8 +100,6 @@ impl Default for FakeMachine {
             repositories_root,
             dotfiles_repository_path,
             state: RefCell::new(MachineState {
-                // Every shell but WSL ships with the machines that have it, and the fixed set of
-                // scenarios only ever takes tools away.
                 tools: BTreeSet::from([
                     Tool::Winget,
                     Tool::Cargo,
@@ -512,9 +510,6 @@ fn materialise_clone(state: &mut MachineState, clone_directory: &Path) {
     state.paths.extend(held);
 }
 
-/// Renders what winget reports, in the fixed-width shape the real one emits: a header naming each
-/// column, a rule beneath it, and every package on a line of its own. Columns are sized to the
-/// widest value, which is what winget does whenever its output is redirected.
 fn winget_listing(packages: &BTreeSet<WingetPackageId>) -> String {
     /// Every row carries the same name, so the name column is only ever as wide as this.
     const PACKAGE_NAME: &str = "A package";

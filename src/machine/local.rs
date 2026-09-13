@@ -723,12 +723,7 @@ fn shell_invocation(shell: Shell, args: &[String]) -> (String, Vec<String>) {
     }
 }
 
-/// Clears the way for a link, and only ever by removing another link.
-///
-/// A link is this tool's own work and removing one destroys nothing, so a link pointing somewhere
-/// else is replaced. Anything else at that path was put there by a person: convergence makes
-/// declared things true and never makes undeclared things false, so a real file or directory in
-/// the way is reported rather than deleted. See ADR 0005.
+// ADR 0005
 fn replace_existing_link(link_path: &Path) -> Result<()> {
     let Ok(metadata) = link_path.symlink_metadata() else {
         return Ok(());
@@ -742,8 +737,6 @@ fn replace_existing_link(link_path: &Path) -> Result<()> {
         );
     }
 
-    // A directory symlink is removed with `remove_dir`, which unlinks it without touching
-    // whatever it points at.
     match metadata.is_dir() {
         true => fs::remove_dir(link_path),
         false => fs::remove_file(link_path),
