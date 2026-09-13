@@ -8,7 +8,7 @@ use {
         },
         convergence::{
             Assessment, DriftReason, Impediment, Requirement, machine_manifest_document,
-            machine_manifest_path, search_path_directory,
+            machine_manifest_path, search_path_directory, symlink_location,
         },
         desired_state::{DesiredState, ResolvedResource},
         machine::{
@@ -557,8 +557,7 @@ fn assess_symlink(
     resource: &ResolvedResource,
     machine: &impl ReadMachine,
 ) -> Assessment {
-    let link_path = machine.resolve_against_home(&symlink.link_path);
-    let source_path = resource.files_root().join(&symlink.source_path);
+    let (link_path, source_path) = symlink_location(symlink, resource, machine);
 
     match machine.link_target(&link_path) {
         None if machine.path_exists(&link_path) => {
