@@ -134,6 +134,21 @@ Feature: Applying a change set
     Then the command "refresh-completions" was run 1 time
     And the machine is reported as converged
 
+  Scenario: A command declared twice is run once
+    Given Alice declares the command "refresh-completions" with no presence check
+    And Alice's employer's configuration declares the command "refresh-completions" with no presence check
+    When Alice applies
+    Then the command "refresh-completions" was run 1 time
+    And the machine is reported as converged
+
+  Scenario: Two configurations declaring different commands have both of them run
+    Given Alice declares the command "refresh-completions" with no presence check
+    And Alice's employer's configuration declares the command "sync-secrets" with no presence check
+    When Alice applies
+    Then the command "refresh-completions" was run 1 time
+    And the command "sync-secrets" was run 1 time
+    And the machine is reported as converged
+
   Scenario: Applying removes the binary an earlier run moved aside
     Given Alice declares the application "Neovim"
     And Neovim is installed on Alice's machine

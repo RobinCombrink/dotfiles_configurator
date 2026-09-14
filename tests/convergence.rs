@@ -410,6 +410,19 @@ fn declare_command_without_check(world: &mut MachineWorld, command: String) {
     ));
 }
 
+#[given(
+    expr = "Alice's employer's configuration declares the command {string} with no presence check"
+)]
+fn employers_configuration_declares_a_command(world: &mut MachineWorld, command: String) {
+    world.employers_resources.push(Resource::Command(
+        dotfiles_configurator::configuration::Command {
+            shell: Shell::Bash,
+            args: vec![command],
+            presence_check: None,
+        },
+    ));
+}
+
 fn output_check(invocation: &str, shell: Shell) -> PresenceCheck {
     PresenceCheck::CommandOutputContains {
         shell,

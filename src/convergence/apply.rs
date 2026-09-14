@@ -1,13 +1,17 @@
 use {
     crate::{
-        configuration::{Migration, Notice, ResourceKind},
+        configuration::{Identity, Migration, Notice, Resource, ResourceKind},
         configuration_source::WriteSource,
         convergence::{Blocked, Change, ChangeSet, converge::converge, plan},
         desired_state::{DesiredState, ResolvedResource},
         machine::{Placement, WriteMachine},
         reporting::RunReport,
     },
-    std::{fmt::Display, path::PathBuf},
+    std::{
+        collections::BTreeSet,
+        fmt::Display,
+        path::{Path, PathBuf},
+    },
 };
 
 /// One resource whose convergence failed, together with what went wrong.
@@ -122,6 +126,7 @@ pub async fn apply(
     let mut converged: Vec<ResolvedResource> = Vec::new();
     let mut failed: Vec<Failure> = Vec::new();
     let mut held: Vec<Held> = Vec::new();
+    let mut handled: BTreeSet<Handled> = BTreeSet::new();
     let mut passes = 0;
 
     {
@@ -142,6 +147,7 @@ pub async fn apply(
             &change_set,
             machine,
             report,
+            &mut handled,
             &mut converged,
             &mut failed,
             &mut held,
@@ -192,51 +198,117 @@ fn notice_of_an_environment_change(converged: &[ResolvedResource]) -> Option<Not
     })
 }
 
+/// The work a resource performs, which is what makes two declarations of it the same work.
+///
+/// ```
+/// # use dotfiles_configurator::{
+/// #     configuration::{Command, Resource, Shell},
+/// #     convergence::apply::Invocation,
+/// # };
+/// let declared = |argument: &str| {
+///     Resource::Command(Command {
+///         shell: Shell::Bash,
+///         args: vec![argument.to_owned()],
+///         presence_check: None,
+///     })
+/// };
+/// assert_eq!(
+///     Invocation::from(&declared("refresh-completions")),
+///     Invocation::from(&declared("refresh-completions"))
+/// );
+/// assert_ne!(
+///     Invocation::from(&declared("refresh-completions")),
+///     Invocation::from(&declared("sync-secrets"))
+/// );
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct Invocation(String);
+
+impl From<&Resource> for Invocation {
+    fn from(resource: &Resource) -> Self {
+        Invocation(resource.to_string())
+    }
+}
+
+/// What a pass has already accounted for, so that a later pass leaves it alone. A resource that
+/// claims an identity is keyed by it; one that claims none — a command, and only a command — is
+/// keyed by the work it performs, so that two configurations declaring the same work converge it
+/// once.
+///
+/// ```
+/// # use dotfiles_configurator::{
+/// #     configuration::{Command, Identity, Resource, Shell},
+/// #     convergence::apply::{Handled, Invocation},
+/// # };
+/// let refresh = Resource::Command(Command {
+///     shell: Shell::Bash,
+///     args: vec!["refresh-completions".to_owned()],
+///     presence_check: None,
+/// });
+/// assert_eq!(
+///     Handled::Claimed(Identity::MachineManifest),
+///     Handled::Claimed(Identity::MachineManifest)
+/// );
+/// assert_ne!(
+///     Handled::Claimed(Identity::MachineManifest),
+///     Handled::Unclaimable(Invocation::from(&refresh))
+/// );
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Handled {
+    Claimed(Identity),
+    Unclaimable(Invocation),
+}
+
+impl Handled {
+    fn of(change: &Change, home_directory: &Path) -> Self {
+        match change.resource.identity(home_directory) {
+            Some(identity) => Handled::Claimed(identity),
+            None => Handled::Unclaimable(Invocation::from(change.resource.declared())),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum Attempted {
+    Converged,
+    Held(PathBuf),
+    Failed(anyhow::Error),
+    AlreadyHandled,
+}
+
 /// Converges every changed resource in the set, collecting failures instead of stopping at the
 /// first, and answers how many actually converged.
 async fn attempt(
     change_set: &ChangeSet,
     machine: &impl WriteMachine,
     report: &RunReport,
+    handled: &mut BTreeSet<Handled>,
     converged: &mut Vec<ResolvedResource>,
     failed: &mut Vec<Failure>,
     held: &mut Vec<Held>,
 ) -> usize {
     let mut count = 0;
     for change in &change_set.changes {
-        if failed
-            .iter()
-            .any(|failure| failure.resource == change.resource)
-            || held.iter().any(|entry| entry.resource == change.resource)
-            || converged.contains(&change.resource)
-        {
-            continue;
-        }
+        let key = Handled::of(change, machine.home_directory());
 
-        let outcome = {
-            let _doing = report.doing(format!("converging {}", change.resource));
-            converge(&change.resource, machine, &change_set.readings).await
-        };
-
-        match outcome {
-            Ok(Placement::Placed) => {
-                report.note(&format!("converged {}", change.resource));
+        match attempt_one(change, change_set, machine, report, handled, &key).await {
+            Attempted::AlreadyHandled => {}
+            Attempted::Converged => {
+                handled.insert(key);
                 converged.push(change.resource.clone());
                 count += 1;
             }
-            Ok(Placement::Held(path)) => {
-                report.note(&format!(
-                    "HELD {}: {} is being executed",
-                    change.resource,
-                    path.display()
-                ));
+            Attempted::Held(path) => {
+                handled.insert(key);
                 held.push(Held {
                     resource: change.resource.clone(),
                     path,
                 });
             }
-            Err(error) => {
-                report.note(&format!("FAILED {}: {error:#}", change.resource));
+            Attempted::Failed(error) => {
+                handled.insert(key);
                 failed.push(Failure {
                     resource: change.resource.clone(),
                     error,
@@ -245,4 +317,41 @@ async fn attempt(
         }
     }
     count
+}
+
+async fn attempt_one(
+    change: &Change,
+    change_set: &ChangeSet,
+    machine: &impl WriteMachine,
+    report: &RunReport,
+    handled: &BTreeSet<Handled>,
+    key: &Handled,
+) -> Attempted {
+    if handled.contains(key) {
+        return Attempted::AlreadyHandled;
+    }
+
+    let outcome = {
+        let _doing = report.doing(format!("converging {}", change.resource));
+        converge(&change.resource, machine, &change_set.readings).await
+    };
+
+    match outcome {
+        Ok(Placement::Placed) => {
+            report.note(&format!("converged {}", change.resource));
+            Attempted::Converged
+        }
+        Ok(Placement::Held(path)) => {
+            report.note(&format!(
+                "HELD {}: {} is being executed",
+                change.resource,
+                path.display()
+            ));
+            Attempted::Held(path)
+        }
+        Err(error) => {
+            report.note(&format!("FAILED {}: {error:#}", change.resource));
+            Attempted::Failed(error)
+        }
+    }
 }
