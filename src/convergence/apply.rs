@@ -2,13 +2,9 @@ use {
     crate::{
         configuration::{Migration, Notice, ResourceKind},
         configuration_source::WriteSource,
-        convergence::{
-            Blocked, Change, ChangeSet,
-            converge::{Convergence, converge},
-            plan,
-        },
+        convergence::{Blocked, Change, ChangeSet, converge::converge, plan},
         desired_state::{DesiredState, ResolvedResource},
-        machine::WriteMachine,
+        machine::{Placement, WriteMachine},
         reporting::RunReport,
     },
     std::{fmt::Display, path::PathBuf},
@@ -223,12 +219,12 @@ async fn attempt(
         };
 
         match outcome {
-            Ok(Convergence::Converged) => {
+            Ok(Placement::Placed) => {
                 report.note(&format!("converged {}", change.resource));
                 converged.push(change.resource.clone());
                 count += 1;
             }
-            Ok(Convergence::Held(path)) => {
+            Ok(Placement::Held(path)) => {
                 report.note(&format!(
                     "HELD {}: {} is being executed",
                     change.resource,
