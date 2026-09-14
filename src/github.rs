@@ -1,5 +1,5 @@
 use {
-    crate::configuration::GitHubAccount,
+    crate::configuration::{GitHubAccount, GitHubRepository},
     anyhow::{Context, Result, anyhow},
     github_authentication::{GitHubToken, cli},
     octocrab::Octocrab,
@@ -81,18 +81,17 @@ fn remedy_for(refusal: &cli::Refusal) -> Option<String> {
 
 /// Reads the decoded contents of a file held in a GitHub repository.
 pub async fn get_file_contents(
-    owner: &str,
-    repo: &str,
+    repository: &GitHubRepository,
     file_path: &str,
     octocrab: &Arc<Octocrab>,
 ) -> Result<Vec<String>> {
     let contents = octocrab
-        .repos(owner.to_owned(), repo.to_owned())
+        .repos(repository.owner.as_ref(), repository.repository.as_ref())
         .get_content()
         .path(file_path.to_owned())
         .send()
         .await
-        .with_context(|| format!("Could not read {owner}/{repo}/{file_path}"))?;
+        .with_context(|| format!("Could not read {repository}/{file_path}"))?;
 
     Ok(contents
         .items
@@ -102,18 +101,17 @@ pub async fn get_file_contents(
 }
 
 pub async fn list_directory_files(
-    owner: &str,
-    repository: &str,
+    repository: &GitHubRepository,
     directory: &str,
     octocrab: &Arc<Octocrab>,
 ) -> Result<Vec<String>> {
     let contents = octocrab
-        .repos(owner.to_owned(), repository.to_owned())
+        .repos(repository.owner.as_ref(), repository.repository.as_ref())
         .get_content()
         .path(directory.to_owned())
         .send()
         .await
-        .with_context(|| format!("Could not read {owner}/{repository}/{directory}"))?;
+        .with_context(|| format!("Could not read {repository}/{directory}"))?;
 
     let mut file_paths: Vec<String> = contents
         .items

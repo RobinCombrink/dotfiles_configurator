@@ -19,7 +19,7 @@ use {
 use {
     dotfiles_configurator::configuration::{
         BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
-        OLDEST_READABLE_GENERATION,
+        GitHubRepository, OLDEST_READABLE_GENERATION,
     },
     std::str::FromStr,
 };
@@ -263,8 +263,10 @@ mod tests {
             ]),
             vec![
                 ConfigurationSource::GitHubRepository {
-                    owner: "Alice".into(),
-                    repository: "dotfiles".into(),
+                    repository: GitHubRepository {
+                        owner: "Alice".into(),
+                        repository: "dotfiles".into(),
+                    },
                     directory: "config".to_owned(),
                 },
                 ConfigurationSource::LocalDirectory("config".into()),
