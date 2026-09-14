@@ -1023,8 +1023,7 @@ fn the_log_names(world: &mut MachineWorld, expected: String) {
         .report
         .as_ref()
         .expect("the scenario has not run yet")
-        .log_path()
-        .expect("the run wrote no log");
+        .log_path();
     let written = fs::read_to_string(&path).unwrap();
 
     assert!(
