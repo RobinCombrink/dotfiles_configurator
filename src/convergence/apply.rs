@@ -193,27 +193,33 @@ fn notice_of_an_environment_change(converged: &[ResolvedResource]) -> Option<Not
     changed.then_some(Notice::EnvironmentChanged)
 }
 
-/// The work a resource performs, which is what makes two declarations of it the same work.
+/// The work a resource performs, which is what makes two declarations of it the same work. A
+/// command's work is its arguments and the shell they are run through; the presence check that
+/// guards it is not part of it, having already spoken by the time a change exists.
 ///
 /// ```
 /// # use dotfiles_configurator::{
 /// #     configuration::{Command, Resource, Shell},
 /// #     convergence::apply::Invocation,
 /// # };
-/// let declared = |argument: &str| {
+/// let declared = |argument: &str, shell: Shell| {
 ///     Resource::Command(Command {
-///         shell: Shell::Bash,
+///         shell,
 ///         args: vec![argument.to_owned()],
 ///         presence_check: None,
 ///     })
 /// };
 /// assert_eq!(
-///     Invocation::from(&declared("refresh-completions")),
-///     Invocation::from(&declared("refresh-completions"))
+///     Invocation::from(&declared("refresh-completions", Shell::Bash)),
+///     Invocation::from(&declared("refresh-completions", Shell::Bash))
 /// );
 /// assert_ne!(
-///     Invocation::from(&declared("refresh-completions")),
-///     Invocation::from(&declared("sync-secrets"))
+///     Invocation::from(&declared("refresh-completions", Shell::Bash)),
+///     Invocation::from(&declared("sync-secrets", Shell::Bash))
+/// );
+/// assert_ne!(
+///     Invocation::from(&declared("refresh-completions", Shell::Bash)),
+///     Invocation::from(&declared("refresh-completions", Shell::PowerShell))
 /// );
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -222,7 +228,12 @@ pub struct Invocation(String);
 
 impl From<&Resource> for Invocation {
     fn from(resource: &Resource) -> Self {
-        Invocation(resource.to_string())
+        match resource {
+            Resource::Command(command) => {
+                Invocation(format!("{:?} {}", command.shell, command.rendered()))
+            }
+            resource => Invocation(resource.to_string()),
+        }
     }
 }
 
