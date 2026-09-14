@@ -2,13 +2,10 @@ use {
     crate::{
         configuration::{
             Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
-            EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, Package, Registration,
-            ReleasedBinary, Resource, Symlink, WingetPackage,
+            EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, MachineManifest,
+            Package, Registration, ReleasedBinary, Resource, Symlink, WingetPackage,
         },
-        convergence::{
-            SourceReadings, machine_manifest_document, machine_manifest_path,
-            search_path_directory, symlink_location,
-        },
+        convergence::{SourceReadings, search_path_directory, symlink_location},
         desired_state::ResolvedResource,
         machine::{
             DisplacingInvocation, Placement, Replacement, ReplacingInvocation, ResolvedCargoSource,
@@ -64,8 +61,8 @@ pub async fn converge(
         }
         Resource::Symlink(symlink) => converge_symlink(symlink, resource, machine),
         Resource::Registration(Registration::MachineManifest(manifest)) => {
-            let path = machine_manifest_path(machine);
-            let document = machine_manifest_document(manifest)?;
+            let path = MachineManifest::path_within(machine.home_directory());
+            let document = String::try_from(manifest)?;
             machine
                 .write_text_file(&path, &document)
                 .with_context(|| format!("Could not write {}", path.display()))
