@@ -144,7 +144,9 @@ on every run. Unavailable on a released binary, which is asked for its version i
 _Avoid_: guard, precondition, unless, creates
 
 **Notice**:
-A message for a person, and not a resource. Defined by `Notice`.
+A message for a person, and not a resource. Carries the facts the site that raised it held and
+is rendered to text only where it is shown. Defined by `Notice`; the one a configuration writes
+down in free text is `DeclaredNotice`.
 _Avoid_: reminder, warning, message
 
 **Command**:
@@ -160,6 +162,12 @@ One file declaring part of a desired state, and the machines it is for. Several 
 and merged. A configuration is self-describing: it says which machines it applies to, so nothing
 outside it decides whether it is read.
 _Avoid_: manifest, profile, layer, tier
+
+**Configuration name**:
+The document a configuration was read out of, as a person is told it when two of them make
+conflicting claims: a path for a local source, `owner/repository/file` for one read from GitHub.
+Defined by `ConfigurationName`.
+_Avoid_: source, file name, path, identifier
 
 **Generation**:
 The lowest build of this program that can read a given configuration, stated by the configuration
