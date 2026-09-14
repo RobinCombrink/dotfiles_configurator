@@ -6,6 +6,7 @@ use {
                 RepositoryName, RepositoryOwner, VariableName, VariableValue, WingetPackageId,
             },
             presence_check::PresenceCheck,
+            requirement::{Requirement, Tool},
         },
         version::Version,
     },
@@ -77,6 +78,60 @@ impl Resource {
             Resource::Registration(_) => ResourceKind::Registration,
             Resource::Command(_) => ResourceKind::Command,
         }
+    }
+
+    pub fn can_be_read_back(&self) -> bool {
+        match self {
+            Resource::Command(command) => command.presence_check.is_some(),
+            Resource::Repository(_)
+            | Resource::Application(_)
+            | Resource::Package(_)
+            | Resource::EnvironmentVariable(_)
+            | Resource::Symlink(_)
+            | Resource::Registration(_) => true,
+        }
+    }
+
+    pub(crate) fn tool_requirements(&self) -> Vec<Requirement> {
+        match self {
+            Resource::Repository(_) => Vec::new(),
+            Resource::Application(Application::Installer(installer)) => {
+                check_requirements(Some(&installer.presence_check))
+            }
+            Resource::Application(Application::ReleasedBinary(_)) => Vec::new(),
+            Resource::Package(Package::Winget(_)) => vec![Requirement::Tool(Tool::Winget)],
+            Resource::Package(Package::Cargo(package)) => match package.source {
+                CargoSource::Workspace { .. } => {
+                    vec![Requirement::Tool(Tool::Cargo), Requirement::Tool(Tool::Git)]
+                }
+                CargoSource::Registry | CargoSource::Path { .. } => {
+                    vec![Requirement::Tool(Tool::Cargo)]
+                }
+            },
+            Resource::EnvironmentVariable(_) | Resource::Symlink(_) => Vec::new(),
+            Resource::Registration(_) => vec![Requirement::Tool(Tool::Claude)],
+            Resource::Command(command) => {
+                let mut requirements = check_requirements(command.presence_check.as_ref());
+                requirements.extend(shell_requirement(command.shell));
+                requirements
+            }
+        }
+    }
+}
+
+fn check_requirements(check: Option<&PresenceCheck>) -> Vec<Requirement> {
+    match check {
+        Some(PresenceCheck::CommandOutputContains { shell, .. }) => {
+            shell_requirement(*shell).into_iter().collect()
+        }
+        Some(_) | None => Vec::new(),
+    }
+}
+
+fn shell_requirement(shell: Shell) -> Option<Requirement> {
+    match shell {
+        Shell::Wsl => Some(Requirement::Tool(Tool::Wsl)),
+        Shell::Bash | Shell::CommandPrompt | Shell::PowerShell => None,
     }
 }
 

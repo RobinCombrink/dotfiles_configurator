@@ -20,6 +20,8 @@ pub mod names;
 pub(crate) mod path_folding;
 #[path = "configuration/presence_check.rs"]
 pub mod presence_check;
+#[path = "configuration/requirement.rs"]
+pub mod requirement;
 #[path = "configuration/resource.rs"]
 pub mod resource;
 #[path = "configuration/unreadable.rs"]
@@ -40,6 +42,7 @@ pub use {
         RepositoryOwner, VariableName, VariableValue, WingetPackageId,
     },
     presence_check::PresenceCheck,
+    requirement::{Requirement, Tool},
     resource::{
         Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,
         ClaudeMcpServer, Command, EnvironmentVariable, GitHubRepository, Installer,

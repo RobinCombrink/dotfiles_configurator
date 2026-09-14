@@ -12,13 +12,14 @@ use {
         configuration::{
             ApplicationName, ApplicationSource, ClaudeMcpServer, CrateName, GitHubAccount,
             GitHubRepository, Installer, MachineClass, MachineManifest, McpServerName, Migration,
-            PresenceCheck, ReleasedBinary, Shell, VariableName, VariableValue, WingetPackageId,
+            PresenceCheck, ReleasedBinary, Shell, Tool, VariableName, VariableValue,
+            WingetPackageId,
         },
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
-            Replacement, ReplacingInvocation, Tool, WriteInvocation, WriteMachine,
+            Replacement, ReplacingInvocation, WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,

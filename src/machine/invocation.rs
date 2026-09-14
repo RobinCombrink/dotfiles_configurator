@@ -1,10 +1,10 @@
 use {
     crate::{
         configuration::{
-            ClaudeMcpServer, CrateName, GitHubAccount, GitHubRepository, McpServerName,
+            ClaudeMcpServer, CrateName, GitHubAccount, GitHubRepository, McpServerName, Tool,
             WingetPackageId,
         },
-        machine::{CommandOutput, Replacement, Tool, workspace_reading::Revision},
+        machine::{CommandOutput, Replacement, workspace_reading::Revision},
     },
     std::path::PathBuf,
 };

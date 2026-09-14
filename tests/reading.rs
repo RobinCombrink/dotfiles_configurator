@@ -104,7 +104,7 @@ async fn a_manager_nothing_is_declared_against_is_never_asked() {
 #[tokio::test]
 async fn a_package_whose_manager_is_absent_leaves_that_manager_unasked() {
     let machine = FakeMachine::default();
-    machine.remove_tool(dotfiles_configurator::machine::Tool::Winget);
+    machine.remove_tool(dotfiles_configurator::configuration::Tool::Winget);
     let desired_state = desired_state(vec![winget_package("Microsoft.PowerShell")]);
 
     plan(&desired_state, &machine, &RunReport::discarded())
