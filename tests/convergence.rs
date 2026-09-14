@@ -19,7 +19,7 @@ use {
             BinaryName, CargoWorkspace, ClaudeMcpServer, CrateName, EnvironmentVariable,
             GitHubAccount, Installer, MachineClass, MachineManifest, McpScope, McpServerName,
             Notice, OLDEST_READABLE_GENERATION, PresenceCheck, Registration, Resource,
-            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Variable, VariableName,
+            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, Variable, VariableName,
             VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
@@ -27,7 +27,7 @@ use {
         desired_state::DesiredState,
         github::GitHubAccess,
         machine::{
-            CommandOutput, ReadInvocation, ReadMachine, Tool,
+            CommandOutput, ReadInvocation, ReadMachine,
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
                 Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,

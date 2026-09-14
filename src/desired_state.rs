@@ -3,9 +3,9 @@ use {
         configuration::{
             Application, CargoWorkspace, Configuration, Context, EnvironmentVariable,
             GitHubAccount, GitHubRepository, Identity, MachineManifest, Migration, Notice,
-            Registration, Resource, ResourceKind, SearchPathDirectory, SearchPathEntry,
+            Registration, Requirement, Resource, ResourceKind, SearchPathDirectory,
+            SearchPathEntry,
         },
-        convergence::Requirement,
         currency,
     },
     anyhow::{Result, anyhow, bail},

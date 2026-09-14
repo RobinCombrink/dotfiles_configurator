@@ -2,7 +2,7 @@ use {
     crate::{
         TOOL_DIRECTORY,
         configuration::{
-            CrateName, GitHubAccount, GitHubRepository, McpServerName, PresenceCheck, Shell,
+            CrateName, GitHubAccount, GitHubRepository, McpServerName, PresenceCheck, Shell, Tool,
             VariableName, VariableValue, path_folding,
         },
         machine::{
@@ -28,33 +28,6 @@ pub use invocation::{
     DisplacingInvocation, ReadInvocation, ReplacementCommands, ReplacingInvocation,
     ResolvedCargoSource, WriteInvocation,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Tool {
-    Winget,
-    Cargo,
-    Claude,
-    Wsl,
-    Git,
-}
-
-impl Tool {
-    pub fn program(&self) -> &'static str {
-        match self {
-            Tool::Winget => "winget",
-            Tool::Cargo => "cargo",
-            Tool::Claude => "claude",
-            Tool::Wsl => "wsl",
-            Tool::Git => "git",
-        }
-    }
-}
-
-impl std::fmt::Display for Tool {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.program())
-    }
-}
 
 /// What a process reported back. Kept whole rather than reduced to a bool, because parsing a
 /// tool's output belongs to the kind that understands it.

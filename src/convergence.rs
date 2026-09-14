@@ -1,10 +1,7 @@
 use {
     crate::{
-        configuration::{
-            GitHubRepository, Migration, Notice, Resource, ResourceKind, Shell, Symlink,
-        },
+        configuration::{Migration, Notice, Requirement, ResourceKind, Symlink},
         desired_state::{DesiredState, ResolvedResource},
-        machine::Tool,
         reporting::RunReport,
     },
     std::fmt::Display,
@@ -69,95 +66,6 @@ impl From<&str> for DriftReason {
 impl Display for DriftReason {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&self.0)
-    }
-}
-
-// ADR 0004
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Requirement {
-    Tool(Tool),
-    DotfilesRepository(GitHubRepository),
-}
-
-impl Display for Requirement {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Requirement::Tool(tool) => write!(formatter, "{tool} is not on the path"),
-            Requirement::DotfilesRepository(repository) => {
-                write!(formatter, "{repository} has not been cloned")
-            }
-        }
-    }
-}
-
-impl Resource {
-    /// Whether converging this resource can be confirmed afterwards by reading the machine. Only
-    /// a command without a presence check cannot: it claims no fact, so it has drift on every
-    /// run by design, and its drift after an apply says nothing about whether the apply worked.
-    pub fn can_be_read_back(&self) -> bool {
-        match self {
-            Resource::Command(command) => command.presence_check.is_some(),
-            Resource::Repository(_)
-            | Resource::Application(_)
-            | Resource::Package(_)
-            | Resource::EnvironmentVariable(_)
-            | Resource::Symlink(_)
-            | Resource::Registration(_) => true,
-        }
-    }
-
-    /// What this resource needs on the machine before it can be read or converged. A property of
-    /// the kind, not something an author writes down — no configuration can express a cargo
-    /// package that forgets it needs cargo. What it needs of its own configuration is answered by
-    /// the resolved resource instead, which is the only thing holding the origin that decides it.
-    pub(crate) fn tool_requirements(&self) -> Vec<Requirement> {
-        match self {
-            Resource::Repository(_) => Vec::new(),
-            Resource::Application(crate::configuration::Application::Installer(installer)) => {
-                check_requirements(Some(&installer.presence_check))
-            }
-            Resource::Application(crate::configuration::Application::ReleasedBinary(_)) => {
-                Vec::new()
-            }
-            Resource::Package(crate::configuration::Package::Winget(_)) => {
-                vec![Requirement::Tool(Tool::Winget)]
-            }
-            Resource::Package(crate::configuration::Package::Cargo(package)) => {
-                match package.source {
-                    crate::configuration::CargoSource::Workspace { .. } => {
-                        vec![Requirement::Tool(Tool::Cargo), Requirement::Tool(Tool::Git)]
-                    }
-                    crate::configuration::CargoSource::Registry
-                    | crate::configuration::CargoSource::Path { .. } => {
-                        vec![Requirement::Tool(Tool::Cargo)]
-                    }
-                }
-            }
-            Resource::EnvironmentVariable(_) | Resource::Symlink(_) => Vec::new(),
-            Resource::Registration(_) => vec![Requirement::Tool(Tool::Claude)],
-            Resource::Command(command) => {
-                let mut requirements = check_requirements(command.presence_check.as_ref());
-                requirements.extend(shell_requirement(command.shell));
-                requirements
-            }
-        }
-    }
-}
-
-fn check_requirements(check: Option<&crate::configuration::PresenceCheck>) -> Vec<Requirement> {
-    match check {
-        Some(crate::configuration::PresenceCheck::CommandOutputContains { shell, .. }) => {
-            shell_requirement(*shell).into_iter().collect()
-        }
-        Some(_) | None => Vec::new(),
-    }
-}
-
-/// Only WSL is a tool in its own right; the other shells ship with the machines that have them.
-fn shell_requirement(shell: Shell) -> Option<Requirement> {
-    match shell {
-        Shell::Wsl => Some(Requirement::Tool(Tool::Wsl)),
-        Shell::Bash | Shell::CommandPrompt | Shell::PowerShell => None,
     }
 }
 

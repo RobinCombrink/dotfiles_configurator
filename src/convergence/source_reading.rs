@@ -1,5 +1,8 @@
 use {
-    crate::{configuration::GitHubRepository, convergence::Impediment, machine::Tool},
+    crate::{
+        configuration::{GitHubRepository, Tool},
+        convergence::Impediment,
+    },
     std::{fmt::Display, path::PathBuf},
 };
 

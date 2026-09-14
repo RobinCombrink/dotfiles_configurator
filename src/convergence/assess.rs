@@ -3,11 +3,11 @@ use {
         configuration::{
             Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
             CrateName, EnvironmentVariable, GitHubAccount, GitHubRepository, Installer,
-            MachineManifest, Package, Registration, ReleasedBinary, Resource, SearchPathEntry,
-            Symlink, Variable, WingetPackage,
+            MachineManifest, Package, Registration, ReleasedBinary, Requirement, Resource,
+            SearchPathEntry, Symlink, Variable, WingetPackage,
         },
         convergence::{
-            Assessment, Impediment, ReadSource, Requirement, SourceReading, UnreadableReason,
+            Assessment, Impediment, ReadSource, SourceReading, UnreadableReason,
             search_path_directory, symlink_location,
         },
         desired_state::{DesiredState, ResolvedResource},
