@@ -96,7 +96,7 @@ async fn run(task: Task) -> Result<ExitCode> {
             let report = RunReport::open(RunKind::Plan)?;
             let desired_state = load(&arguments, &github).await?;
             let machine = LocalMachine::new(&report, &github)?;
-            let change_set = plan(&desired_state, &machine, &report).await?;
+            let (change_set, _) = plan(&desired_state, &machine, &report).await?;
             println!("{change_set}");
             Ok(exit_code_for(change_set.is_converged()))
         }

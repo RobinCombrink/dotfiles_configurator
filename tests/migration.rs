@@ -121,7 +121,7 @@ async fn planning_reports_a_pending_migration_and_leaves_the_document_as_it_was(
     let before = personal_document(&checkout);
 
     let desired_state = load(&checkout).await;
-    let change_set = plan(
+    let (change_set, _) = plan(
         &desired_state,
         &FakeMachine::default(),
         &RunReport::discarded(),

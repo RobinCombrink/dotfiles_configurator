@@ -2,7 +2,7 @@ use {
     crate::{
         configuration::{Identity, Migration, Notice, Resource, ResourceKind},
         configuration_source::WriteSource,
-        convergence::{Blocked, Change, ChangeSet, converge::converge, plan},
+        convergence::{Blocked, Change, ChangeSet, SourceReadings, converge::converge, plan},
         desired_state::{DesiredState, ResolvedResource},
         machine::{Placement, WriteMachine},
         reporting::RunReport,
@@ -140,10 +140,10 @@ pub async fn apply(
     }
 
     let change_set = loop {
-        let change_set: ChangeSet = plan(desired_state, machine, report).await?;
+        let (change_set, readings) = plan(desired_state, machine, report).await?;
         passes += 1;
 
-        let pass = attempt(&change_set, machine, report, &handled).await;
+        let pass = attempt(&change_set, &readings, machine, report, &handled).await;
         report.note(&format!(
             "pass {passes} converged {} resource(s)",
             pass.converged.len()
@@ -288,6 +288,7 @@ struct Pass {
 
 async fn attempt(
     change_set: &ChangeSet,
+    readings: &SourceReadings,
     machine: &impl WriteMachine,
     report: &RunReport,
     handled: &BTreeSet<Handled>,
@@ -296,7 +297,7 @@ async fn attempt(
     for change in &change_set.changes {
         let key = Handled::of(change, machine.home_directory());
 
-        match attempt_one(change, change_set, machine, report, handled, &pass, &key).await {
+        match attempt_one(change, readings, machine, report, handled, &pass, &key).await {
             Attempted::AlreadyHandled => continue,
             Attempted::Converged => pass.converged.push(change.resource.clone()),
             Attempted::Held(path) => pass.held.push(Held {
@@ -315,7 +316,7 @@ async fn attempt(
 
 async fn attempt_one(
     change: &Change,
-    change_set: &ChangeSet,
+    readings: &SourceReadings,
     machine: &impl WriteMachine,
     report: &RunReport,
     handled: &BTreeSet<Handled>,
@@ -328,7 +329,7 @@ async fn attempt_one(
 
     let outcome = {
         let _doing = report.doing(format!("converging {}", change.resource));
-        converge(&change.resource, machine, &change_set.readings).await
+        converge(&change.resource, machine, readings).await
     };
 
     match outcome {

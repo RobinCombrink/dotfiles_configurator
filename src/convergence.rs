@@ -119,7 +119,6 @@ pub struct ChangeSet {
     pub notices: Vec<Notice>,
     /// The documents an apply would rewrite, which a plan reports and performs none of.
     pub migrations: Vec<Migration>,
-    pub readings: SourceReadings,
 }
 
 impl ChangeSet {
@@ -140,7 +139,7 @@ pub async fn plan(
     desired_state: &DesiredState,
     machine: &impl crate::machine::ReadMachine,
     report: &RunReport,
-) -> anyhow::Result<ChangeSet> {
+) -> anyhow::Result<(ChangeSet, SourceReadings)> {
     let readings = {
         let _doing = report.doing("reading what the machine already has");
         SourceReadings::read_for(desired_state, machine).await
@@ -191,14 +190,16 @@ pub async fn plan(
         ))
     }));
 
-    Ok(ChangeSet {
-        changes,
-        blocked,
-        converged,
-        notices,
-        migrations: desired_state.migrations.clone(),
+    Ok((
+        ChangeSet {
+            changes,
+            blocked,
+            converged,
+            notices,
+            migrations: desired_state.migrations.clone(),
+        },
         readings,
-    })
+    ))
 }
 
 impl Display for ChangeSet {
