@@ -19,7 +19,7 @@ use {
 use {
     dotfiles_configurator::configuration::{
         BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
-        GitHubRepository, OLDEST_READABLE_GENERATION,
+        ConfigurationName, GitHubRepository, OLDEST_READABLE_GENERATION,
     },
     std::str::FromStr,
 };
@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn a_configuration_needing_a_newer_build_sends_this_one_looking_for_its_own_release() {
         let refusal = refusing(vec![Unreadable::TooNew {
-            source: "everywhere.dotconfig.json".to_owned(),
+            source: ConfigurationName::from("everywhere.dotconfig.json"),
             required: BEYOND_BUILD_GENERATION,
             available: BUILD_GENERATION,
         }]);
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn a_document_this_build_has_outgrown_is_not_answered_by_updating_this_build() {
         let refusal = refusing(vec![Unreadable::TooOld {
-            source: "everywhere.dotconfig.json".to_owned(),
+            source: ConfigurationName::from("everywhere.dotconfig.json"),
             stated: BENEATH_OLDEST_READABLE_GENERATION,
             oldest_readable: OLDEST_READABLE_GENERATION,
         }]);
@@ -347,7 +347,7 @@ mod tests {
         let refusal = refusing(vec![
             Unreadable::Malformed(anyhow::anyhow!("personal.dotconfig.json is not valid JSON")),
             Unreadable::TooNew {
-                source: "everywhere.dotconfig.json".to_owned(),
+                source: ConfigurationName::from("everywhere.dotconfig.json"),
                 required: BEYOND_BUILD_GENERATION,
                 available: BUILD_GENERATION,
             },

@@ -5,9 +5,10 @@
 use {
     dotfiles_configurator::{
         configuration::{
-            ArchiveEntry, AssetPattern, BUILD_GENERATION, CargoWorkspace, Configuration, Context,
-            GitHubAccount, GitHubRepository, MachineClass, MachineManifest, Notice, ReleasedBinary,
-            RepositoryName, RepositoryOwner, Resource, VersionWord,
+            ArchiveEntry, AssetPattern, BUILD_GENERATION, CargoWorkspace, Configuration,
+            ConfigurationName, Context, GitHubAccount, GitHubRepository, MachineClass,
+            MachineManifest, Notice, ReleasedBinary, RepositoryName, RepositoryOwner, Resource,
+            VersionWord,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
     },
@@ -112,21 +113,17 @@ pub fn read_as_two_accounts(
 
     DesiredState::of(
         vec![
-            (
-                "everywhere.dotconfig.json".to_owned(),
-                ResolvedConfiguration::read(
-                    everywhere,
-                    SourceLocation::Checkout(PathBuf::from(DOTFILES_FILES_ROOT)),
-                    Path::new(REPOSITORIES_ROOT),
-                ),
+            ResolvedConfiguration::read(
+                ConfigurationName::from("everywhere.dotconfig.json"),
+                everywhere,
+                SourceLocation::Checkout(PathBuf::from(DOTFILES_FILES_ROOT)),
+                Path::new(REPOSITORIES_ROOT),
             ),
-            (
-                "work.dotconfig.json".to_owned(),
-                ResolvedConfiguration::read(
-                    work,
-                    SourceLocation::Repository(employers_repository()),
-                    Path::new(REPOSITORIES_ROOT),
-                ),
+            ResolvedConfiguration::read(
+                ConfigurationName::from("work.dotconfig.json"),
+                work,
+                SourceLocation::Repository(employers_repository()),
+                Path::new(REPOSITORIES_ROOT),
             ),
         ],
         manifest_for(MachineClass::Work),
@@ -160,17 +157,17 @@ fn read_from(
 
     DesiredState::of(
         vec![
-            (
-                "everywhere.dotconfig.json".to_owned(),
-                ResolvedConfiguration::read(
-                    everywhere,
-                    location.clone(),
-                    Path::new(REPOSITORIES_ROOT),
-                ),
+            ResolvedConfiguration::read(
+                ConfigurationName::from("everywhere.dotconfig.json"),
+                everywhere,
+                location.clone(),
+                Path::new(REPOSITORIES_ROOT),
             ),
-            (
-                "personal.dotconfig.json".to_owned(),
-                ResolvedConfiguration::read(personal, location, Path::new(REPOSITORIES_ROOT)),
+            ResolvedConfiguration::read(
+                ConfigurationName::from("personal.dotconfig.json"),
+                personal,
+                location,
+                Path::new(REPOSITORIES_ROOT),
             ),
         ],
         manifest_for(MachineClass::Personal),

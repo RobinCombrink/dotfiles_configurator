@@ -58,6 +58,28 @@ name!(
 );
 
 name!(
+    /// The document a configuration was read out of, as a person is told it when two of them
+    /// disagree.
+    ///
+    /// ```
+    /// # use {dotfiles_configurator::configuration::ConfigurationName, std::path::Path};
+    /// let path = Path::new("/config/personal.dotconfig.json");
+    ///
+    /// assert_eq!(
+    ///     ConfigurationName::from(path).to_string(),
+    ///     path.display().to_string()
+    /// );
+    /// ```
+    ConfigurationName
+);
+
+impl From<&std::path::Path> for ConfigurationName {
+    fn from(path: &std::path::Path) -> Self {
+        Self(path.display().to_string())
+    }
+}
+
+name!(
     /// The name an application is known by.
     ApplicationName
 );

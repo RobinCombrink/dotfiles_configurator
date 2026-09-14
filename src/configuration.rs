@@ -38,8 +38,8 @@ pub use {
     identity::{Identity, LinkPath},
     migration::{Migration, announcement},
     names::{
-        ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName, RepositoryName,
-        RepositoryOwner, VariableName, VariableValue, WingetPackageId,
+        ApplicationName, BinaryName, ConfigurationName, CrateName, GitHubAccount, McpServerName,
+        RepositoryName, RepositoryOwner, VariableName, VariableValue, WingetPackageId,
     },
     presence_check::PresenceCheck,
     requirement::{Requirement, Tool},
@@ -121,7 +121,10 @@ pub struct Reading {
     pub migrated_from: Option<Generation>,
 }
 
-pub fn parse_configuration(contents: &str, source: &str) -> Result<Reading, Unreadable> {
+pub fn parse_configuration(
+    contents: &str,
+    source: &ConfigurationName,
+) -> Result<Reading, Unreadable> {
     let document: serde_json::Value =
         serde_json::from_str(contents).with_context(|| format!("{source} is not valid JSON"))?;
 
@@ -148,7 +151,7 @@ pub fn parse_configuration(contents: &str, source: &str) -> Result<Reading, Unre
 
     if !required.is_met_by(BUILD_GENERATION) {
         return Err(Unreadable::TooNew {
-            source: source.to_owned(),
+            source: source.clone(),
             required,
             available: BUILD_GENERATION,
         });
@@ -156,7 +159,7 @@ pub fn parse_configuration(contents: &str, source: &str) -> Result<Reading, Unre
 
     if required.is_outgrown_by(OLDEST_READABLE_GENERATION) {
         return Err(Unreadable::TooOld {
-            source: source.to_owned(),
+            source: source.clone(),
             stated: required,
             oldest_readable: OLDEST_READABLE_GENERATION,
         });
@@ -198,7 +201,7 @@ mod tests {
     fn parse(body: &str) -> Result<Configuration, Unreadable> {
         parse_configuration(
             &configuration_json(&BUILD_GENERATION.to_string(), body),
-            "the test configuration",
+            &ConfigurationName::from("the test configuration"),
         )
         .map(|reading| reading.configuration)
     }
@@ -207,7 +210,11 @@ mod tests {
     fn a_configuration_whose_version_is_not_a_generation_is_rejected_by_name() {
         let superseded = configuration_json("0.1.0", r#""resources": []"#);
 
-        let error = parse_configuration(&superseded, "everywhere.dotconfig.json").unwrap_err();
+        let error = parse_configuration(
+            &superseded,
+            &ConfigurationName::from("everywhere.dotconfig.json"),
+        )
+        .unwrap_err();
 
         let message = error.to_string();
         assert!(
@@ -223,7 +230,11 @@ mod tests {
             r#""resources": []"#,
         );
 
-        let error = parse_configuration(&outgrown, "everywhere.dotconfig.json").unwrap_err();
+        let error = parse_configuration(
+            &outgrown,
+            &ConfigurationName::from("everywhere.dotconfig.json"),
+        )
+        .unwrap_err();
 
         let Unreadable::TooOld { stated, .. } = error else {
             panic!("expected the refusal to name the document as outgrown, got: {error}");
@@ -235,7 +246,11 @@ mod tests {
     fn a_configuration_stating_a_generation_beyond_this_build_is_a_fault_in_the_build() {
         let newer = configuration_json(&BEYOND_BUILD_GENERATION.to_string(), r#""resources": []"#);
 
-        let error = parse_configuration(&newer, "everywhere.dotconfig.json").unwrap_err();
+        let error = parse_configuration(
+            &newer,
+            &ConfigurationName::from("everywhere.dotconfig.json"),
+        )
+        .unwrap_err();
 
         let Unreadable::TooNew { required, .. } = error else {
             panic!("expected the refusal to name the build as the fault, got: {error}");
@@ -250,7 +265,11 @@ mod tests {
                "github_account": "Alice", "resources": [] }}"#
         );
 
-        let error = parse_configuration(&unquoted, "everywhere.dotconfig.json").unwrap_err();
+        let error = parse_configuration(
+            &unquoted,
+            &ConfigurationName::from("everywhere.dotconfig.json"),
+        )
+        .unwrap_err();
 
         let message = error.to_string();
         assert!(
@@ -264,7 +283,11 @@ mod tests {
         let versionless =
             r#"{ "applies_to": "everywhere", "github_account": "Alice", "resources": [] }"#;
 
-        let error = parse_configuration(versionless, "everywhere.dotconfig.json").unwrap_err();
+        let error = parse_configuration(
+            versionless,
+            &ConfigurationName::from("everywhere.dotconfig.json"),
+        )
+        .unwrap_err();
 
         assert!(error.to_string().contains("declares no version"));
     }
@@ -276,7 +299,11 @@ mod tests {
                "resources": [] }}"#
         );
 
-        let error = parse_configuration(&accountless, "personal.dotconfig.json").unwrap_err();
+        let error = parse_configuration(
+            &accountless,
+            &ConfigurationName::from("personal.dotconfig.json"),
+        )
+        .unwrap_err();
 
         let message = format!("{error:#}");
         assert!(
@@ -295,8 +322,11 @@ mod tests {
             ]"#,
         );
 
-        let error =
-            parse_configuration(&with_an_unknown_shell, "personal.dotconfig.json").unwrap_err();
+        let error = parse_configuration(
+            &with_an_unknown_shell,
+            &ConfigurationName::from("personal.dotconfig.json"),
+        )
+        .unwrap_err();
 
         let message = format!("{error:#}");
         assert!(
