@@ -26,8 +26,7 @@ pub trait WriteSource {
 pub enum ConfigurationSource {
     LocalDirectory(PathBuf),
     GitHubRepository {
-        owner: RepositoryOwner,
-        repository: RepositoryName,
+        repository: GitHubRepository,
         directory: String,
     },
 }
@@ -51,8 +50,10 @@ impl FromStr for ConfigurationSource {
                 };
 
                 Ok(ConfigurationSource::GitHubRepository {
-                    owner: RepositoryOwner::from(owner),
-                    repository: RepositoryName::from(repository),
+                    repository: GitHubRepository {
+                        owner: RepositoryOwner::from(owner),
+                        repository: RepositoryName::from(repository),
+                    },
                     directory: directory.to_owned(),
                 })
             }
@@ -259,10 +260,9 @@ impl Display for ConfigurationSource {
                 write!(formatter, "local:{}", directory.display())
             }
             ConfigurationSource::GitHubRepository {
-                owner,
                 repository,
                 directory,
-            } => write!(formatter, "github:{owner}/{repository}/{directory}"),
+            } => write!(formatter, "github:{repository}/{directory}"),
         }
     }
 }
@@ -271,12 +271,9 @@ impl ConfigurationSource {
     // ADR 0025
     fn files_come_from(&self) -> Result<SourceLocation> {
         match self {
-            ConfigurationSource::GitHubRepository {
-                owner, repository, ..
-            } => Ok(SourceLocation::Repository(GitHubRepository {
-                owner: owner.clone(),
-                repository: repository.clone(),
-            })),
+            ConfigurationSource::GitHubRepository { repository, .. } => {
+                Ok(SourceLocation::Repository(repository.clone()))
+            }
             ConfigurationSource::LocalDirectory(directory) => checkout_holding(directory)
                 .map(SourceLocation::Checkout)
                 .ok_or_else(|| {
@@ -293,12 +290,9 @@ impl ConfigurationSource {
         match self {
             ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory),
             ConfigurationSource::GitHubRepository {
-                owner,
                 repository,
                 directory,
-            } => {
-                Self::load_from_github(owner.as_ref(), repository.as_ref(), directory, github).await
-            }
+            } => Self::load_from_github(repository, directory, github).await,
         }
     }
 
@@ -345,43 +339,37 @@ impl ConfigurationSource {
     }
 
     async fn load_from_github(
-        owner: &str,
-        repository: &str,
+        repository: &GitHubRepository,
         directory: &str,
         github: &GitHubAccess,
     ) -> Vec<Result<LoadedConfiguration, Unreadable>> {
-        let account = match github.account(&owner.into()) {
+        // ADR 0020
+        let reading_as = GitHubAccount::from(repository.owner.as_ref());
+        let account = match github.account(&reading_as) {
             Ok(account) => account,
             Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
         };
 
-        let file_paths = match github::list_directory_files(
-            owner,
-            repository,
-            directory,
-            account.client(),
-        )
-        .await
-        {
-            Ok(file_paths) => file_paths,
-            Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
-        };
+        let file_paths =
+            match github::list_directory_files(repository, directory, account.client()).await {
+                Ok(file_paths) => file_paths,
+                Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
+            };
 
-        let owner_of_the_source = RepositoryOwner::from(owner);
         let mut loaded: Vec<Result<LoadedConfiguration, Unreadable>> = Vec::new();
         for file_path in file_paths
             .iter()
             .filter(|file_path| is_configuration_file(file_path))
         {
-            let source = format!("{owner}/{repository}/{file_path}");
-            match github::get_file_contents(owner, repository, file_path, account.client()).await {
+            let source = format!("{repository}/{file_path}");
+            match github::get_file_contents(repository, file_path, account.client()).await {
                 Err(refusal) => loaded.push(Err(Unreadable::Malformed(refusal))),
                 Ok(documents) => loaded.extend(documents.into_iter().map(|contents| {
                     let reading = parse_configuration(&contents, &source)?;
                     refuse_an_account_other_than_the_sources_owner(
                         &source,
                         &reading.configuration.github_account,
-                        &owner_of_the_source,
+                        &repository.owner,
                     )?;
                     Ok(LoadedConfiguration {
                         pending: match reading.migrated_from {
@@ -418,8 +406,10 @@ mod tests {
     #[test]
     fn a_github_source_resolves_its_files_root_to_the_clone_of_that_repository() {
         let location = ConfigurationSource::GitHubRepository {
-            owner: RepositoryOwner::from("Alice"),
-            repository: RepositoryName::from("dotfiles"),
+            repository: GitHubRepository {
+                owner: RepositoryOwner::from("Alice"),
+                repository: RepositoryName::from("dotfiles"),
+            },
             directory: "config".to_owned(),
         }
         .files_come_from()
