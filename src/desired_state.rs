@@ -1,10 +1,10 @@
 use {
     crate::{
         configuration::{
-            Application, CargoWorkspace, Configuration, Context, EnvironmentVariable,
-            GitHubAccount, GitHubRepository, Identity, MachineManifest, Migration, Notice,
-            Registration, Requirement, Resource, ResourceKind, SearchPathDirectory,
-            SearchPathEntry,
+            Application, CargoWorkspace, Configuration, ConfigurationName, Context,
+            EnvironmentVariable, GitHubAccount, GitHubRepository, Identity, MachineManifest,
+            Migration, Notice, Registration, Requirement, Resource, ResourceKind,
+            SearchPathDirectory, SearchPathEntry,
         },
         currency,
     },
@@ -140,6 +140,7 @@ impl<T: std::fmt::Display> std::fmt::Display for Resolved<T> {
 }
 
 pub struct ResolvedConfiguration {
+    name: ConfigurationName,
     origin: Origin,
     context: Context,
     workspaces: Vec<CargoWorkspace>,
@@ -149,6 +150,7 @@ pub struct ResolvedConfiguration {
 
 impl ResolvedConfiguration {
     pub fn read(
+        name: ConfigurationName,
         configuration: Configuration,
         location: SourceLocation,
         repositories_root: &Path,
@@ -164,6 +166,7 @@ impl ResolvedConfiguration {
         };
 
         Self {
+            name,
             origin: Origin {
                 account: configuration.github_account,
                 files_root,
@@ -174,6 +177,10 @@ impl ResolvedConfiguration {
             resources: configuration.resources,
             notices: configuration.notices,
         }
+    }
+
+    pub fn name(&self) -> &ConfigurationName {
+        &self.name
     }
 
     pub fn context(&self) -> Context {
@@ -245,7 +252,7 @@ impl DesiredState {
     }
 
     pub fn of(
-        configurations: Vec<(String, ResolvedConfiguration)>,
+        configurations: Vec<ResolvedConfiguration>,
         machine_manifest: MachineManifest,
         home_directory: &Path,
     ) -> Result<Self> {
@@ -254,7 +261,7 @@ impl DesiredState {
 
         let mut workspaces: Vec<ResolvedWorkspace> = Vec::new();
         let mut notices: Vec<ResolvedNotice> = Vec::new();
-        let mut claimed: BTreeMap<Identity, (String, ResolvedResource)> = BTreeMap::new();
+        let mut claimed: BTreeMap<Identity, Claim> = BTreeMap::new();
 
         // ADR 0019
         let own_currency = for_every_machine.pair(Resource::Application(
@@ -276,26 +283,40 @@ impl DesiredState {
         let mut undeclared: Vec<Identity> = Vec::new();
         for carried in [own_currency, own_binaries_are_reachable, machine_manifest] {
             if let Some(identity) = carried.identity(home_directory) {
-                claimed.insert(identity.clone(), ("this build".to_owned(), carried.clone()));
+                claimed.insert(
+                    identity.clone(),
+                    Claim {
+                        by: ConfigurationName::from(THIS_BUILD),
+                        resource: carried.clone(),
+                    },
+                );
                 undeclared.push(identity);
             }
             resources.push(carried);
         }
 
-        for (source, configuration) in &configurations {
+        for configuration in &configurations {
+            let source = configuration.name();
             for resource in configuration.resources() {
                 match resource.identity(home_directory) {
                     None => resources.push(resource),
                     Some(identity) => match claimed.get(&identity) {
                         None => {
-                            claimed.insert(identity, (source.clone(), resource.clone()));
+                            claimed.insert(
+                                identity,
+                                Claim {
+                                    by: source.clone(),
+                                    resource: resource.clone(),
+                                },
+                            );
                             resources.push(resource);
                         }
-                        Some((_, existing)) if *existing == resource => {}
-                        Some((existing_source, existing)) => bail!(
-                            "{source} and {existing_source} make conflicting claims on \
-                             {identity}. No machine could satisfy both:\n  {existing}\n  \
-                             {resource}"
+                        Some(claim) if claim.resource == resource => {}
+                        Some(claim) => bail!(
+                            "{source} and {} make conflicting claims on {identity}. No machine \
+                             could satisfy both:\n  {}\n  {resource}",
+                            claim.by,
+                            claim.resource
                         ),
                     },
                 }
@@ -321,13 +342,19 @@ impl DesiredState {
     }
 }
 
+struct Claim {
+    by: ConfigurationName,
+    resource: ResolvedResource,
+}
+
+const THIS_BUILD: &str = "this build";
+
 fn the_configuration_for_every_machine(
-    configurations: &[(String, ResolvedConfiguration)],
+    configurations: &[ResolvedConfiguration],
 ) -> Result<&ResolvedConfiguration> {
     configurations
         .iter()
-        .find(|(_, configuration)| configuration.context() == Context::Everywhere)
-        .map(|(_, configuration)| configuration)
+        .find(|configuration| configuration.context() == Context::Everywhere)
         .ok_or_else(|| {
             anyhow!(
                 "No configuration for every machine was loaded. A run reads one configuration for \
@@ -337,11 +364,11 @@ fn the_configuration_for_every_machine(
 }
 
 fn refuse_a_set_holding_nothing_for_this_class(
-    configurations: &[(String, ResolvedConfiguration)],
+    configurations: &[ResolvedConfiguration],
 ) -> Result<()> {
     match configurations
         .iter()
-        .any(|(_, configuration)| configuration.context() != Context::Everywhere)
+        .any(|configuration| configuration.context() != Context::Everywhere)
     {
         true => Ok(()),
         false => bail!(
@@ -379,9 +406,12 @@ mod tests {
             r#"{{ "version": "{BUILD_GENERATION}", "applies_to": "{applies_to}",
                "github_account": "{account}", {body} }}"#
         );
-        crate::configuration::parse_configuration(&written, "the test configuration")
-            .unwrap_or_else(|refusal: Unreadable| panic!("{refusal}"))
-            .configuration
+        crate::configuration::parse_configuration(
+            &written,
+            &ConfigurationName::from("the test configuration"),
+        )
+        .unwrap_or_else(|refusal: Unreadable| panic!("{refusal}"))
+        .configuration
     }
 
     fn read_from_the_repository_of(
@@ -390,6 +420,7 @@ mod tests {
         body: &str,
     ) -> ResolvedConfiguration {
         ResolvedConfiguration::read(
+            ConfigurationName::from(applies_to),
             document_acting_as(account, applies_to, body),
             SourceLocation::Repository(GitHubRepository {
                 owner: RepositoryOwner::from(account),
@@ -405,18 +436,16 @@ mod tests {
 
     fn read_from_a_checkout(applies_to: &str, body: &str) -> ResolvedConfiguration {
         ResolvedConfiguration::read(
+            ConfigurationName::from(applies_to),
             document(applies_to, body),
             SourceLocation::Checkout(PathBuf::from("/checkout")),
             Path::new(REPOSITORIES_ROOT),
         )
     }
 
-    fn merged(configurations: Vec<(&str, ResolvedConfiguration)>) -> Result<DesiredState> {
+    fn merged(configurations: Vec<ResolvedConfiguration>) -> Result<DesiredState> {
         DesiredState::of(
-            configurations
-                .into_iter()
-                .map(|(source, configuration)| (source.to_owned(), configuration))
-                .collect(),
+            configurations,
             MachineManifest {
                 repositories_directory_path: Path::new(REPOSITORIES_ROOT)
                     .join(MachineClass::Personal.repositories_leaf()),
@@ -433,14 +462,8 @@ mod tests {
 
     fn a_readable_set(personal: &str) -> Result<DesiredState> {
         merged(vec![
-            (
-                "everywhere",
-                read_from_the_dotfiles_repository("everywhere", EMPTY),
-            ),
-            (
-                "personal",
-                read_from_the_dotfiles_repository("personal", personal),
-            ),
+            read_from_the_dotfiles_repository("everywhere", EMPTY),
+            read_from_the_dotfiles_repository("personal", personal),
         ])
     }
 
@@ -547,8 +570,8 @@ mod tests {
     #[test]
     fn a_configuration_read_out_of_a_checkout_waits_for_no_clone() {
         let desired_state = merged(vec![
-            ("everywhere", read_from_a_checkout("everywhere", EMPTY)),
-            ("personal", read_from_a_checkout("personal", SYMLINK)),
+            read_from_a_checkout("everywhere", EMPTY),
+            read_from_a_checkout("personal", SYMLINK),
         ])
         .unwrap();
 
@@ -582,17 +605,15 @@ mod tests {
     #[test]
     fn a_configuration_for_work_clones_into_the_work_tree() {
         let work = ResolvedConfiguration::read(
+            ConfigurationName::from("work"),
             document("work", EMPTY),
             SourceLocation::Repository(dotfiles()),
             Path::new(REPOSITORIES_ROOT),
         );
 
         let desired_state = merged(vec![
-            (
-                "everywhere",
-                read_from_the_dotfiles_repository("everywhere", EMPTY),
-            ),
-            ("work", work),
+            read_from_the_dotfiles_repository("everywhere", EMPTY),
+            work,
         ])
         .unwrap();
 
@@ -611,22 +632,15 @@ mod tests {
 
     #[test]
     fn a_set_holding_no_configuration_for_every_machine_is_refused() {
-        let error = merged(vec![(
-            "personal",
-            read_from_the_dotfiles_repository("personal", EMPTY),
-        )])
-        .unwrap_err();
+        let error = merged(vec![read_from_the_dotfiles_repository("personal", EMPTY)]).unwrap_err();
 
         assert!(error.to_string().contains("every machine"), "{error}");
     }
 
     #[test]
     fn a_set_holding_no_configuration_for_this_machines_class_is_refused() {
-        let error = merged(vec![(
-            "everywhere",
-            read_from_the_dotfiles_repository("everywhere", EMPTY),
-        )])
-        .unwrap_err();
+        let error =
+            merged(vec![read_from_the_dotfiles_repository("everywhere", EMPTY)]).unwrap_err();
 
         assert!(error.to_string().contains("machine's class"), "{error}");
     }
@@ -634,14 +648,8 @@ mod tests {
     #[test]
     fn two_identical_claims_on_one_fact_collapse_to_a_single_resource() {
         let desired_state = merged(vec![
-            (
-                "everywhere",
-                read_from_the_dotfiles_repository("everywhere", SYMLINK),
-            ),
-            (
-                "personal",
-                read_from_the_dotfiles_repository("personal", SYMLINK),
-            ),
+            read_from_the_dotfiles_repository("everywhere", SYMLINK),
+            read_from_the_dotfiles_repository("personal", SYMLINK),
         ])
         .unwrap();
 
@@ -662,14 +670,8 @@ mod tests {
         }]"#;
 
         let error = merged(vec![
-            (
-                "everywhere",
-                read_from_the_dotfiles_repository("everywhere", SYMLINK),
-            ),
-            (
-                "personal",
-                read_from_the_dotfiles_repository("personal", elsewhere),
-            ),
+            read_from_the_dotfiles_repository("everywhere", SYMLINK),
+            read_from_the_dotfiles_repository("personal", elsewhere),
         ])
         .unwrap_err();
 
@@ -687,14 +689,8 @@ mod tests {
         ]"#;
 
         let desired_state = merged(vec![
-            (
-                "everywhere",
-                read_from_the_dotfiles_repository("everywhere", command),
-            ),
-            (
-                "personal",
-                read_from_the_dotfiles_repository("personal", command),
-            ),
+            read_from_the_dotfiles_repository("everywhere", command),
+            read_from_the_dotfiles_repository("personal", command),
         ])
         .unwrap();
 
@@ -715,14 +711,8 @@ mod tests {
         ]"#;
 
         let desired_state = merged(vec![
-            (
-                "everywhere",
-                read_from_the_dotfiles_repository("everywhere", workspace),
-            ),
-            (
-                "personal",
-                read_from_the_dotfiles_repository("personal", workspace),
-            ),
+            read_from_the_dotfiles_repository("everywhere", workspace),
+            read_from_the_dotfiles_repository("personal", workspace),
         ])
         .unwrap();
 
@@ -772,14 +762,8 @@ mod tests {
     #[test]
     fn a_resource_acts_as_the_account_of_the_configuration_that_declared_it() {
         let desired_state = merged(vec![
-            (
-                "everywhere",
-                read_from_the_repository_of("Alice", "everywhere", EMPTY),
-            ),
-            (
-                "work",
-                read_from_the_repository_of("Employer", "work", SYMLINK),
-            ),
+            read_from_the_repository_of("Alice", "everywhere", EMPTY),
+            read_from_the_repository_of("Employer", "work", SYMLINK),
         ])
         .unwrap();
 

@@ -7,7 +7,7 @@ use {
         resource::Resource,
         workspace::CargoWorkspace,
     },
-    crate::configuration::Notice,
+    crate::configuration::{ConfigurationName, Notice},
     anyhow::{Context as _, Result},
     serde::Deserialize,
     serde_json::ser::PrettyFormatter,
@@ -86,7 +86,7 @@ impl Display for Migration {
     }
 }
 
-pub fn announcement(source: &str, from: Generation) -> Notice {
+pub fn announcement(source: &ConfigurationName, from: Generation) -> Notice {
     Notice::from(format!(
         "{source} states generation {from} of dotfiles_configurator and was read as generation \
          {BUILD_GENERATION}. This source cannot be written, so rewrite it there before generation \

@@ -1,5 +1,8 @@
 use {
-    super::generation::{BUILD_GENERATION, Generation},
+    super::{
+        generation::{BUILD_GENERATION, Generation},
+        names::ConfigurationName,
+    },
     std::fmt::{Display, Formatter, Result},
 };
 
@@ -8,12 +11,12 @@ use {
 pub enum Unreadable {
     Malformed(anyhow::Error),
     TooNew {
-        source: String,
+        source: ConfigurationName,
         required: Generation,
         available: Generation,
     },
     TooOld {
-        source: String,
+        source: ConfigurationName,
         stated: Generation,
         oldest_readable: Generation,
     },
@@ -75,7 +78,7 @@ mod tests {
     #[test]
     fn a_configuration_needing_a_newer_build_is_reported_by_source_and_both_generations() {
         let unreadable = Unreadable::TooNew {
-            source: "everywhere.dotconfig.json".to_owned(),
+            source: ConfigurationName::from("everywhere.dotconfig.json"),
             required: BEYOND_BUILD_GENERATION,
             available: BUILD_GENERATION,
         };
@@ -93,7 +96,7 @@ mod tests {
     #[test]
     fn a_configuration_this_build_has_outgrown_is_answered_with_an_intervening_build() {
         let unreadable = Unreadable::TooOld {
-            source: "everywhere.dotconfig.json".to_owned(),
+            source: ConfigurationName::from("everywhere.dotconfig.json"),
             stated: BENEATH_OLDEST_READABLE_GENERATION,
             oldest_readable: OLDEST_READABLE_GENERATION,
         };
