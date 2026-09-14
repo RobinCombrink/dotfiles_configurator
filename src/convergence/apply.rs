@@ -190,12 +190,7 @@ fn notice_of_an_environment_change(converged: &[ResolvedResource]) -> Option<Not
         .iter()
         .any(|resource| resource.kind() == ResourceKind::EnvironmentVariable);
 
-    changed.then(|| {
-        Notice::from(
-            "The environment changed. The shell this run was started from reads its environment \
-             once, at launch, so it will not see the change — open a new one.",
-        )
-    })
+    changed.then_some(Notice::EnvironmentChanged)
 }
 
 /// The work a resource performs, which is what makes two declarations of it the same work.

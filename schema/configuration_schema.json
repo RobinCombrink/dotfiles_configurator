@@ -16,7 +16,7 @@
       "type": "array",
       "default": [],
       "items": {
-        "$ref": "#/$defs/Notice"
+        "$ref": "#/$defs/DeclaredNotice"
       }
     },
     "resources": {
@@ -319,6 +319,10 @@
       "description": "The name Cargo knows a crate by.",
       "type": "string"
     },
+    "DeclaredNotice": {
+      "description": "A message for a person about something the tool cannot do. Not a resource — it never\nconverges, is reported by every change set, and is never applied.",
+      "type": "string"
+    },
     "EnvironmentVariable": {
       "oneOf": [
         {
@@ -402,10 +406,6 @@
     },
     "McpServerName": {
       "description": "The name Claude Code holds an MCP server under.",
-      "type": "string"
-    },
-    "Notice": {
-      "description": "A message for a person about something the tool cannot do. Not a resource — it never\nconverges, is reported by every change set, and is never applied.",
       "type": "string"
     },
     "Package": {

@@ -2,12 +2,12 @@ use {
     super::{
         Configuration,
         context::Context,
-        generation::{BUILD_GENERATION, Generation, OLDEST_READABLE_GENERATION},
+        generation::{BUILD_GENERATION, Generation},
         names::GitHubAccount,
         resource::Resource,
         workspace::CargoWorkspace,
     },
-    crate::configuration::{ConfigurationName, Notice},
+    crate::configuration::DeclaredNotice,
     anyhow::{Context as _, Result},
     serde::Deserialize,
     serde_json::ser::PrettyFormatter,
@@ -28,7 +28,7 @@ pub struct OutgoingConfiguration {
     #[serde(default)]
     resources: Vec<Resource>,
     #[serde(default)]
-    notices: Vec<Notice>,
+    notices: Vec<DeclaredNotice>,
 }
 
 impl From<OutgoingConfiguration> for Configuration {
@@ -84,14 +84,6 @@ impl Display for Migration {
             self.from
         )
     }
-}
-
-pub fn announcement(source: &ConfigurationName, from: Generation) -> Notice {
-    Notice::from(format!(
-        "{source} states generation {from} of dotfiles_configurator and was read as generation \
-         {BUILD_GENERATION}. This source cannot be written, so rewrite it there before generation \
-         {OLDEST_READABLE_GENERATION} stops being read."
-    ))
 }
 
 fn as_written(configuration: &Configuration) -> Result<String> {

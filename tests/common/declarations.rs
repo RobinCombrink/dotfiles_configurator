@@ -6,9 +6,9 @@ use {
     dotfiles_configurator::{
         configuration::{
             ArchiveEntry, AssetPattern, BUILD_GENERATION, CargoWorkspace, Configuration,
-            ConfigurationName, Context, GitHubAccount, GitHubRepository, MachineClass,
-            MachineManifest, Notice, ReleasedBinary, RepositoryName, RepositoryOwner, Resource,
-            VersionWord,
+            ConfigurationName, Context, DeclaredNotice, GitHubAccount, GitHubRepository,
+            MachineClass, MachineManifest, ReleasedBinary, RepositoryName, RepositoryOwner,
+            Resource, VersionWord,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
     },
@@ -59,7 +59,7 @@ pub fn reporting_its_version_in_the_second_word(
 pub fn read_out_of_a_checkout(
     resources: Vec<Resource>,
     workspaces: Vec<CargoWorkspace>,
-    notices: Vec<Notice>,
+    notices: Vec<DeclaredNotice>,
 ) -> DesiredState {
     read_from(
         SourceLocation::Checkout(PathBuf::from(DOTFILES_FILES_ROOT)),
@@ -72,7 +72,7 @@ pub fn read_out_of_a_checkout(
 pub fn read_out_of_the_dotfiles_repository(
     resources: Vec<Resource>,
     workspaces: Vec<CargoWorkspace>,
-    notices: Vec<Notice>,
+    notices: Vec<DeclaredNotice>,
 ) -> DesiredState {
     read_from(
         SourceLocation::Repository(dotfiles_repository()),
@@ -136,7 +136,7 @@ fn read_from(
     location: SourceLocation,
     resources: Vec<Resource>,
     workspaces: Vec<CargoWorkspace>,
-    notices: Vec<Notice>,
+    notices: Vec<DeclaredNotice>,
 ) -> DesiredState {
     let everywhere = Configuration {
         version: BUILD_GENERATION,

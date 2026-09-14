@@ -179,16 +179,15 @@ pub async fn plan(
     let mut notices: Vec<Notice> = desired_state
         .notices
         .iter()
-        .map(|notice| notice.declared().clone())
+        .map(|notice| Notice::Declared(notice.declared().clone()))
         .collect();
     notices.extend(desired_state.announcements.iter().cloned());
-    notices.extend(machine.superseded_images().iter().map(|path| {
-        Notice::from(format!(
-            "{} is a binary that was replaced while it was being executed; an apply removes it \
-             once nothing is running it",
-            path.display()
-        ))
-    }));
+    notices.extend(
+        machine
+            .superseded_images()
+            .into_iter()
+            .map(Notice::SupersededImage),
+    );
 
     Ok((
         ChangeSet {
