@@ -17,23 +17,8 @@ use {
         },
     },
     anyhow::{Context, Result, anyhow, bail},
-    std::path::{Path, PathBuf},
+    std::path::Path,
 };
-
-#[derive(Debug)]
-pub enum Convergence {
-    Converged,
-    Held(PathBuf),
-}
-
-impl From<Placement> for Convergence {
-    fn from(placement: Placement) -> Self {
-        match placement {
-            Placement::Placed => Convergence::Converged,
-            Placement::Held(path) => Convergence::Held(path),
-        }
-    }
-}
 
 /// Closes the drift on one resource. Only ever called for a resource a state reader has just
 /// reported as drifted.
@@ -41,7 +26,7 @@ pub async fn converge(
     resource: &ResolvedResource,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
-) -> Result<Convergence> {
+) -> Result<Placement> {
     let closed = match resource.declared() {
         Resource::Package(Package::Cargo(package)) => {
             return converge_cargo_package(package, resource, machine, readings);
@@ -65,7 +50,6 @@ pub async fn converge(
         Resource::Application(Application::ReleasedBinary(binary)) => {
             return converge_released_binary(binary, machine, readings)
                 .await
-                .map(Convergence::from)
                 .with_context(|| format!("Could not install {}", binary.installed_name()));
         }
         Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
@@ -92,7 +76,7 @@ pub async fn converge(
         Resource::Command(command) => converge_command(command, machine),
     };
 
-    closed.map(|()| Convergence::Converged)
+    closed.map(|()| Placement::Placed)
 }
 
 fn resolved_release_asset<'readings>(
@@ -186,7 +170,7 @@ fn converge_cargo_package(
     resource: &ResolvedResource,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
-) -> Result<Convergence> {
+) -> Result<Placement> {
     let source = match &package.source {
         CargoSource::Registry => ResolvedCargoSource::Registry,
         CargoSource::Path { path } => ResolvedCargoSource::Path { path: path.clone() },
@@ -211,12 +195,10 @@ fn converge_cargo_package(
         }
     };
 
-    machine
-        .write_displacing(&DisplacingInvocation::InstallCargoCrate {
-            crate_name: package.crate_name.clone(),
-            source,
-        })
-        .map(Convergence::from)
+    machine.write_displacing(&DisplacingInvocation::InstallCargoCrate {
+        crate_name: package.crate_name.clone(),
+        source,
+    })
 }
 
 fn converge_symlink(
