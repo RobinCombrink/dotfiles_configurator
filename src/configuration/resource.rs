@@ -18,13 +18,16 @@ use {
         num::NonZeroUsize,
         path::{Path, PathBuf},
     },
+    strum::EnumDiscriminants,
     url::Url,
 };
 
 /// One declared fact about a machine, whose actual state can be read and whose drift can be
 /// closed.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+// ADR 0004
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, EnumDiscriminants)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[strum_discriminants(name(ResourceKind), derive(PartialOrd, Ord, Hash))]
 pub enum Resource {
     Repository(GitHubRepository),
     Application(Application),
@@ -33,23 +36,6 @@ pub enum Resource {
     Symlink(Symlink),
     Registration(Registration),
     Command(Command),
-}
-
-/// The category a resource belongs to, which determines how its actual state is read.
-///
-/// The declaration order below is the order kinds are converged in, and it is load-bearing for
-/// safety rather than presentation: a program initialising its configuration for the first time
-/// writes through a symlink into the dotfiles repository, so applications must be installed
-/// before anything links into their configuration directories. See ADR 0004.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ResourceKind {
-    Repository,
-    Application,
-    Package,
-    EnvironmentVariable,
-    Symlink,
-    Registration,
-    Command,
 }
 
 impl Display for ResourceKind {
@@ -69,15 +55,7 @@ impl Display for ResourceKind {
 
 impl Resource {
     pub fn kind(&self) -> ResourceKind {
-        match self {
-            Resource::Repository(_) => ResourceKind::Repository,
-            Resource::Application(_) => ResourceKind::Application,
-            Resource::Package(_) => ResourceKind::Package,
-            Resource::EnvironmentVariable(_) => ResourceKind::EnvironmentVariable,
-            Resource::Symlink(_) => ResourceKind::Symlink,
-            Resource::Registration(_) => ResourceKind::Registration,
-            Resource::Command(_) => ResourceKind::Command,
-        }
+        ResourceKind::from(self)
     }
 
     pub fn can_be_read_back(&self) -> bool {
