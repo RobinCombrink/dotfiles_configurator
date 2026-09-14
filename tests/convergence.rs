@@ -1163,6 +1163,14 @@ fn install_attempts(world: &mut MachineWorld, name: String, expected: usize) {
     );
 }
 
+#[then(expr = "the command {string} was run {int} time(s)")]
+fn declared_command_was_run(world: &mut MachineWorld, command: String, expected: usize) {
+    assert_eq!(
+        world.machine.times_the_declared_command_ran(&command),
+        expected
+    );
+}
+
 #[then(expr = "the dotfiles repository is cloned on Alice's machine")]
 fn then_repository_is_cloned(world: &mut MachineWorld) {
     assert!(world.machine.dotfiles_repository_is_cloned());
