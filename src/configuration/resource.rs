@@ -11,7 +11,12 @@ use {
     },
     schemars::JsonSchema,
     serde::{Deserialize, Serialize},
-    std::{collections::BTreeMap, fmt::Display, num::NonZeroUsize, path::PathBuf},
+    std::{
+        collections::BTreeMap,
+        fmt::Display,
+        num::NonZeroUsize,
+        path::{Path, PathBuf},
+    },
     url::Url,
 };
 
@@ -525,6 +530,28 @@ pub struct MachineManifest {
     pub repositories_directory_path: PathBuf,
 }
 
+const MANIFEST_DIRECTORY: &str = ".dotconfig";
+const MANIFEST_FILE: &str = "machine.json";
+
+impl MachineManifest {
+    pub fn path_within(home_directory: &Path) -> PathBuf {
+        home_directory.join(MANIFEST_DIRECTORY).join(MANIFEST_FILE)
+    }
+}
+
+impl TryFrom<&MachineManifest> for String {
+    type Error = serde_json::Error;
+
+    fn try_from(manifest: &MachineManifest) -> Result<Self, Self::Error> {
+        #[derive(Serialize)]
+        struct Document<'manifest> {
+            machine: &'manifest MachineManifest,
+        }
+
+        serde_json::to_string_pretty(&Document { machine: manifest })
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum McpScope {
@@ -581,5 +608,26 @@ mod tests {
             ArchiveEntry::try_from(format!("bin/rg{}", std::env::consts::EXE_SUFFIX)).unwrap();
 
         assert_eq!(entry.installed_name(), BinaryName::from("rg"));
+    }
+
+    #[test]
+    fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own() {
+        let document = String::try_from(&MachineManifest {
+            repositories_directory_path: PathBuf::from("/repositories/Personal"),
+        })
+        .expect("a manifest that serialises");
+
+        assert_eq!(
+            document,
+            "{\n  \"machine\": {\n    \"repositories_directory_path\": \"/repositories/Personal\"\n  }\n}"
+        );
+    }
+
+    #[test]
+    fn the_manifest_is_written_into_the_configuration_directory_under_the_home_directory() {
+        assert_eq!(
+            MachineManifest::path_within(Path::new("/home/alice")),
+            Path::new("/home/alice/.dotconfig/machine.json")
+        );
     }
 }

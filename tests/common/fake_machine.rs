@@ -15,7 +15,6 @@ use {
             PresenceCheck, ReleasedBinary, Shell, VariableName, VariableValue, WingetPackageId,
         },
         configuration_source::WriteSource,
-        convergence::{machine_manifest_document, machine_manifest_path},
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
@@ -403,21 +402,24 @@ impl FakeMachine {
         let manifest = MachineManifest {
             repositories_directory_path: self.repositories_root.join(machine.repositories_leaf()),
         };
-        let document = machine_manifest_document(&manifest).expect("a manifest that serialises");
+        let document = String::try_from(&manifest).expect("a manifest that serialises");
 
-        self.write_text_file(&machine_manifest_path(self), &document)
-            .expect("a manifest on the fake machine");
+        self.write_text_file(
+            &MachineManifest::path_within(self.home_directory()),
+            &document,
+        )
+        .expect("a manifest on the fake machine");
     }
 
     pub fn forget_the_machine_manifest(&self) {
-        let path = machine_manifest_path(self);
+        let path = MachineManifest::path_within(self.home_directory());
         let mut state = self.state.borrow_mut();
         state.text_files.remove(&path);
         state.paths.remove(&path);
     }
 
     pub fn machine_manifest(&self) -> Option<String> {
-        self.text_file_at(&machine_manifest_path(self))
+        self.text_file_at(&MachineManifest::path_within(self.home_directory()))
     }
 
     pub fn hold_environment_variable(&self, name: &VariableName, value: &VariableValue) {

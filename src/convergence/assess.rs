@@ -8,8 +8,7 @@ use {
         },
         convergence::{
             Assessment, Impediment, ReadSource, Requirement, SourceReading, UnreadableReason,
-            machine_manifest_document, machine_manifest_path, search_path_directory,
-            symlink_location,
+            search_path_directory, symlink_location,
         },
         desired_state::{DesiredState, ResolvedResource},
         machine::{
@@ -597,14 +596,14 @@ fn assess_symlink(
 }
 
 fn assess_machine_manifest(manifest: &MachineManifest, machine: &impl ReadMachine) -> Assessment {
-    let declared = match machine_manifest_document(manifest) {
+    let declared = match String::try_from(manifest) {
         Ok(document) => document,
         Err(error) => {
             return Assessment::Drifted(format!("the manifest could not be built: {error}").into());
         }
     };
 
-    match machine.text_file_at(&machine_manifest_path(machine)) {
+    match machine.text_file_at(&MachineManifest::path_within(machine.home_directory())) {
         None => Assessment::Drifted("the machine holds no manifest".into()),
         Some(held) if held == declared => Assessment::Converged,
         Some(_) => Assessment::Drifted("the manifest says something else".into()),

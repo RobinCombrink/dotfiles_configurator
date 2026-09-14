@@ -23,7 +23,7 @@ use {
             VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
-        convergence::{ApplyOutcome, ChangeSet, apply::apply, machine_manifest_document, plan},
+        convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
         desired_state::DesiredState,
         github::GitHubAccess,
         machine::{
@@ -1364,7 +1364,7 @@ fn the_machine_holds_no_manifest(world: &mut MachineWorld) {
 
 #[then(expr = "Alice's machine holds a manifest naming the repositories directory {string}")]
 fn the_manifest_names_the_repositories_directory(world: &mut MachineWorld, leaf: String) {
-    let expected = machine_manifest_document(&MachineManifest {
+    let expected = String::try_from(&MachineManifest {
         repositories_directory_path: Path::new(REPOSITORIES_ROOT).join(leaf),
     })
     .expect("a manifest that serialises");
