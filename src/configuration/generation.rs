@@ -10,11 +10,6 @@ pub const BUILD_GENERATION: Generation = Generation(6);
 /// that the two cannot drift apart. See ADR 0026.
 pub const OLDEST_READABLE_GENERATION: Generation = Generation(BUILD_GENERATION.0 - 1);
 
-pub const BEYOND_BUILD_GENERATION: Generation = Generation(BUILD_GENERATION.0 + 1);
-
-pub const BENEATH_OLDEST_READABLE_GENERATION: Generation =
-    Generation(OLDEST_READABLE_GENERATION.0 - 1);
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Generation(u32);
@@ -22,6 +17,16 @@ pub struct Generation(u32);
 impl Generation {
     pub fn is_met_by(self, build: Generation) -> bool {
         self <= build
+    }
+
+    /// The generation this many steps from this one.
+    ///
+    /// ```
+    /// # use dotfiles_configurator::configuration::BUILD_GENERATION;
+    /// assert_eq!(BUILD_GENERATION.stepped_by(1).stepped_by(-1), BUILD_GENERATION);
+    /// ```
+    pub fn stepped_by(self, steps: i32) -> Self {
+        Self(self.0.saturating_add_signed(steps))
     }
 
     /// Whether this build has outgrown the shape a document states. See ADR 0026.
@@ -102,7 +107,11 @@ mod tests {
 
     #[test]
     fn a_generation_further_back_than_one_is_outgrown() {
-        assert!(BENEATH_OLDEST_READABLE_GENERATION.is_outgrown_by(OLDEST_READABLE_GENERATION));
+        assert!(
+            OLDEST_READABLE_GENERATION
+                .stepped_by(-1)
+                .is_outgrown_by(OLDEST_READABLE_GENERATION)
+        );
     }
 
     #[test]
@@ -120,7 +129,7 @@ mod tests {
 
     #[test]
     fn a_generation_beyond_this_build_is_not_met_by_it() {
-        assert!(!BEYOND_BUILD_GENERATION.is_met_by(BUILD_GENERATION));
+        assert!(!BUILD_GENERATION.stepped_by(1).is_met_by(BUILD_GENERATION));
     }
 
     #[test]

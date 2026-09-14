@@ -14,8 +14,7 @@ use {
     },
     dotfiles_configurator::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, AssetPattern,
-            BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
+            Application, ApplicationName, ApplicationSource, AssetPattern, BUILD_GENERATION,
             BinaryName, CargoWorkspace, ClaudeMcpServer, CrateName, DeclaredNotice,
             EnvironmentVariable, GitHubAccount, Installer, MachineClass, MachineManifest, McpScope,
             McpServerName, OLDEST_READABLE_GENERATION, PresenceCheck, Registration, Resource,
@@ -602,7 +601,7 @@ fn work_configuration_with_version(world: &mut MachineWorld, version: String) {
 #[given(expr = "Alice has a configuration declaring a generation beyond this build")]
 fn configuration_beyond_this_build(world: &mut MachineWorld) {
     world.documents.push(document(
-        &BEYOND_BUILD_GENERATION.to_string(),
+        &BUILD_GENERATION.stepped_by(1).to_string(),
         "everywhere",
         "[]",
     ));
@@ -638,7 +637,7 @@ fn outgoing_document(resources: &str) -> String {
 #[given(expr = "Alice has a configuration declaring a generation this build has outgrown")]
 fn configuration_this_build_has_outgrown(world: &mut MachineWorld) {
     world.documents.push(document(
-        &BENEATH_OLDEST_READABLE_GENERATION.to_string(),
+        &OLDEST_READABLE_GENERATION.stepped_by(-1).to_string(),
         "everywhere",
         "[]",
     ));
@@ -1237,7 +1236,10 @@ fn refusal_mentions(world: &mut MachineWorld, text: String) {
 
 #[then(expr = "the refusal mentions the generation the configuration needs")]
 fn refusal_mentions_the_generation_needed(world: &mut MachineWorld) {
-    refusal_mentions(world, format!("generation {BEYOND_BUILD_GENERATION}"));
+    refusal_mentions(
+        world,
+        format!("generation {}", BUILD_GENERATION.stepped_by(1)),
+    );
 }
 
 #[then(expr = "the refusal mentions the generation this build is")]

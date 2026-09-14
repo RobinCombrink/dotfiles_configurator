@@ -31,10 +31,7 @@ pub mod workspace;
 
 pub use {
     context::{Context, MachineClass},
-    generation::{
-        BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION, Generation,
-        OLDEST_READABLE_GENERATION,
-    },
+    generation::{BUILD_GENERATION, Generation, OLDEST_READABLE_GENERATION},
     identity::{Identity, LinkPath},
     migration::Migration,
     names::{
@@ -277,7 +274,7 @@ mod tests {
     #[test]
     fn a_configuration_further_back_than_one_generation_is_a_document_this_build_has_outgrown() {
         let outgrown = configuration_json(
-            &BENEATH_OLDEST_READABLE_GENERATION.to_string(),
+            &OLDEST_READABLE_GENERATION.stepped_by(-1).to_string(),
             r#""resources": []"#,
         );
 
@@ -290,12 +287,15 @@ mod tests {
         let Unreadable::TooOld { stated, .. } = error else {
             panic!("expected the refusal to name the document as outgrown, got: {error}");
         };
-        assert_eq!(stated, BENEATH_OLDEST_READABLE_GENERATION);
+        assert_eq!(stated, OLDEST_READABLE_GENERATION.stepped_by(-1));
     }
 
     #[test]
     fn a_configuration_stating_a_generation_beyond_this_build_is_a_fault_in_the_build() {
-        let newer = configuration_json(&BEYOND_BUILD_GENERATION.to_string(), r#""resources": []"#);
+        let newer = configuration_json(
+            &BUILD_GENERATION.stepped_by(1).to_string(),
+            r#""resources": []"#,
+        );
 
         let error = parse_configuration(
             &newer,
@@ -306,7 +306,7 @@ mod tests {
         let Unreadable::TooNew { required, .. } = error else {
             panic!("expected the refusal to name the build as the fault, got: {error}");
         };
-        assert_eq!(required, BEYOND_BUILD_GENERATION);
+        assert_eq!(required, BUILD_GENERATION.stepped_by(1));
     }
 
     #[test]
