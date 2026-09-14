@@ -143,19 +143,19 @@ pub async fn apply(
         let change_set: ChangeSet = plan(desired_state, machine, report).await?;
         passes += 1;
 
-        let attempted = attempt(
-            &change_set,
-            machine,
-            report,
-            &mut handled,
-            &mut converged,
-            &mut failed,
-            &mut held,
-        )
-        .await;
-        report.note(&format!("pass {passes} converged {attempted} resource(s)"));
+        let pass = attempt(&change_set, machine, report, &handled).await;
+        report.note(&format!(
+            "pass {passes} converged {} resource(s)",
+            pass.converged.len()
+        ));
 
-        if attempted == 0 {
+        let productive = !pass.converged.is_empty();
+        handled.extend(pass.handled);
+        converged.extend(pass.converged);
+        failed.extend(pass.failed);
+        held.extend(pass.held);
+
+        if !productive {
             break change_set;
         }
     };
@@ -278,45 +278,39 @@ enum Attempted {
     AlreadyHandled,
 }
 
-/// Converges every changed resource in the set, collecting failures instead of stopping at the
-/// first, and answers how many actually converged.
+#[derive(Debug, Default)]
+struct Pass {
+    converged: Vec<ResolvedResource>,
+    failed: Vec<Failure>,
+    held: Vec<Held>,
+    handled: BTreeSet<Handled>,
+}
+
 async fn attempt(
     change_set: &ChangeSet,
     machine: &impl WriteMachine,
     report: &RunReport,
-    handled: &mut BTreeSet<Handled>,
-    converged: &mut Vec<ResolvedResource>,
-    failed: &mut Vec<Failure>,
-    held: &mut Vec<Held>,
-) -> usize {
-    let mut count = 0;
+    handled: &BTreeSet<Handled>,
+) -> Pass {
+    let mut pass = Pass::default();
     for change in &change_set.changes {
         let key = Handled::of(change, machine.home_directory());
 
-        match attempt_one(change, change_set, machine, report, handled, &key).await {
-            Attempted::AlreadyHandled => {}
-            Attempted::Converged => {
-                handled.insert(key);
-                converged.push(change.resource.clone());
-                count += 1;
-            }
-            Attempted::Held(path) => {
-                handled.insert(key);
-                held.push(Held {
-                    resource: change.resource.clone(),
-                    path,
-                });
-            }
-            Attempted::Failed(error) => {
-                handled.insert(key);
-                failed.push(Failure {
-                    resource: change.resource.clone(),
-                    error,
-                });
-            }
+        match attempt_one(change, change_set, machine, report, handled, &pass, &key).await {
+            Attempted::AlreadyHandled => continue,
+            Attempted::Converged => pass.converged.push(change.resource.clone()),
+            Attempted::Held(path) => pass.held.push(Held {
+                resource: change.resource.clone(),
+                path,
+            }),
+            Attempted::Failed(error) => pass.failed.push(Failure {
+                resource: change.resource.clone(),
+                error,
+            }),
         }
+        pass.handled.insert(key);
     }
-    count
+    pass
 }
 
 async fn attempt_one(
@@ -325,9 +319,10 @@ async fn attempt_one(
     machine: &impl WriteMachine,
     report: &RunReport,
     handled: &BTreeSet<Handled>,
+    pass: &Pass,
     key: &Handled,
 ) -> Attempted {
-    if handled.contains(key) {
+    if handled.contains(key) || pass.handled.contains(key) {
         return Attempted::AlreadyHandled;
     }
 
