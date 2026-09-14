@@ -452,10 +452,7 @@ impl ConfigurationSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::configuration::{
-        BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
-        OLDEST_READABLE_GENERATION,
-    };
+    use crate::configuration::{BUILD_GENERATION, OLDEST_READABLE_GENERATION};
     use std::{env, fs::File, io::Write};
 
     #[test]
@@ -541,7 +538,7 @@ mod tests {
     fn a_configuration_needing_a_newer_build_sends_this_one_looking_for_its_own_release() {
         let refusal = refusing(vec![Unreadable::TooNew {
             source: ConfigurationName::from("everywhere.dotconfig.json"),
-            required: BEYOND_BUILD_GENERATION,
+            required: BUILD_GENERATION.stepped_by(1),
             available: BUILD_GENERATION,
         }]);
 
@@ -561,7 +558,7 @@ mod tests {
     fn a_document_this_build_has_outgrown_is_not_answered_by_updating_this_build() {
         let refusal = refusing(vec![Unreadable::TooOld {
             source: ConfigurationName::from("everywhere.dotconfig.json"),
-            stated: BENEATH_OLDEST_READABLE_GENERATION,
+            stated: OLDEST_READABLE_GENERATION.stepped_by(-1),
             oldest_readable: OLDEST_READABLE_GENERATION,
         }]);
 
@@ -574,7 +571,7 @@ mod tests {
             Unreadable::Malformed(anyhow!("personal.dotconfig.json is not valid JSON")),
             Unreadable::TooNew {
                 source: ConfigurationName::from("everywhere.dotconfig.json"),
-                required: BEYOND_BUILD_GENERATION,
+                required: BUILD_GENERATION.stepped_by(1),
                 available: BUILD_GENERATION,
             },
         ]);
@@ -596,7 +593,7 @@ mod tests {
             Unreadable::Malformed(anyhow!("personal.dotconfig.json is not valid JSON")),
             Unreadable::TooNew {
                 source: ConfigurationName::from("everywhere.dotconfig.json"),
-                required: BEYOND_BUILD_GENERATION,
+                required: BUILD_GENERATION.stepped_by(1),
                 available: BUILD_GENERATION,
             },
         ])
@@ -609,7 +606,7 @@ mod tests {
         let Unreadable::TooNew { required, .. } = needing_a_newer_build else {
             panic!("expected the build to still be named as the fault");
         };
-        assert_eq!(*required, BEYOND_BUILD_GENERATION);
+        assert_eq!(*required, BUILD_GENERATION.stepped_by(1));
     }
 
     fn temporary_checkout(name: &str) -> PathBuf {

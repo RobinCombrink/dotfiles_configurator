@@ -68,18 +68,13 @@ impl From<anyhow::Error> for Unreadable {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        super::generation::{
-            BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, OLDEST_READABLE_GENERATION,
-        },
-        *,
-    };
+    use super::{super::generation::OLDEST_READABLE_GENERATION, *};
 
     #[test]
     fn a_configuration_needing_a_newer_build_is_reported_by_source_and_both_generations() {
         let unreadable = Unreadable::TooNew {
             source: ConfigurationName::from("everywhere.dotconfig.json"),
-            required: BEYOND_BUILD_GENERATION,
+            required: BUILD_GENERATION.stepped_by(1),
             available: BUILD_GENERATION,
         };
 
@@ -87,7 +82,7 @@ mod tests {
 
         assert!(
             reported.contains("everywhere.dotconfig.json")
-                && reported.contains(&format!("generation {BEYOND_BUILD_GENERATION}"))
+                && reported.contains(&format!("generation {}", BUILD_GENERATION.stepped_by(1)))
                 && reported.contains(&format!("generation {BUILD_GENERATION}")),
             "{reported}"
         );
@@ -97,7 +92,7 @@ mod tests {
     fn a_configuration_this_build_has_outgrown_is_answered_with_an_intervening_build() {
         let unreadable = Unreadable::TooOld {
             source: ConfigurationName::from("everywhere.dotconfig.json"),
-            stated: BENEATH_OLDEST_READABLE_GENERATION,
+            stated: OLDEST_READABLE_GENERATION.stepped_by(-1),
             oldest_readable: OLDEST_READABLE_GENERATION,
         };
 
@@ -105,7 +100,10 @@ mod tests {
 
         assert!(
             reported.contains("everywhere.dotconfig.json")
-                && reported.contains(&format!("generation {BENEATH_OLDEST_READABLE_GENERATION}"))
+                && reported.contains(&format!(
+                    "generation {}",
+                    OLDEST_READABLE_GENERATION.stepped_by(-1)
+                ))
                 && reported.contains("intervening build"),
             "{reported}"
         );
