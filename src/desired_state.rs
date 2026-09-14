@@ -1,7 +1,7 @@
 use {
     crate::{
         configuration::{
-            Application, CargoWorkspace, Configuration, ConfigurationName, Context,
+            Application, CargoWorkspace, Configuration, ConfigurationName, Context, DeclaredNotice,
             EnvironmentVariable, GitHubAccount, GitHubRepository, Identity, MachineManifest,
             Migration, Notice, Registration, Requirement, Resource, ResourceKind,
             SearchPathDirectory, SearchPathEntry,
@@ -71,7 +71,7 @@ pub struct Resolved<T> {
 
 pub type ResolvedResource = Resolved<Resource>;
 pub type ResolvedWorkspace = Resolved<CargoWorkspace>;
-pub type ResolvedNotice = Resolved<Notice>;
+pub type ResolvedNotice = Resolved<DeclaredNotice>;
 
 impl<T> Resolved<T> {
     pub fn declared(&self) -> &T {
@@ -145,7 +145,7 @@ pub struct ResolvedConfiguration {
     context: Context,
     workspaces: Vec<CargoWorkspace>,
     resources: Vec<Resource>,
-    notices: Vec<Notice>,
+    notices: Vec<DeclaredNotice>,
 }
 
 impl ResolvedConfiguration {

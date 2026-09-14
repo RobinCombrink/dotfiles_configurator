@@ -36,7 +36,7 @@ pub use {
         OLDEST_READABLE_GENERATION,
     },
     identity::{Identity, LinkPath},
-    migration::{Migration, announcement},
+    migration::Migration,
     names::{
         ApplicationName, BinaryName, ConfigurationName, CrateName, GitHubAccount, McpServerName,
         RepositoryName, RepositoryOwner, VariableName, VariableValue, WingetPackageId,
@@ -83,7 +83,7 @@ pub struct Configuration {
     #[serde(default)]
     pub resources: Vec<Resource>,
     #[serde(default)]
-    pub notices: Vec<Notice>,
+    pub notices: Vec<DeclaredNotice>,
 }
 
 /// A message for a person about something the tool cannot do. Not a resource — it never
@@ -93,23 +93,74 @@ pub struct Configuration {
 )]
 #[serde(transparent)]
 #[repr(transparent)]
-pub struct Notice(String);
+pub struct DeclaredNotice(String);
 
-impl From<String> for Notice {
+impl From<String> for DeclaredNotice {
     fn from(value: String) -> Self {
         Self(value)
     }
 }
 
-impl From<&str> for Notice {
+impl From<&str> for DeclaredNotice {
     fn from(value: &str) -> Self {
         Self(value.to_owned())
     }
 }
 
-impl Display for Notice {
+impl Display for DeclaredNotice {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&self.0)
+    }
+}
+
+/// Everything a run has to tell a person that is not a change to the machine, carried as the
+/// facts the site that raised it held and rendered to text only where it is shown.
+///
+/// ```
+/// # use dotfiles_configurator::configuration::Notice;
+/// assert!(Notice::EnvironmentChanged.to_string().contains("open a new one"));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Notice {
+    Declared(DeclaredNotice),
+    // ADR 0022
+    SupersededImage(std::path::PathBuf),
+    // ADR 0017
+    EnvironmentChanged,
+    // ADR 0026
+    SourceCannotBeRewritten {
+        source: ConfigurationName,
+        from: Generation,
+    },
+}
+
+impl From<DeclaredNotice> for Notice {
+    fn from(declared: DeclaredNotice) -> Self {
+        Notice::Declared(declared)
+    }
+}
+
+impl Display for Notice {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Notice::Declared(declared) => Display::fmt(declared, formatter),
+            Notice::SupersededImage(path) => write!(
+                formatter,
+                "{} is a binary that was replaced while it was being executed; an apply removes \
+                 it once nothing is running it",
+                path.display()
+            ),
+            Notice::EnvironmentChanged => formatter.write_str(
+                "The environment changed. The shell this run was started from reads its \
+                 environment once, at launch, so it will not see the change — open a new one.",
+            ),
+            Notice::SourceCannotBeRewritten { source, from } => write!(
+                formatter,
+                "{source} states generation {from} of dotfiles_configurator and was read as \
+                 generation {BUILD_GENERATION}. This source cannot be written, so rewrite it \
+                 there before generation {OLDEST_READABLE_GENERATION} stops being read."
+            ),
+        }
     }
 }
 
@@ -349,7 +400,7 @@ mod tests {
 
         assert_eq!(
             configuration.notices,
-            vec![Notice::from("Sync the settings repository")]
+            vec![DeclaredNotice::from("Sync the settings repository")]
         );
     }
 

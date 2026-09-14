@@ -3,7 +3,7 @@ use {
         configuration::{
             Configuration, ConfigurationName, GitHubAccount, GitHubRepository, MachineClass,
             MachineManifest, Migration, Notice, RepositoryName, RepositoryOwner, Unreadable,
-            announcement, parse_configuration,
+            parse_configuration,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
@@ -376,7 +376,10 @@ impl ConfigurationSource {
                     Ok(LoadedConfiguration {
                         pending: match reading.migrated_from {
                             None => Pending::Nothing,
-                            Some(from) => Pending::Announcing(announcement(&source, from)),
+                            Some(from) => Pending::Announcing(Notice::SourceCannotBeRewritten {
+                                source: source.clone(),
+                                from,
+                            }),
                         },
                         name: source.clone(),
                         configuration: reading.configuration,

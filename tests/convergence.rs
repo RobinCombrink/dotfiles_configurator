@@ -16,9 +16,9 @@ use {
         configuration::{
             Application, ApplicationName, ApplicationSource, AssetPattern,
             BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
-            BinaryName, CargoWorkspace, ClaudeMcpServer, CrateName, EnvironmentVariable,
-            GitHubAccount, Installer, MachineClass, MachineManifest, McpScope, McpServerName,
-            Notice, OLDEST_READABLE_GENERATION, PresenceCheck, Registration, Resource,
+            BinaryName, CargoWorkspace, ClaudeMcpServer, CrateName, DeclaredNotice,
+            EnvironmentVariable, GitHubAccount, Installer, MachineClass, MachineManifest, McpScope,
+            McpServerName, OLDEST_READABLE_GENERATION, PresenceCheck, Registration, Resource,
             SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, Variable, VariableName,
             VariableValue,
         },
@@ -54,7 +54,7 @@ struct MachineWorld {
     resources: Vec<Resource>,
     workspaces: Vec<CargoWorkspace>,
     members: BTreeMap<CrateName, MemberReading>,
-    notices: Vec<Notice>,
+    notices: Vec<DeclaredNotice>,
     configurations_come_from_a_repository: bool,
     configurations_are_inside_a_checkout: bool,
     /// Configurations as they are written down, for the scenarios about loading them.
@@ -383,7 +383,7 @@ fn run_reports_no_failure_mentioning(world: &mut MachineWorld, text: String) {
 
 #[given(expr = "Alice declares the notice {string}")]
 fn declare_notice(world: &mut MachineWorld, message: String) {
-    world.notices.push(Notice::from(message.as_str()));
+    world.notices.push(DeclaredNotice::from(message.as_str()));
 }
 
 #[given(expr = "Alice declares the symlink {string} at {string}")]
