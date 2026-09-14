@@ -881,7 +881,8 @@ async fn alice_plans(world: &mut MachineWorld) {
     world.change_set = Some(
         plan(&world.desired_state(), &world.machine, &report)
             .await
-            .unwrap(),
+            .unwrap()
+            .0,
     );
     world.report = Some(report);
 }
@@ -895,12 +896,14 @@ async fn alice_plans_twice(world: &mut MachineWorld) {
     world.change_set = Some(
         plan(&world.desired_state(), &world.machine, &report)
             .await
-            .unwrap(),
+            .unwrap()
+            .0,
     );
     world.second_change_set = Some(
         plan(&world.desired_state(), &world.machine, &report)
             .await
-            .unwrap(),
+            .unwrap()
+            .0,
     );
     world.report = Some(report);
 }

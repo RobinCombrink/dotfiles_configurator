@@ -163,7 +163,7 @@ async fn every_crate_in_one_workspace_opens_its_repository_once() {
         }],
     );
 
-    let change_set = plan(&desired_state, &machine, &RunReport::discarded())
+    let (change_set, _) = plan(&desired_state, &machine, &RunReport::discarded())
         .await
         .unwrap();
 
