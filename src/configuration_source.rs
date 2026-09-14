@@ -1,9 +1,9 @@
 use {
     crate::{
         configuration::{
-            Configuration, ConfigurationName, GitHubAccount, GitHubRepository, MachineClass,
-            MachineManifest, Migration, Notice, RepositoryName, RepositoryOwner, Unreadable,
-            parse_configuration,
+            Configuration, ConfigurationName, Context, GitHubAccount, GitHubRepository,
+            MachineClass, MachineManifest, Migration, Notice, RepositoryName, RepositoryOwner,
+            Unreadable, parse_configuration,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
@@ -98,7 +98,7 @@ pub async fn load_desired_state(
     machine: MachineClass,
     repositories_root: &Path,
     github: &GitHubAccess,
-) -> Result<DesiredState> {
+) -> Result<DesiredState, LoadFailure> {
     let mut per_source: Vec<(&ConfigurationSource, Vec<LoadedConfiguration>)> = Vec::new();
     let mut unreadable: Vec<Unreadable> = Vec::new();
     for source in sources {
@@ -113,7 +113,7 @@ pub async fn load_desired_state(
     }
 
     if let Some(refusal) = Refusal::of(unreadable) {
-        return Err(refusal.into());
+        return Err(LoadFailure::Unreadable(refusal));
     }
 
     let mut read: Vec<(LoadedConfiguration, SourceLocation)> = Vec::new();
@@ -128,9 +128,7 @@ pub async fn load_desired_state(
     }
 
     if read.is_empty() {
-        return Err(anyhow!(
-            "No configurations were found in any of the sources given"
-        ));
+        return Err(LoadFailure::NoConfigurationFound(sources.to_vec()));
     }
 
     let applicable: Vec<(LoadedConfiguration, SourceLocation)> = read
@@ -139,10 +137,7 @@ pub async fn load_desired_state(
         .collect();
 
     if applicable.is_empty() {
-        return Err(anyhow!(
-            "No configuration in any of the sources given applies to {}",
-            machine.described()
-        ));
+        return Err(LoadFailure::NoneAppliesTo(machine));
     }
 
     let mut migrations: Vec<Migration> = Vec::new();
@@ -166,11 +161,81 @@ pub async fn load_desired_state(
         repositories_directory_path: repositories_root.join(machine.repositories_leaf()),
     };
 
-    Ok(
-        DesiredState::of(resolved, machine_manifest, &home_directory()?)?
-            .also_reporting(migrations, announcements),
-    )
+    let home_directory = home_directory().map_err(LoadFailure::Irreconcilable)?;
+    DesiredState::of(resolved, machine_manifest, &home_directory)
+        .map(|desired_state| desired_state.also_reporting(migrations, announcements))
+        .map_err(LoadFailure::Irreconcilable)
 }
+
+#[derive(Debug)]
+pub enum LoadFailure {
+    Unreadable(Refusal),
+    NoConfigurationFound(Vec<ConfigurationSource>),
+    NoneAppliesTo(MachineClass),
+    // ADR 0025
+    TwoTrees {
+        source: ConfigurationSource,
+        first: Context,
+        second: Context,
+    },
+    SourceOutsideACheckout(PathBuf),
+    Irreconcilable(Error),
+}
+
+impl LoadFailure {
+    pub fn is_answered_by_a_newer_build(&self) -> bool {
+        match self {
+            LoadFailure::Unreadable(refusal) => {
+                refusal.unreadable().iter().any(Unreadable::is_too_new)
+            }
+            LoadFailure::NoConfigurationFound(_)
+            | LoadFailure::NoneAppliesTo(_)
+            | LoadFailure::TwoTrees { .. }
+            | LoadFailure::SourceOutsideACheckout(_)
+            | LoadFailure::Irreconcilable(_) => false,
+        }
+    }
+}
+
+impl Display for LoadFailure {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadFailure::Unreadable(refusal) => Display::fmt(refusal, formatter),
+            LoadFailure::NoConfigurationFound(sources) => write!(
+                formatter,
+                "No configurations were found in any of the sources given: {}",
+                sources
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            LoadFailure::NoneAppliesTo(machine) => write!(
+                formatter,
+                "No configuration in any of the sources given applies to {}",
+                machine.described()
+            ),
+            LoadFailure::TwoTrees {
+                source,
+                first,
+                second,
+            } => write!(
+                formatter,
+                "{source} holds a configuration for {first}, which clones under {}, and one for                  {second}, which clones under {}. One source cannot be cloned into two trees.",
+                first.repositories_leaf(),
+                second.repositories_leaf()
+            ),
+            LoadFailure::SourceOutsideACheckout(directory) => write!(
+                formatter,
+                "{} is inside no checkout, so there is nothing to read a configuration's files                  out of. Read it from the repository it was written in instead.",
+                directory.display()
+            ),
+            LoadFailure::Irreconcilable(fault) => write!(formatter, "{fault:#}"),
+        }
+    }
+}
+
+impl std::error::Error for LoadFailure {}
 
 fn home_directory() -> Result<PathBuf> {
     std::env::home_dir()
@@ -182,7 +247,7 @@ fn home_directory() -> Result<PathBuf> {
 fn refuse_two_trees_for_one_source(
     source: &ConfigurationSource,
     loaded: &[LoadedConfiguration],
-) -> Result<()> {
+) -> Result<(), LoadFailure> {
     let contexts = loaded.iter().map(|loaded| loaded.configuration.applies_to);
 
     let Some(first) = contexts.clone().next() else {
@@ -195,12 +260,11 @@ fn refuse_two_trees_for_one_source(
         return Ok(());
     };
 
-    bail!(
-        "{source} holds a configuration for {first}, which clones under {}, and one for {second}, \
-         which clones under {}. One source cannot be cloned into two trees.",
-        first.repositories_leaf(),
-        second.repositories_leaf()
-    )
+    Err(LoadFailure::TwoTrees {
+        source: source.clone(),
+        first,
+        second,
+    })
 }
 
 // ADR 0020
@@ -271,20 +335,14 @@ impl Display for ConfigurationSource {
 
 impl ConfigurationSource {
     // ADR 0025
-    fn files_come_from(&self) -> Result<SourceLocation> {
+    fn files_come_from(&self) -> Result<SourceLocation, LoadFailure> {
         match self {
             ConfigurationSource::GitHubRepository { repository, .. } => {
                 Ok(SourceLocation::Repository(repository.clone()))
             }
             ConfigurationSource::LocalDirectory(directory) => checkout_holding(directory)
                 .map(SourceLocation::Checkout)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "{} is inside no checkout, so there is nothing to read a configuration's \
-                         files out of. Read it from the repository it was written in instead.",
-                        directory.display()
-                    )
-                }),
+                .ok_or_else(|| LoadFailure::SourceOutsideACheckout(directory.clone())),
         }
     }
 
@@ -394,7 +452,10 @@ impl ConfigurationSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::configuration::{BEYOND_BUILD_GENERATION, BUILD_GENERATION};
+    use crate::configuration::{
+        BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
+        OLDEST_READABLE_GENERATION,
+    };
     use std::{env, fs::File, io::Write};
 
     #[test]
@@ -470,6 +531,65 @@ mod tests {
         assert!(checked.is_err());
     }
 
+    fn refusing(unreadable: Vec<Unreadable>) -> LoadFailure {
+        LoadFailure::Unreadable(
+            Refusal::of(unreadable).expect("at least one configuration could not be read"),
+        )
+    }
+
+    #[test]
+    fn a_configuration_needing_a_newer_build_sends_this_one_looking_for_its_own_release() {
+        let refusal = refusing(vec![Unreadable::TooNew {
+            source: ConfigurationName::from("everywhere.dotconfig.json"),
+            required: BEYOND_BUILD_GENERATION,
+            available: BUILD_GENERATION,
+        }]);
+
+        assert!(refusal.is_answered_by_a_newer_build());
+    }
+
+    #[test]
+    fn a_configuration_a_person_must_repair_is_not_answered_by_updating_this_build() {
+        let refusal = refusing(vec![Unreadable::Malformed(anyhow!(
+            "everywhere.dotconfig.json is not valid JSON"
+        ))]);
+
+        assert!(!refusal.is_answered_by_a_newer_build());
+    }
+
+    #[test]
+    fn a_document_this_build_has_outgrown_is_not_answered_by_updating_this_build() {
+        let refusal = refusing(vec![Unreadable::TooOld {
+            source: ConfigurationName::from("everywhere.dotconfig.json"),
+            stated: BENEATH_OLDEST_READABLE_GENERATION,
+            oldest_readable: OLDEST_READABLE_GENERATION,
+        }]);
+
+        assert!(!refusal.is_answered_by_a_newer_build());
+    }
+
+    #[test]
+    fn one_configuration_needing_a_newer_build_is_enough_to_go_looking_for_one() {
+        let refusal = refusing(vec![
+            Unreadable::Malformed(anyhow!("personal.dotconfig.json is not valid JSON")),
+            Unreadable::TooNew {
+                source: ConfigurationName::from("everywhere.dotconfig.json"),
+                required: BEYOND_BUILD_GENERATION,
+                available: BUILD_GENERATION,
+            },
+        ]);
+
+        assert!(refusal.is_answered_by_a_newer_build());
+    }
+
+    #[test]
+    fn a_failure_that_is_not_a_refusal_to_read_sends_this_build_looking_for_nothing() {
+        let failure = LoadFailure::NoConfigurationFound(vec![ConfigurationSource::LocalDirectory(
+            PathBuf::from("/config"),
+        )]);
+
+        assert!(!failure.is_answered_by_a_newer_build());
+    }
     #[test]
     fn the_cause_of_each_refusal_survives_being_combined_with_the_others() {
         let refusal = Refusal::of(vec![
@@ -519,7 +639,10 @@ mod tests {
         format!(r#"{{ "kind": "command", "shell": "bash", "args": ["{argument}"] }}"#)
     }
 
-    async fn load_from(checkout: &Path, machine: MachineClass) -> Result<DesiredState> {
+    async fn load_from(
+        checkout: &Path,
+        machine: MachineClass,
+    ) -> Result<DesiredState, LoadFailure> {
         load_desired_state(
             &[ConfigurationSource::LocalDirectory(checkout.join("config"))],
             machine,

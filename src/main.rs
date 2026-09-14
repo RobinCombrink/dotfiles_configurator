@@ -2,8 +2,8 @@ use {
     anyhow::{Result, anyhow, bail},
     clap::{Args, Parser, Subcommand},
     dotfiles_configurator::{
-        configuration::{GitHubAccount, MachineClass, Unreadable},
-        configuration_source::{ConfigurationSource, Refusal, load_desired_state},
+        configuration::{GitHubAccount, MachineClass},
+        configuration_source::{ConfigurationSource, LoadFailure, load_desired_state},
         convergence::{apply::apply, install_release, plan},
         currency::{RELEASE_OWNER, own_currency, own_release_repository},
         desired_state::DesiredState,
@@ -12,17 +12,15 @@ use {
         reporting::{RunKind, RunReport},
     },
     log::{LevelFilter, trace},
-    std::{io::Write, path::PathBuf, process::ExitCode},
+    std::{
+        io::Write,
+        path::{Path, PathBuf},
+        process::ExitCode,
+    },
 };
 
 #[cfg(test)]
-use {
-    dotfiles_configurator::configuration::{
-        BENEATH_OLDEST_READABLE_GENERATION, BEYOND_BUILD_GENERATION, BUILD_GENERATION,
-        ConfigurationName, GitHubRepository, OLDEST_READABLE_GENERATION,
-    },
-    std::str::FromStr,
-};
+use {dotfiles_configurator::configuration::GitHubRepository, std::str::FromStr};
 
 /// Where configurations are read from when none is named.
 const DEFAULT_SOURCE: &str = "github:RobinCombrink/dotfiles/config";
@@ -94,7 +92,7 @@ async fn run(task: Task) -> Result<ExitCode> {
     match task {
         Task::Plan(arguments) => {
             let report = RunReport::open(RunKind::Plan)?;
-            let desired_state = load(&arguments, &github).await?;
+            let desired_state = load(&arguments, &github, &repositories_root()?).await?;
             let machine = LocalMachine::new(&report, &github)?;
             let (change_set, _) = plan(&desired_state, &machine, &report).await?;
             println!("{change_set}");
@@ -112,11 +110,15 @@ async fn run(task: Task) -> Result<ExitCode> {
     }
 }
 
-async fn load(arguments: &ConfigurationArguments, github: &GitHubAccess) -> Result<DesiredState> {
+async fn load(
+    arguments: &ConfigurationArguments,
+    github: &GitHubAccess,
+    repositories_root: &Path,
+) -> Result<DesiredState, LoadFailure> {
     load_desired_state(
         &arguments.sources,
         arguments.machine,
-        &repositories_root()?,
+        repositories_root,
         github,
     )
     .await
@@ -132,27 +134,23 @@ async fn load_after_updating_if_it_must(
     report: &RunReport,
     github: &GitHubAccess,
 ) -> Result<DesiredState> {
-    let refusal = match load(arguments, github).await {
+    let repositories_root = repositories_root()?;
+    let refusal = match load(arguments, github, &repositories_root).await {
         Ok(desired_state) => return Ok(desired_state),
         Err(refusal) => refusal,
     };
 
-    if !needs_a_newer_build(&refusal) {
-        return Err(refusal);
+    if !refusal.is_answered_by_a_newer_build() {
+        return Err(refusal.into());
     }
 
     report.announce(&format!(
-        "{refusal:#}\nObtaining a newer build from {} and reading again.",
+        "{refusal}
+Obtaining a newer build from {} and reading again.",
         own_release_repository()
     ));
     obtain_a_newer_build(machine).await?;
-    load(arguments, github).await
-}
-
-fn needs_a_newer_build(refusal: &anyhow::Error) -> bool {
-    refusal
-        .downcast_ref::<Refusal>()
-        .is_some_and(|refusal| refusal.unreadable().iter().any(Unreadable::is_too_new))
+    Ok(load(arguments, github, &repositories_root).await?)
 }
 
 async fn obtain_a_newer_build(machine: &LocalMachine<'_, '_>) -> Result<()> {
@@ -303,63 +301,5 @@ mod tests {
     #[test]
     fn an_invocation_naming_no_machine_is_refused() {
         assert!(Arguments::try_parse_from(["dotfiles_configurator", "plan"]).is_err());
-    }
-
-    fn refusing(unreadable: Vec<Unreadable>) -> anyhow::Error {
-        Refusal::of(unreadable)
-            .expect("at least one configuration could not be read")
-            .into()
-    }
-
-    #[test]
-    fn a_configuration_needing_a_newer_build_sends_this_one_looking_for_its_own_release() {
-        let refusal = refusing(vec![Unreadable::TooNew {
-            source: ConfigurationName::from("everywhere.dotconfig.json"),
-            required: BEYOND_BUILD_GENERATION,
-            available: BUILD_GENERATION,
-        }]);
-
-        assert!(needs_a_newer_build(&refusal));
-    }
-
-    #[test]
-    fn a_configuration_a_person_must_repair_is_not_answered_by_updating_this_build() {
-        let refusal = refusing(vec![Unreadable::Malformed(anyhow::anyhow!(
-            "everywhere.dotconfig.json is not valid JSON"
-        ))]);
-
-        assert!(!needs_a_newer_build(&refusal));
-    }
-
-    #[test]
-    fn a_document_this_build_has_outgrown_is_not_answered_by_updating_this_build() {
-        let refusal = refusing(vec![Unreadable::TooOld {
-            source: ConfigurationName::from("everywhere.dotconfig.json"),
-            stated: BENEATH_OLDEST_READABLE_GENERATION,
-            oldest_readable: OLDEST_READABLE_GENERATION,
-        }]);
-
-        assert!(!needs_a_newer_build(&refusal));
-    }
-
-    #[test]
-    fn one_configuration_needing_a_newer_build_is_enough_to_go_looking_for_one() {
-        let refusal = refusing(vec![
-            Unreadable::Malformed(anyhow::anyhow!("personal.dotconfig.json is not valid JSON")),
-            Unreadable::TooNew {
-                source: ConfigurationName::from("everywhere.dotconfig.json"),
-                required: BEYOND_BUILD_GENERATION,
-                available: BUILD_GENERATION,
-            },
-        ]);
-
-        assert!(needs_a_newer_build(&refusal));
-    }
-
-    #[test]
-    fn a_failure_that_is_not_a_refusal_to_read_sends_this_build_looking_for_nothing() {
-        assert!(!needs_a_newer_build(&anyhow::anyhow!(
-            "No configurations were found in any of the sources given"
-        )));
     }
 }
