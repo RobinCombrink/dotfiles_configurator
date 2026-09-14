@@ -157,6 +157,12 @@ pub trait ReadMachine {
         self.home_directory().join(TOOL_DIRECTORY).join("bin")
     }
 
+    fn build_cache_directory(&self) -> PathBuf {
+        self.home_directory()
+            .join(TOOL_DIRECTORY)
+            .join("build-cache")
+    }
+
     // ADR 0022
     fn displacement_directories(&self) -> Vec<PathBuf>;
 }

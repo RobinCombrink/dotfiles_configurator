@@ -6,7 +6,7 @@ use {
         },
         machine::{CommandOutput, Replacement, workspace_reading::Revision},
     },
-    std::path::PathBuf,
+    std::path::{Path, PathBuf},
 };
 
 /// The closed set of invocations this crate defines for reading state.
@@ -138,14 +138,39 @@ impl DisplacingInvocation {
         }
     }
 
-    pub fn environment(&self) -> Vec<(&'static str, &'static str)> {
+    // 2026-09-14: cargo reuses a build it finds in a shared target directory even when the
+    // revision asked for differs, installing the previous revision's binary and reporting
+    // success, because it fingerprints a git source by its relative path (rust-lang/cargo#13259,
+    // open and S-accepted; the fix, PR #13689, was closed unmerged on 2026-05-31). Naming the
+    // directory for the revision is what makes that reuse unreachable.
+    pub fn build_directory(&self, build_cache: &Path) -> Option<PathBuf> {
+        match self {
+            DisplacingInvocation::InstallCargoCrate {
+                source: ResolvedCargoSource::Repository { revision, .. },
+                ..
+            } => Some(build_cache.join(revision.as_ref())),
+            DisplacingInvocation::InstallCargoCrate { .. } => None,
+        }
+    }
+
+    pub fn environment(&self, build_cache: &Path) -> Vec<(String, String)> {
         match self {
             // 2026-08-10: cargo's own libgit2 fetch cannot authenticate to a private GitHub
             // repository on a machine holding its credentials behind `gh auth git-credential`,
             // failing with "no authentication methods succeeded" against a cold cache. The git
             // command line runs that helper and fetches the same revision.
             DisplacingInvocation::InstallCargoCrate { .. } => {
-                vec![("CARGO_NET_GIT_FETCH_WITH_CLI", "true")]
+                let mut environment =
+                    vec![("CARGO_NET_GIT_FETCH_WITH_CLI".to_owned(), "true".to_owned())];
+
+                if let Some(directory) = self.build_directory(build_cache) {
+                    environment.push((
+                        "CARGO_TARGET_DIR".to_owned(),
+                        directory.display().to_string(),
+                    ));
+                }
+
+                environment
             }
         }
     }
@@ -334,12 +359,104 @@ mod tests {
         assert_eq!(installing_a_crate().refused_destination(&output), None);
     }
 
+    fn build_cache() -> PathBuf {
+        PathBuf::from("C:\\Users\\Alice\\.dotfiles_configurator\\build-cache")
+    }
+
+    fn installing_from_revision(revision: &str) -> DisplacingInvocation {
+        installing(
+            "stop-gate",
+            ResolvedCargoSource::Repository {
+                repository: GitHubRepository {
+                    owner: RepositoryOwner::from("Alice"),
+                    repository: RepositoryName::from("dotfiles"),
+                },
+                account: GitHubAccount::from("Alice"),
+                revision: Revision::from(revision),
+            },
+        )
+    }
+
+    fn value_of<'environment>(
+        environment: &'environment [(String, String)],
+        name: &str,
+    ) -> Option<&'environment str> {
+        environment
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.as_str())
+    }
+
     #[test]
     fn installing_a_crate_has_cargo_fetch_git_repositories_through_the_git_command_line() {
         assert_eq!(
-            installing_a_crate().environment(),
-            vec![("CARGO_NET_GIT_FETCH_WITH_CLI", "true")]
+            value_of(
+                &installing_a_crate().environment(&build_cache()),
+                "CARGO_NET_GIT_FETCH_WITH_CLI"
+            ),
+            Some("true")
         );
+    }
+
+    #[test]
+    fn every_crate_of_one_revision_builds_in_the_directory_that_revision_names() {
+        let directory = installing_from_revision("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c")
+            .build_directory(&build_cache());
+
+        assert_eq!(
+            directory,
+            Some(build_cache().join("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c"))
+        );
+    }
+
+    #[test]
+    fn two_revisions_of_one_repository_never_build_in_the_same_directory() {
+        let earlier = installing_from_revision("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c")
+            .build_directory(&build_cache());
+        let later = installing_from_revision("f9a32f6c605fc1ed4584037a770376d084f74a8d")
+            .build_directory(&build_cache());
+
+        assert_ne!(earlier, later);
+    }
+
+    #[test]
+    fn a_crate_from_a_repository_has_cargo_build_it_in_the_directory_its_revision_names() {
+        let invocation = installing_from_revision("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c");
+        let environment = invocation.environment(&build_cache());
+
+        assert_eq!(
+            value_of(&environment, "CARGO_TARGET_DIR"),
+            Some(
+                build_cache()
+                    .join("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c")
+                    .display()
+                    .to_string()
+                    .as_str()
+            )
+        );
+    }
+
+    #[test]
+    fn a_crate_from_the_registry_is_left_to_build_where_cargo_would_put_it() {
+        let invocation = installing("ripgrep", ResolvedCargoSource::Registry);
+
+        assert_eq!(invocation.build_directory(&build_cache()), None);
+        assert_eq!(
+            value_of(&invocation.environment(&build_cache()), "CARGO_TARGET_DIR"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_crate_from_a_path_is_left_to_build_where_cargo_would_put_it() {
+        let invocation = installing(
+            "stop-gate",
+            ResolvedCargoSource::Path {
+                path: PathBuf::from("C:\\Repositories\\dotfiles\\tools\\stop-gate"),
+            },
+        );
+
+        assert_eq!(invocation.build_directory(&build_cache()), None);
     }
 
     #[test]

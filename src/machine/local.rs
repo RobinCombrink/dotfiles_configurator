@@ -73,7 +73,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
         &self,
         tool: Tool,
         arguments: &[String],
-        environment: &[(&str, &str)],
+        environment: &[(String, String)],
     ) -> Result<CommandOutput> {
         stream(
             Path::new(tool.program()),
@@ -175,6 +175,25 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
     }
 }
 
+fn builds_of_other_revisions_reaped(build_cache: &Path, keeping: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(build_cache) else {
+        return Vec::new();
+    };
+
+    let mut reaped = Vec::new();
+    for path in entries.flatten().map(|entry| entry.path()) {
+        if path == keeping {
+            continue;
+        }
+
+        if fs::remove_dir_all(&path).is_ok() {
+            reaped.push(path);
+        }
+    }
+
+    reaped
+}
+
 fn rendered_invocation(program: &Path, arguments: &[String]) -> String {
     match arguments.is_empty() {
         true => program.display().to_string(),
@@ -207,14 +226,14 @@ fn capture(program: &Path, arguments: &[String], report: &RunReport) -> Result<C
 fn stream(
     program: &Path,
     arguments: &[String],
-    environment: &[(&str, &str)],
+    environment: &[(String, String)],
     report: &RunReport,
 ) -> Result<CommandOutput> {
     report.announce(&rendered_invocation(program, arguments));
 
     let mut child = ProcessCommand::new(program)
         .args(arguments)
-        .envs(environment.iter().copied())
+        .envs(environment.iter().map(|(name, value)| (name, value)))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -671,7 +690,16 @@ impl WriteMachine for LocalMachine<'_, '_> {
     fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
         let tool = invocation.tool();
         let arguments = invocation.arguments();
-        let environment = invocation.environment();
+        let build_cache = self.build_cache_directory();
+
+        if let Some(directory) = invocation.build_directory(&build_cache) {
+            for reaped in builds_of_other_revisions_reaped(&build_cache, &directory) {
+                self.report
+                    .note(&format!("reaped the build directory {}", reaped.display()));
+            }
+        }
+
+        let environment = invocation.environment(&build_cache);
 
         let output = self.run(tool, &arguments, &environment)?;
         if output.succeeded {
@@ -1172,5 +1200,70 @@ mod tests {
 
         assert_eq!(program, "wsl");
         assert_eq!(arguments, vec!["--", "bash", "-c", "ls"]);
+    }
+
+    #[cfg(target_family = "windows")]
+    const AN_ECHO_OF_CARGO_TARGET_DIR: &str = "echo %CARGO_TARGET_DIR%";
+    #[cfg(target_family = "unix")]
+    const AN_ECHO_OF_CARGO_TARGET_DIR: &str = "echo $CARGO_TARGET_DIR";
+
+    #[test]
+    fn the_environment_a_changing_invocation_asks_for_reaches_the_child_that_runs_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
+        let (program, arguments) = shell_invocation(
+            A_SHELL_EVERY_MACHINE_HAS,
+            &[AN_ECHO_OF_CARGO_TARGET_DIR.to_owned()],
+        );
+        let asked = "the-build-cache-of-a-revision";
+
+        let output = stream(
+            Path::new(&program),
+            &arguments,
+            &[("CARGO_TARGET_DIR".to_owned(), asked.to_owned())],
+            &report,
+        )
+        .unwrap();
+
+        assert!(output.succeeded, "{output:?}");
+        assert!(output.standard_output.contains(asked), "{output:?}");
+    }
+
+    fn build_cache_holding(revisions: &[&str]) -> tempfile::TempDir {
+        let build_cache = tempfile::tempdir().unwrap();
+        for revision in revisions {
+            fs::create_dir_all(build_cache.path().join(revision).join("release")).unwrap();
+        }
+
+        build_cache
+    }
+
+    #[test]
+    fn installing_a_revision_reaps_the_builds_of_every_other_revision() {
+        let build_cache = build_cache_holding(&["older", "oldest", "current"]);
+        let keeping = build_cache.path().join("current");
+
+        let reaped = builds_of_other_revisions_reaped(build_cache.path(), &keeping);
+
+        assert_eq!(reaped.len(), 2);
+        assert!(keeping.exists());
+        assert!(!build_cache.path().join("older").exists());
+        assert!(!build_cache.path().join("oldest").exists());
+    }
+
+    #[test]
+    fn installing_the_only_revision_a_build_cache_holds_reaps_nothing() {
+        let build_cache = build_cache_holding(&["current"]);
+        let keeping = build_cache.path().join("current");
+
+        assert!(builds_of_other_revisions_reaped(build_cache.path(), &keeping).is_empty());
+        assert!(keeping.exists());
+    }
+
+    #[test]
+    fn installing_against_a_build_cache_that_does_not_exist_yet_reaps_nothing() {
+        let absent = tempfile::tempdir().unwrap().path().join("build-cache");
+
+        assert!(builds_of_other_revisions_reaped(&absent, &absent.join("current")).is_empty());
     }
 }
