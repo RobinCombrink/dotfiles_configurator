@@ -10,7 +10,7 @@ use {
         io::{IsTerminal, Write},
         path::{Path, PathBuf},
         process,
-        sync::{Arc, Condvar, Mutex},
+        sync::{Arc, Condvar, Mutex, PoisonError},
         thread::{self, JoinHandle},
         time::{Duration, Instant, SystemTime},
     },
@@ -59,7 +59,7 @@ impl std::fmt::Debug for RunReport {
 }
 
 struct Shared {
-    log: Option<Mutex<LogFile>>,
+    log: Mutex<LogFile>,
     progress: MultiProgress,
     screen: Screen,
     current_activity: Mutex<Option<Activity>>,
@@ -71,7 +71,6 @@ struct Shared {
 enum Screen {
     Terminal,
     PlainLines,
-    Nothing,
 }
 
 impl Screen {
@@ -85,7 +84,7 @@ impl Screen {
     fn draw_target(self) -> ProgressDrawTarget {
         match self {
             Screen::Terminal => ProgressDrawTarget::stderr(),
-            Screen::PlainLines | Screen::Nothing => ProgressDrawTarget::hidden(),
+            Screen::PlainLines => ProgressDrawTarget::hidden(),
         }
     }
 }
@@ -153,18 +152,14 @@ impl RunReport {
         discard_all_but_newest(directory, RETAINED_RUNS.saturating_sub(1))?;
 
         let (path, file) = create_log(directory, kind)?;
-        let report = Self::new(Some(LogFile { path, file }), Screen::of_this_process());
+        let report = Self::new(LogFile { path, file }, Screen::of_this_process());
         report.note(&format!("{kind} started"));
         Ok(report)
     }
 
-    pub fn discarded() -> Self {
-        Self::new(None, Screen::Nothing)
-    }
-
-    fn new(log: Option<LogFile>, screen: Screen) -> Self {
+    fn new(log: LogFile, screen: Screen) -> Self {
         let shared = Arc::new(Shared {
-            log: log.map(Mutex::new),
+            log: Mutex::new(log),
             progress: MultiProgress::with_draw_target(screen.draw_target()),
             screen,
             current_activity: Mutex::new(None),
@@ -176,7 +171,7 @@ impl RunReport {
         }
     }
 
-    pub fn log_path(&self) -> Option<PathBuf> {
+    pub fn log_path(&self) -> PathBuf {
         self.shared.log_path()
     }
 
@@ -272,17 +267,11 @@ impl Shared {
                 let _ = self.progress.println(message);
             }
             Screen::PlainLines => eprintln!("{message}"),
-            Screen::Nothing => {}
         }
     }
 
     fn write_down(&self, message: &str) {
-        let Some(log) = self.log.as_ref() else {
-            return;
-        };
-        let Ok(mut log) = log.lock() else {
-            return;
-        };
+        let mut log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
 
         let _ = writeln!(
             log.file,
@@ -291,10 +280,12 @@ impl Shared {
         );
     }
 
-    fn log_path(&self) -> Option<PathBuf> {
+    fn log_path(&self) -> PathBuf {
         self.log
-            .as_ref()
-            .and_then(|log| log.lock().ok().map(|log| log.path.clone()))
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .path
+            .clone()
     }
 }
 
@@ -344,21 +335,17 @@ fn watch_for_silence(shared: Arc<Shared>) -> SilenceWatchdog {
 }
 
 fn report_a_silence(shared: &Shared, label: &str, silence: Duration) {
-    let log_path = shared.log_path();
-    let message = silence_message(label, silence, log_path.as_deref());
+    let message = silence_message(label, silence, &shared.log_path());
     shared.write_down(&message);
     shared.show(&message);
 }
 
-fn silence_message(label: &str, silence: Duration, log_path: Option<&Path>) -> String {
+fn silence_message(label: &str, silence: Duration, log_path: &Path) -> String {
     let minutes = silence.as_secs() / 60;
-    match log_path {
-        Some(path) => format!(
-            "{label} has said nothing for {minutes} minutes. Still waiting; its output is going to {}",
-            path.display()
-        ),
-        None => format!("{label} has said nothing for {minutes} minutes. Still waiting"),
-    }
+    format!(
+        "{label} has said nothing for {minutes} minutes. Still waiting; its output is going to {}",
+        log_path.display()
+    )
 }
 
 fn create_log(directory: &Path, kind: RunKind) -> Result<(PathBuf, File)> {
@@ -472,7 +459,7 @@ mod tests {
         let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
 
         drop(report.doing("installing Neovim"));
-        let written = fs::read_to_string(report.log_path().unwrap()).unwrap();
+        let written = fs::read_to_string(report.log_path()).unwrap();
 
         assert!(written.contains("installing Neovim"), "{written}");
     }
@@ -483,23 +470,9 @@ mod tests {
         let report = RunReport::open_in(directory.path(), RunKind::Plan).unwrap();
 
         report.captured_output("Name  Id  Version\nA package  Microsoft.PowerShell  1.0.0");
-        let written = fs::read_to_string(report.log_path().unwrap()).unwrap();
+        let written = fs::read_to_string(report.log_path()).unwrap();
 
         assert!(written.contains("Microsoft.PowerShell"), "{written}");
-    }
-
-    #[test]
-    fn a_discarded_report_writes_no_log_at_all() {
-        let report = RunReport::discarded();
-
-        report.announce("installing Neovim");
-
-        assert_eq!(report.log_path(), None);
-    }
-
-    #[test]
-    fn a_real_run_speaks_whether_or_not_it_has_a_terminal_to_speak_to() {
-        assert_ne!(Screen::of_this_process(), Screen::Nothing);
     }
 
     #[test]
@@ -518,7 +491,7 @@ mod tests {
             Duration::from_secs(630),
         );
 
-        let written = fs::read_to_string(report.log_path().unwrap()).unwrap();
+        let written = fs::read_to_string(report.log_path()).unwrap();
         assert!(written.contains("installing cargo-llvm-cov"), "{written}");
     }
 
@@ -527,9 +500,7 @@ mod tests {
         let message = silence_message(
             "installing cargo-llvm-cov",
             Duration::from_secs(630),
-            Some(Path::new(
-                "/home/alice/.dotfiles_configurator/logs/apply-20260807-141233.000-91.log",
-            )),
+            Path::new("/home/alice/.dotfiles_configurator/logs/apply-20260807-141233.000-91.log"),
         );
 
         assert!(message.contains("installing cargo-llvm-cov"), "{message}");

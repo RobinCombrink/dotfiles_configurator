@@ -969,7 +969,7 @@ mod tests {
 
         let output = stream(Path::new(&program), &arguments, &[], &report).unwrap();
 
-        let written = fs::read_to_string(report.log_path().unwrap()).unwrap();
+        let written = fs::read_to_string(report.log_path()).unwrap();
         assert!(output.succeeded, "{output:?}");
         assert!(
             written.contains("first") && written.contains("second"),
@@ -997,7 +997,7 @@ mod tests {
 
         capture(Path::new(&program), &arguments, &report).unwrap();
 
-        let written = fs::read_to_string(report.log_path().unwrap()).unwrap();
+        let written = fs::read_to_string(report.log_path()).unwrap();
         assert!(written.contains(&program), "{written}");
     }
 

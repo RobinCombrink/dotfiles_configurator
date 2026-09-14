@@ -8,7 +8,7 @@ use {
         convergence::plan,
         desired_state::DesiredState,
         github::GitHubAccess,
-        reporting::RunReport,
+        reporting::RunKind,
     },
     std::{
         env, fs,
@@ -16,10 +16,12 @@ use {
     },
 };
 
+#[path = "common/declarations.rs"]
+mod declarations;
 #[path = "common/fake_machine.rs"]
 mod fake_machine;
 
-use fake_machine::FakeMachine;
+use {declarations::Reporting, fake_machine::FakeMachine};
 
 fn fixture(name: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -124,7 +126,7 @@ async fn planning_reports_a_pending_migration_and_leaves_the_document_as_it_was(
     let (change_set, _) = plan(
         &desired_state,
         &FakeMachine::default(),
-        &RunReport::discarded(),
+        Reporting::opening(RunKind::Plan).report(),
     )
     .await
     .unwrap();

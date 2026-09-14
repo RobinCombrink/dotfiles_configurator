@@ -11,15 +11,37 @@ use {
             Resource, VersionWord,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
+        reporting::{RunKind, RunReport},
     },
     std::{
         num::NonZeroUsize,
         path::{Path, PathBuf},
     },
+    tempfile::TempDir,
 };
 
 pub const REPOSITORIES_ROOT: &str = "/repositories";
 pub const HOME_DIRECTORY: &str = "/home/Alice";
+
+pub struct Reporting {
+    _logs: TempDir,
+    report: RunReport,
+}
+
+impl Reporting {
+    pub fn opening(kind: RunKind) -> Self {
+        let logs = tempfile::tempdir().expect("a directory to write run logs into");
+        let report = RunReport::open_in(logs.path(), kind).expect("a run log");
+        Self {
+            _logs: logs,
+            report,
+        }
+    }
+
+    pub fn report(&self) -> &RunReport {
+        &self.report
+    }
+}
 
 pub fn manifest_for(machine: MachineClass) -> MachineManifest {
     MachineManifest {

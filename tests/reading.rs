@@ -11,7 +11,8 @@ mod fake_machine;
 
 use {
     declarations::{
-        declaring, named_repository, read_as_two_accounts, reporting_its_version_in_the_second_word,
+        Reporting, declaring, named_repository, read_as_two_accounts,
+        reporting_its_version_in_the_second_word,
     },
     dotfiles_configurator::{
         configuration::{
@@ -27,7 +28,7 @@ use {
                 Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
-        reporting::RunReport,
+        reporting::RunKind,
         version::Version,
     },
     fake_machine::FakeMachine,
@@ -58,9 +59,13 @@ async fn many_packages_from_one_manager_ask_it_once() {
         winget_package("Neovim.Neovim"),
     ]);
 
-    plan(&desired_state, &machine, &RunReport::discarded())
-        .await
-        .unwrap();
+    plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         machine.times_read(&ReadInvocation::WingetInstalledPackages),
@@ -78,9 +83,13 @@ async fn each_manager_is_asked_once_when_several_are_declared_against() {
         cargo_package("stop-gate"),
     ]);
 
-    plan(&desired_state, &machine, &RunReport::discarded())
-        .await
-        .unwrap();
+    plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         machine.times_read(&ReadInvocation::WingetInstalledPackages),
@@ -94,9 +103,13 @@ async fn a_manager_nothing_is_declared_against_is_never_asked() {
     let machine = FakeMachine::default();
     let desired_state = desired_state(vec![winget_package("Microsoft.PowerShell")]);
 
-    plan(&desired_state, &machine, &RunReport::discarded())
-        .await
-        .unwrap();
+    plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(machine.times_read(&ReadInvocation::CargoInstalledCrates), 0);
 }
@@ -107,9 +120,13 @@ async fn a_package_whose_manager_is_absent_leaves_that_manager_unasked() {
     machine.remove_tool(dotfiles_configurator::configuration::Tool::Winget);
     let desired_state = desired_state(vec![winget_package("Microsoft.PowerShell")]);
 
-    plan(&desired_state, &machine, &RunReport::discarded())
-        .await
-        .unwrap();
+    plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         machine.times_read(&ReadInvocation::WingetInstalledPackages),
@@ -163,9 +180,13 @@ async fn every_crate_in_one_workspace_opens_its_repository_once() {
         }],
     );
 
-    let (change_set, _) = plan(&desired_state, &machine, &RunReport::discarded())
-        .await
-        .unwrap();
+    let (change_set, _) = plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(change_set.changes.len(), 4);
     assert_eq!(machine.cargo_workspace_reads().len(), 1);
@@ -176,9 +197,13 @@ async fn a_configuration_declaring_no_workspace_never_opens_a_repository() {
     let machine = FakeMachine::default();
     let desired_state = desired_state(vec![cargo_package("committed")]);
 
-    plan(&desired_state, &machine, &RunReport::discarded())
-        .await
-        .unwrap();
+    plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
 
     assert!(machine.cargo_workspace_reads().is_empty());
 }
@@ -206,9 +231,13 @@ async fn several_binaries_out_of_one_repository_ask_it_for_its_release_once() {
         released_binary("rg-imports.exe"),
     ]);
 
-    plan(&desired_state, &machine, &RunReport::discarded())
-        .await
-        .unwrap();
+    plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(machine.release_reads(&named_repository(RIPGREP)), 1);
 }
@@ -228,9 +257,13 @@ async fn a_repository_two_configurations_declare_a_binary_from_is_read_once_as_t
         vec![released_binary("rg-imports.exe")],
     );
 
-    plan(&desired_state, &machine, &RunReport::discarded())
-        .await
-        .unwrap();
+    plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(machine.release_reads(&named_repository(RIPGREP)), 1);
     assert_eq!(
@@ -244,9 +277,13 @@ async fn a_configuration_declaring_no_released_binary_never_asks_for_a_release()
     let machine = FakeMachine::default();
     let desired_state = desired_state(vec![winget_package("Microsoft.PowerShell")]);
 
-    plan(&desired_state, &machine, &RunReport::discarded())
-        .await
-        .unwrap();
+    plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(machine.release_reads(&named_repository(RIPGREP)), 0);
 }
