@@ -128,6 +128,12 @@ Feature: Applying a change set
     Then Neovim is installed on Alice's machine
     And cargo was asked to install 1 time
 
+  Scenario: A command without a presence check is attempted once rather than on every pass
+    Given Alice declares the command "refresh-completions" with no presence check
+    When Alice applies
+    Then the command "refresh-completions" was run 1 time
+    And the machine is reported as converged
+
   Scenario: Applying removes the binary an earlier run moved aside
     Given Alice declares the application "Neovim"
     And Neovim is installed on Alice's machine

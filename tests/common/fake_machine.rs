@@ -205,6 +205,15 @@ impl FakeMachine {
         self.state.borrow().cargo_installs
     }
 
+    pub fn times_the_declared_command_ran(&self, argument: &str) -> usize {
+        self.state
+            .borrow()
+            .commands_run
+            .iter()
+            .filter(|arguments| arguments.iter().any(|given| given == argument))
+            .count()
+    }
+
     fn run_cargo(&self, invocation: &DisplacingInvocation) -> CommandOutput {
         let mut state = self.state.borrow_mut();
         state.cargo_installs += 1;
