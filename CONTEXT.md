@@ -143,6 +143,11 @@ about. Required on an installer; optional on a command, and a command without on
 on every run. Unavailable on a released binary, which is asked for its version instead.
 _Avoid_: guard, precondition, unless, creates
 
+**Candidate**:
+One of the locations a path check will accept. The check is satisfied by any candidate and names
+the one that answered, so a candidate no machine satisfies is observable rather than silent.
+_Avoid_: alternative, fallback, option
+
 **Notice**:
 A message for a person, and not a resource. Carries the facts the site that raised it held and
 is rendered to text only where it is shown. Defined by `Notice`; the one a configuration writes
