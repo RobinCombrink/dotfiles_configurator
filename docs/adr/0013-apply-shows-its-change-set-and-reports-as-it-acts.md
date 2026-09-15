@@ -40,6 +40,12 @@ provisioning takes, and no threshold has a principled value against a single cra
 - **A second flag disabling interactivity.** The prior art carries one because it spans many
   commands that prompt for many things. There is one prompt here, and a caller that wants none
   already has `--yes`.
+- **An exit status for each way a run stops without acting.** Would tell "the operator said no"
+  apart from "there was nobody to ask". Rejected: the two differ in who ended the run, not in what
+  a caller does next, and the run says which it was in words.
+- **Refusing only once there is drift to enact**, so that a trigger with no terminal could still
+  report a converged machine. Rejected: it makes whether a run is refused depend on the state of
+  the machine, which is the one thing a caller cannot know before running it.
 
 ## Consequences
 
@@ -56,5 +62,14 @@ provisioning takes, and no threshold has a principled value against a single cra
 - **Logging is process infrastructure and sits outside the capability split**, so producing a change
   set writes a log without acquiring any ability to change a resource. ADR 0006 states the guarantee
   about the machine's declared resources.
-- A run refused for want of a terminal is a run that did nothing, which is neither converged nor
-  failed, and the exit status has to say so.
+- **A confirmation needs both ends of a conversation.** Asking is possible only where standard
+  input and standard error are both terminals: one stream carries the question and the other
+  carries the answer, and a question put where it cannot be seen hangs exactly as one that cannot
+  be answered does.
+- **The refusal is settled before anything is read.** A run that can ask nobody and was answered
+  by nobody stops at its first instruction rather than after producing a change set, so a trigger
+  with no terminal either carries `--yes` or does nothing at all — including on a machine that
+  has not drifted.
+- **A run that did nothing exits 2.** Declining and being refused are both neither converged nor
+  failed, and they share one status: what a caller acts on is that the machine was not touched,
+  not which of the two stopped the run.
