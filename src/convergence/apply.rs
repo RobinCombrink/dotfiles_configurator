@@ -119,7 +119,7 @@ pub enum Enactment {
     Declined,
 }
 
-pub const ENACT_THE_CHANGE_SET: &str = "Enact this change set?";
+const ENACT_THE_CHANGE_SET: &str = "Enact this change set?";
 
 // ADR 0004, ADR 0013
 pub async fn apply(
