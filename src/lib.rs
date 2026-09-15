@@ -3,6 +3,7 @@
 
 pub mod configuration;
 pub mod configuration_source;
+pub mod confirmation;
 pub mod convergence;
 pub mod currency;
 pub mod desired_state;
