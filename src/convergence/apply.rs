@@ -114,7 +114,7 @@ impl Display for ApplyOutcome {
 }
 
 #[derive(Debug)]
-pub enum Applied {
+pub enum Enactment {
     Enacted(ApplyOutcome),
     Declined,
 }
@@ -125,13 +125,13 @@ pub async fn apply(
     machine: &(impl WriteMachine + WriteSource),
     report: &RunReport,
     operator: &impl Confirm,
-) -> anyhow::Result<Applied> {
+) -> anyhow::Result<Enactment> {
     let (first_change_set, first_readings) = plan(desired_state, machine, report).await?;
     report.announce(&first_change_set.to_string());
 
     if operator.confirmation() == Confirmation::Declined {
         report.announce("Declined. Nothing on this machine was changed.");
-        return Ok(Applied::Declined);
+        return Ok(Enactment::Declined);
     }
 
     let mut converged: Vec<ResolvedResource> = Vec::new();
@@ -187,7 +187,7 @@ pub async fn apply(
     let mut notices = change_set.notices;
     notices.extend(notice_of_an_environment_change(&converged));
 
-    Ok(Applied::Enacted(ApplyOutcome {
+    Ok(Enactment::Enacted(ApplyOutcome {
         converged,
         failed,
         held,

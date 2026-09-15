@@ -14,7 +14,7 @@ pub mod resolve;
 pub mod source_reading;
 
 pub use {
-    apply::{Applied, ApplyOutcome},
+    apply::{ApplyOutcome, Enactment},
     assess::{SourceReadings, assess},
     converge::install_release,
     resolve::resolve,

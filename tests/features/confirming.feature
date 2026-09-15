@@ -55,11 +55,17 @@ Feature: Confirming a change set before it is enacted
     Then the link ".gitconfig" points into the dotfiles repository
     And Alice was asked once
 
-  Scenario: An answer given in advance enacts the change set and is still shown it
+  Scenario: An answer given in advance enacts the change set
     Given Alice declares the application "Neovim"
     And Neovim is not installed on Alice's machine
     And Alice has answered in advance
     When Alice applies
     Then Neovim is installed on Alice's machine
-    And Alice was shown "application Neovim" before it was converged
     And the machine is reported as converged
+
+  Scenario: An answer given in advance is still shown the change set
+    Given Alice declares the application "Neovim"
+    And Neovim is not installed on Alice's machine
+    And Alice has answered in advance
+    When Alice applies
+    Then Alice was shown "application Neovim" before it was converged

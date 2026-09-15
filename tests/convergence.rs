@@ -25,7 +25,7 @@ use {
         confirmation::{Confirm, Confirmation, Operator},
         convergence::{
             ApplyOutcome, ChangeSet,
-            apply::{Applied, apply},
+            apply::{Enactment, apply},
             plan,
         },
         desired_state::DesiredState,
@@ -71,7 +71,7 @@ struct MachineWorld {
     stray_file_names: Vec<String>,
     change_set: Option<ChangeSet>,
     second_change_set: Option<ChangeSet>,
-    applied: Option<Applied>,
+    enactment: Option<Enactment>,
     answering: Answering,
     migrations: Vec<Migration>,
     fingerprint_before: Option<String>,
@@ -97,7 +97,7 @@ impl MachineWorld {
             stray_file_names: Vec::new(),
             change_set: None,
             second_change_set: None,
-            applied: None,
+            enactment: None,
             answering: Answering::default(),
             migrations: Vec::new(),
             fingerprint_before: None,
@@ -176,25 +176,23 @@ impl MachineWorld {
             .expect("the scenario has not planned yet")
     }
 
-    fn outcome(&self) -> &ApplyOutcome {
-        match self
-            .applied
+    fn enactment(&self) -> &Enactment {
+        self.enactment
             .as_ref()
             .expect("the scenario has not applied yet")
-        {
-            Applied::Enacted(outcome) => outcome,
-            Applied::Declined => panic!("the scenario declined the change set"),
+    }
+
+    fn outcome(&self) -> &ApplyOutcome {
+        match self.enactment() {
+            Enactment::Enacted(outcome) => outcome,
+            Enactment::Declined => panic!("the scenario declined the change set"),
         }
     }
 
     fn was_declined(&self) -> bool {
-        match self
-            .applied
-            .as_ref()
-            .expect("the scenario has not applied yet")
-        {
-            Applied::Enacted(_) => false,
-            Applied::Declined => true,
+        match self.enactment() {
+            Enactment::Enacted(_) => false,
+            Enactment::Declined => true,
         }
     }
 }
@@ -983,13 +981,9 @@ async fn alice_plans_twice(world: &mut MachineWorld) {
     world.report = Some(report);
 }
 
-#[when(expr = "Alice applies")]
-async fn alice_applies(world: &mut MachineWorld) {
-    world.publish_workspace();
-    world.fingerprint_before = Some(world.machine.fingerprint());
-
+async fn alice_applies_once(world: &mut MachineWorld) {
     let report = world.open_a_report(RunKind::Apply);
-    world.applied = Some(
+    world.enactment = Some(
         apply(
             &world.desired_state(),
             &world.machine,
@@ -1002,24 +996,21 @@ async fn alice_applies(world: &mut MachineWorld) {
     world.report = Some(report);
 }
 
+#[when(expr = "Alice applies")]
+async fn alice_applies(world: &mut MachineWorld) {
+    world.publish_workspace();
+    world.fingerprint_before = Some(world.machine.fingerprint());
+
+    alice_applies_once(world).await;
+}
+
 #[when(expr = "Alice applies twice")]
 async fn alice_applies_twice(world: &mut MachineWorld) {
     world.publish_workspace();
     world.fingerprint_before = Some(world.machine.fingerprint());
 
     for _ in 0..2 {
-        let report = world.open_a_report(RunKind::Apply);
-        world.applied = Some(
-            apply(
-                &world.desired_state(),
-                &world.machine,
-                &report,
-                &world.answering,
-            )
-            .await
-            .unwrap(),
-        );
-        world.report = Some(report);
+        alice_applies_once(world).await;
     }
 }
 

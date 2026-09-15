@@ -6,7 +6,7 @@ use {
         configuration_source::{ConfigurationSource, LoadFailure, load_desired_state},
         confirmation::Operator,
         convergence::{
-            apply::{Applied, apply},
+            apply::{Enactment, apply},
             install_release, plan,
         },
         currency::{RELEASE_OWNER, own_currency, own_release_repository},
@@ -134,11 +134,11 @@ async fn run(task: Task) -> Result<ExitCode> {
             .await?;
 
             match apply(&desired_state, &machine, &report, &operator).await? {
-                Applied::Enacted(outcome) => {
+                Enactment::Enacted(outcome) => {
                     println!("{outcome}");
                     Ok(Conclusion::of(outcome.is_converged()).into())
                 }
-                Applied::Declined => Ok(Conclusion::DidNothing.into()),
+                Enactment::Declined => Ok(Conclusion::DidNothing.into()),
             }
         }
     }

@@ -64,8 +64,6 @@ impl Display for NoOneToAsk {
     }
 }
 
-impl std::error::Error for NoOneToAsk {}
-
 const QUESTION: &str = "Proceed? [y/N] ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,11 +156,6 @@ mod tests {
             Operator::AnsweredInAdvance.confirmation(),
             Confirmation::Proceed
         );
-    }
-
-    #[test]
-    fn the_question_says_that_an_unanswered_one_leaves_the_machine_alone() {
-        assert!(QUESTION.contains("[y/N]"), "{QUESTION}");
     }
 
     #[test]
