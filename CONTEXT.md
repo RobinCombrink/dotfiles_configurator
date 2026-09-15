@@ -32,6 +32,20 @@ _Avoid_: plan, diff, execution plan
 To enact a change set. An apply that finds no drift changes nothing.
 _Avoid_: execute, run, provision
 
+**Confirmation**:
+The one question this program asks: whether to enact the change set it has just shown. Put once,
+at the first change set, and never again — later passes converge what became ready once earlier
+changes landed. `--yes` answers it in advance, which suppresses the question and never the change
+set.
+_Avoid_: prompt, approval, consent, acknowledgement
+
+**Declined**:
+Describes a run stopped at its confirmation, which has read the machine and changed none of it. A
+run that could put its confirmation to nobody, and was answered by nobody in advance, ends the
+same way without reading anything at all. Neither is converged and neither failed, so both carry
+an exit status that is neither.
+_Avoid_: aborted, cancelled, rejected, refused
+
 **Converged**:
 Describes a machine with no drift. Applying to a converged machine is a no-op, which is what
 makes repeated runs safe. Convergence is additive: it makes declared things true and never
