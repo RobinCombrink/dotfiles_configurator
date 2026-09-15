@@ -15,14 +15,19 @@ use {
     dotfiles_configurator::{
         configuration::{
             Application, ApplicationName, ApplicationSource, AssetPattern, BUILD_GENERATION,
-            BinaryName, CargoWorkspace, ClaudeMcpServer, CrateName, DeclaredNotice,
-            EnvironmentVariable, GitHubAccount, Installer, MachineClass, MachineManifest, McpScope,
-            McpServerName, OLDEST_READABLE_GENERATION, PresenceCheck, Registration, Resource,
-            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, Variable, VariableName,
-            VariableValue,
+            BinaryName, CargoWorkspace, ClaudeMcpServer, Configuration, Context, CrateName,
+            DeclaredNotice, EnvironmentVariable, GitHubAccount, Installer, MachineClass,
+            MachineManifest, McpScope, McpServerName, Migration, OLDEST_READABLE_GENERATION,
+            PresenceCheck, Registration, Resource, SearchPathDirectory, SearchPathEntry, Shell,
+            Symlink, Tool, Variable, VariableName, VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
-        convergence::{ApplyOutcome, ChangeSet, apply::apply, plan},
+        confirmation::{Confirm, Confirmation, Operator},
+        convergence::{
+            ApplyOutcome, ChangeSet,
+            apply::{Applied, apply},
+            plan,
+        },
         desired_state::DesiredState,
         github::GitHubAccess,
         machine::{
@@ -37,6 +42,7 @@ use {
     },
     fake_machine::FakeMachine,
     std::{
+        cell::Cell,
         collections::{BTreeMap, BTreeSet},
         env, fs,
         path::{Path, PathBuf},
@@ -65,7 +71,9 @@ struct MachineWorld {
     stray_file_names: Vec<String>,
     change_set: Option<ChangeSet>,
     second_change_set: Option<ChangeSet>,
-    outcome: Option<ApplyOutcome>,
+    applied: Option<Applied>,
+    answering: Answering,
+    migrations: Vec<Migration>,
     fingerprint_before: Option<String>,
     loading_error: Option<String>,
     loaded: Option<DesiredState>,
@@ -89,7 +97,9 @@ impl MachineWorld {
             stray_file_names: Vec::new(),
             change_set: None,
             second_change_set: None,
-            outcome: None,
+            applied: None,
+            answering: Answering::default(),
+            migrations: Vec::new(),
             fingerprint_before: None,
             loading_error: None,
             loaded: None,
@@ -124,6 +134,7 @@ impl MachineWorld {
             self.workspaces.clone(),
             self.notices.clone(),
         )
+        .also_reporting(self.migrations.clone(), Vec::new())
     }
 
     fn linked_paths(&self) -> Vec<String> {
@@ -166,9 +177,74 @@ impl MachineWorld {
     }
 
     fn outcome(&self) -> &ApplyOutcome {
-        self.outcome
+        match self
+            .applied
             .as_ref()
             .expect("the scenario has not applied yet")
+        {
+            Applied::Enacted(outcome) => outcome,
+            Applied::Declined => panic!("the scenario declined the change set"),
+        }
+    }
+
+    fn was_declined(&self) -> bool {
+        match self
+            .applied
+            .as_ref()
+            .expect("the scenario has not applied yet")
+        {
+            Applied::Enacted(_) => false,
+            Applied::Declined => true,
+        }
+    }
+}
+
+#[derive(Debug)]
+enum Answering {
+    InAdvance(Operator),
+    Alice {
+        confirmation: Confirmation,
+        times_asked: Cell<usize>,
+    },
+}
+
+impl Default for Answering {
+    fn default() -> Self {
+        Answering::Alice {
+            confirmation: Confirmation::Proceed,
+            times_asked: Cell::new(0),
+        }
+    }
+}
+
+impl Answering {
+    fn declining() -> Self {
+        Answering::Alice {
+            confirmation: Confirmation::Declined,
+            times_asked: Cell::new(0),
+        }
+    }
+
+    fn times_asked(&self) -> usize {
+        match self {
+            Answering::InAdvance(_) => 0,
+            Answering::Alice { times_asked, .. } => times_asked.get(),
+        }
+    }
+}
+
+impl Confirm for Answering {
+    fn confirmation(&self) -> Confirmation {
+        match self {
+            Answering::InAdvance(operator) => operator.confirmation(),
+            Answering::Alice {
+                confirmation,
+                times_asked,
+            } => {
+                times_asked.set(times_asked.get() + 1);
+                *confirmation
+            }
+        }
     }
 }
 
@@ -913,10 +989,15 @@ async fn alice_applies(world: &mut MachineWorld) {
     world.fingerprint_before = Some(world.machine.fingerprint());
 
     let report = world.open_a_report(RunKind::Apply);
-    world.outcome = Some(
-        apply(&world.desired_state(), &world.machine, &report)
-            .await
-            .unwrap(),
+    world.applied = Some(
+        apply(
+            &world.desired_state(),
+            &world.machine,
+            &report,
+            &world.answering,
+        )
+        .await
+        .unwrap(),
     );
     world.report = Some(report);
 }
@@ -928,10 +1009,15 @@ async fn alice_applies_twice(world: &mut MachineWorld) {
 
     for _ in 0..2 {
         let report = world.open_a_report(RunKind::Apply);
-        world.outcome = Some(
-            apply(&world.desired_state(), &world.machine, &report)
-                .await
-                .unwrap(),
+        world.applied = Some(
+            apply(
+                &world.desired_state(),
+                &world.machine,
+                &report,
+                &world.answering,
+            )
+            .await
+            .unwrap(),
         );
         world.report = Some(report);
     }
@@ -1435,6 +1521,88 @@ fn directory_inside_a_clone_is_on_alices_search_path(
     let search_path = world.machine.user_search_path();
 
     assert!(search_path.contains(&directory), "{search_path:?}");
+}
+
+#[given(expr = "Alice declines the change set")]
+fn alice_declines(world: &mut MachineWorld) {
+    world.answering = Answering::declining();
+}
+
+#[given(expr = "Alice has answered in advance")]
+fn alice_answered_in_advance(world: &mut MachineWorld) {
+    world.answering = Answering::InAdvance(
+        Operator::of_this_run(true).expect("a run answered in advance is never refused"),
+    );
+}
+
+fn a_configuration_a_generation_behind() -> Migration {
+    let configuration = Configuration {
+        version: BUILD_GENERATION,
+        applies_to: Context::Everywhere,
+        github_account: GitHubAccount::from("Alice"),
+        workspaces: Vec::new(),
+        resources: Vec::new(),
+        notices: Vec::new(),
+    };
+
+    Migration::of(
+        &migrated_configuration_path(),
+        &configuration,
+        BUILD_GENERATION.stepped_by(-1),
+    )
+    .expect("a configuration that can be written back")
+}
+
+fn migrated_configuration_path() -> PathBuf {
+    PathBuf::from(DOTFILES_FILES_ROOT)
+        .join("config")
+        .join("everywhere.dotconfig.json")
+}
+
+#[given(expr = "Alice's configuration is waiting to be rewritten a generation forward")]
+fn a_configuration_is_waiting_to_be_rewritten(world: &mut MachineWorld) {
+    world.migrations.push(a_configuration_a_generation_behind());
+}
+
+#[then(expr = "Alice's configuration was rewritten")]
+fn the_configuration_was_rewritten(world: &mut MachineWorld) {
+    assert!(world.machine.path_exists(&migrated_configuration_path()));
+}
+
+#[then(expr = "Alice's configuration was not rewritten")]
+fn the_configuration_was_not_rewritten(world: &mut MachineWorld) {
+    assert!(!world.machine.path_exists(&migrated_configuration_path()));
+}
+
+#[then(expr = "the run is reported as having done nothing")]
+fn the_run_did_nothing(world: &mut MachineWorld) {
+    assert!(world.was_declined());
+}
+
+#[then(expr = "Alice was asked once")]
+fn alice_was_asked_once(world: &mut MachineWorld) {
+    assert_eq!(world.answering.times_asked(), 1);
+}
+
+#[then(expr = "Alice was shown {string} before it was converged")]
+fn alice_was_shown_before_converging(world: &mut MachineWorld, resource: String) {
+    let path = world
+        .report
+        .as_ref()
+        .expect("the scenario has not run yet")
+        .log_path();
+    let written = fs::read_to_string(&path).unwrap();
+
+    let shown = written
+        .find(&format!("change  {resource}"))
+        .unwrap_or_else(|| {
+            panic!("the change set naming {resource:?} was never shown:\n{written}")
+        });
+    let converged = written
+        .find(&format!("converged {resource}"))
+        .unwrap_or_else(|| panic!("{resource:?} was never converged:\n{written}"));
+
+    assert!(shown < converged, "{written}");
 }
 
 #[tokio::main]

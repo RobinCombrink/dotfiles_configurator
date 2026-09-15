@@ -2,6 +2,7 @@ use {
     crate::{
         configuration::{Identity, Migration, Notice, Resource, ResourceKind},
         configuration_source::WriteSource,
+        confirmation::{Confirm, Confirmation},
         convergence::{Blocked, Change, ChangeSet, SourceReadings, converge::converge, plan},
         desired_state::{DesiredState, ResolvedResource},
         machine::{Placement, WriteMachine},
@@ -112,17 +113,27 @@ impl Display for ApplyOutcome {
     }
 }
 
-/// Enacts a change set, and keeps enacting until a pass changes nothing.
-///
-/// Apply repeats because readiness is read rather than ordered: converge what is ready, read
-/// again, converge what has since become ready. Termination is structural rather than a limit —
-/// a pass that converges nothing ends the run, and every productive pass strictly shrinks the set
-/// of unconverged resources. See ADR 0004.
+#[derive(Debug)]
+pub enum Applied {
+    Enacted(ApplyOutcome),
+    Declined,
+}
+
+// ADR 0004, ADR 0013
 pub async fn apply(
     desired_state: &DesiredState,
     machine: &(impl WriteMachine + WriteSource),
     report: &RunReport,
-) -> anyhow::Result<ApplyOutcome> {
+    operator: &impl Confirm,
+) -> anyhow::Result<Applied> {
+    let (first_change_set, first_readings) = plan(desired_state, machine, report).await?;
+    report.announce(&first_change_set.to_string());
+
+    if operator.confirmation() == Confirmation::Declined {
+        report.announce("Declined. Nothing on this machine was changed.");
+        return Ok(Applied::Declined);
+    }
+
     let mut converged: Vec<ResolvedResource> = Vec::new();
     let mut failed: Vec<Failure> = Vec::new();
     let mut held: Vec<Held> = Vec::new();
@@ -139,8 +150,12 @@ pub async fn apply(
         machine.rewrite(migration)?;
     }
 
+    let mut confirmed = Some((first_change_set, first_readings));
     let change_set = loop {
-        let (change_set, readings) = plan(desired_state, machine, report).await?;
+        let (change_set, readings) = match confirmed.take() {
+            Some(already_planned) => already_planned,
+            None => plan(desired_state, machine, report).await?,
+        };
         passes += 1;
 
         let pass = attempt(&change_set, &readings, machine, report, &handled).await;
@@ -172,7 +187,7 @@ pub async fn apply(
     let mut notices = change_set.notices;
     notices.extend(notice_of_an_environment_change(&converged));
 
-    Ok(ApplyOutcome {
+    Ok(Applied::Enacted(ApplyOutcome {
         converged,
         failed,
         held,
@@ -181,7 +196,7 @@ pub async fn apply(
         notices,
         migrated: desired_state.migrations.clone(),
         passes,
-    })
+    }))
 }
 
 // ADR 0017

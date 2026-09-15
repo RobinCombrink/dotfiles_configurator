@@ -4,7 +4,11 @@ use {
     dotfiles_configurator::{
         configuration::{GitHubAccount, MachineClass},
         configuration_source::{ConfigurationSource, LoadFailure, load_desired_state},
-        convergence::{apply::apply, install_release, plan},
+        confirmation::Operator,
+        convergence::{
+            apply::{Applied, apply},
+            install_release, plan,
+        },
         currency::{RELEASE_OWNER, own_currency, own_release_repository},
         desired_state::DesiredState,
         github::GitHubAccess,
@@ -46,12 +50,25 @@ struct ConfigurationArguments {
     sources: Vec<ConfigurationSource>,
 }
 
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+struct ApplyArguments {
+    #[command(flatten)]
+    configuration: ConfigurationArguments,
+    #[arg(
+        long = "yes",
+        num_args = 0,
+        help = "Enact the change set without being asked to confirm it. The change set is \
+                printed either way, and a run with no terminal to ask at needs this."
+    )]
+    yes: bool,
+}
+
 #[derive(Subcommand, Debug)]
 enum Task {
     /// Report the change set that would close every drift, without touching the machine.
     Plan(ConfigurationArguments),
-    /// Enact the change set, repeating until a pass changes nothing.
-    Apply(ConfigurationArguments),
+    /// Show the change set, ask once, then enact it until a pass changes nothing.
+    Apply(ApplyArguments),
 }
 
 #[derive(Parser, Debug)]
@@ -96,16 +113,33 @@ async fn run(task: Task) -> Result<ExitCode> {
             let machine = LocalMachine::new(&report, &github)?;
             let (change_set, _) = plan(&desired_state, &machine, &report).await?;
             println!("{change_set}");
-            Ok(exit_code_for(change_set.is_converged()))
+            Ok(Conclusion::of(change_set.is_converged()).into())
         }
         Task::Apply(arguments) => {
             let report = RunReport::open(RunKind::Apply)?;
+            let operator = match Operator::of_this_run(arguments.yes) {
+                Ok(operator) => operator,
+                Err(refusal) => {
+                    report.announce(&refusal.to_string());
+                    return Ok(Conclusion::DidNothing.into());
+                }
+            };
             let machine = LocalMachine::new(&report, &github)?;
-            let desired_state =
-                load_after_updating_if_it_must(&arguments, &machine, &report, &github).await?;
-            let outcome = apply(&desired_state, &machine, &report).await?;
-            println!("{outcome}");
-            Ok(exit_code_for(outcome.is_converged()))
+            let desired_state = load_after_updating_if_it_must(
+                &arguments.configuration,
+                &machine,
+                &report,
+                &github,
+            )
+            .await?;
+
+            match apply(&desired_state, &machine, &report, &operator).await? {
+                Applied::Enacted(outcome) => {
+                    println!("{outcome}");
+                    Ok(Conclusion::of(outcome.is_converged()).into())
+                }
+                Applied::Declined => Ok(Conclusion::DidNothing.into()),
+            }
         }
     }
 }
@@ -186,12 +220,34 @@ fn repositories_root() -> Result<PathBuf> {
         })
 }
 
-/// A run that leaves the machine unconverged exits non-zero, whether that is because something
-/// drifted, failed, or could not be read at all. See ADR 0004.
-fn exit_code_for(converged: bool) -> ExitCode {
-    match converged {
-        true => ExitCode::SUCCESS,
-        false => ExitCode::FAILURE,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Conclusion {
+    Converged,
+    Unconverged,
+    DidNothing,
+}
+
+impl Conclusion {
+    fn of(converged: bool) -> Self {
+        match converged {
+            true => Conclusion::Converged,
+            false => Conclusion::Unconverged,
+        }
+    }
+
+    // ADR 0004, ADR 0013
+    fn status(self) -> u8 {
+        match self {
+            Conclusion::Converged => 0,
+            Conclusion::Unconverged => 1,
+            Conclusion::DidNothing => 2,
+        }
+    }
+}
+
+impl From<Conclusion> for ExitCode {
+    fn from(conclusion: Conclusion) -> Self {
+        ExitCode::from(conclusion.status())
     }
 }
 
@@ -223,7 +279,19 @@ mod tests {
         )
         .unwrap();
         match parsed.task {
-            Task::Plan(configuration) | Task::Apply(configuration) => configuration,
+            Task::Plan(configuration) => configuration,
+            Task::Apply(apply) => apply.configuration,
+        }
+    }
+
+    fn apply_arguments(arguments: &[&str]) -> ApplyArguments {
+        let parsed = Arguments::try_parse_from(
+            std::iter::once("dotfiles_configurator").chain(arguments.iter().copied()),
+        )
+        .unwrap();
+        match parsed.task {
+            Task::Apply(apply) => apply,
+            Task::Plan(_) => panic!("the arguments named plan rather than apply"),
         }
     }
 
@@ -301,5 +369,30 @@ mod tests {
     #[test]
     fn an_invocation_naming_no_machine_is_refused() {
         assert!(Arguments::try_parse_from(["dotfiles_configurator", "plan"]).is_err());
+    }
+
+    #[test]
+    fn an_apply_is_asked_to_confirm_unless_it_was_answered_in_advance() {
+        assert!(!apply_arguments(&["apply", "--machine", "personal"]).yes);
+        assert!(apply_arguments(&["apply", "--machine", "personal", "--yes"]).yes);
+    }
+
+    #[test]
+    fn a_plan_has_nothing_to_answer_in_advance_and_refuses_the_flag() {
+        assert!(
+            Arguments::try_parse_from(["dotfiles_configurator", "plan", "-m", "personal", "--yes"])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_converged_machine_exits_zero_and_an_unconverged_one_exits_non_zero() {
+        assert_eq!(Conclusion::of(true).status(), 0);
+        assert_eq!(Conclusion::of(false).status(), 1);
+    }
+
+    #[test]
+    fn a_run_that_changed_nothing_exits_as_neither_converged_nor_failed() {
+        assert_eq!(Conclusion::DidNothing.status(), 2);
     }
 }
