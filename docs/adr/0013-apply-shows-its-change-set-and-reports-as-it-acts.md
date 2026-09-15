@@ -38,8 +38,12 @@ provisioning takes, and no threshold has a principled value against a single cra
 - **A periodic elapsed-time heartbeat.** Invents an instrument to approximate output the child
   already produces.
 - **A second flag disabling interactivity.** The prior art carries one because it spans many
-  commands that prompt for many things. There is one prompt here, and a caller that wants none
-  already has `--yes`.
+  commands that prompt for many things. Every question here asks the same thing — whether this run
+  may change the machine — and `--yes` answers all of them, so a caller that wants none already
+  has it.
+- **Obtaining a newer build without asking**, on the grounds that it is what makes the change set
+  readable at all. Rejected: it replaces the running program, which is the largest single change
+  the tool makes, and a run that goes on to be declined would have made it unseen.
 - **An exit status for each way a run stops without acting.** Would tell "the operator said no"
   apart from "there was nobody to ask". Rejected: the two differ in who ended the run, not in what
   a caller does next, and the run says which it was in words.
@@ -62,6 +66,17 @@ provisioning takes, and no threshold has a principled value against a single cra
 - **Logging is process infrastructure and sits outside the capability split**, so producing a change
   set writes a log without acquiring any ability to change a resource. ADR 0006 states the guarantee
   about the machine's declared resources.
+- **A change set that would enact nothing is put to nobody.** A run with no drift and no document
+  to rewrite prints its summary and asks nothing, so a trigger firing on every commit stays quiet,
+  and a machine that is already converged cannot be reported as having done nothing instead.
+- **The superseded-image sweep is not confirmed.** A superseded image is this program's own
+  leaving rather than a declared resource, so removing one is housekeeping: it runs before the
+  change set is produced, which also keeps a notice about an image the same run is about to delete
+  out of the preview.
+- **Obtaining a newer build is its own question.** A configuration above this build's generation
+  cannot be read, so the change set that would carry the update cannot exist until the update has
+  happened. The operator is asked before the running program is replaced rather than told
+  afterwards. That makes two questions in the tool rather than one, and `--yes` answers both.
 - **A confirmation needs both ends of a conversation.** Asking is possible only where standard
   input and standard error are both terminals: one stream carries the question and the other
   carries the answer, and a question put where it cannot be seen hangs exactly as one that cannot
