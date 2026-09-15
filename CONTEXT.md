@@ -41,10 +41,9 @@ _Avoid_: prompt, approval, consent, acknowledgement
 
 **Declined**:
 Describes a run stopped at its confirmation, which has read the machine and changed none of it. A
-run that could put its confirmation to nobody, and was answered by nobody in advance, ends the
-same way without reading anything at all. Neither is converged and neither failed, so both carry
-an exit status that is neither.
-_Avoid_: aborted, cancelled, rejected, refused
+run refused for want of anyone to ask ends the same way, without reading anything at all. Neither
+is converged and neither failed, so both carry an exit status that is neither.
+_Avoid_: aborted, cancelled, rejected
 
 **Converged**:
 Describes a machine with no drift. Applying to a converged machine is a no-op, which is what
