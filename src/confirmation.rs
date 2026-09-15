@@ -29,16 +29,19 @@ impl From<&str> for Confirmation {
 }
 
 pub trait Confirm {
-    fn confirmation(&self) -> Confirmation;
+    fn confirmation(&self, question: &str) -> Confirmation;
 }
 
-/// Who answers for the change set a run has printed: `--yes` in a person's place, or the person
-/// themselves at a terminal.
+/// Who answers the questions a run puts before it changes anything: `--yes` in a person's place,
+/// or the person themselves at a terminal.
 ///
 /// ```
 /// # use dotfiles_configurator::confirmation::{Confirm, Confirmation, Operator};
 /// let answered_in_advance = Operator::of_this_run(true).unwrap();
-/// assert_eq!(answered_in_advance.confirmation(), Confirmation::Proceed);
+/// assert_eq!(
+///     answered_in_advance.confirmation("Enact this change set?"),
+///     Confirmation::Proceed
+/// );
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operator {
@@ -64,7 +67,7 @@ impl Display for NoOneToAsk {
     }
 }
 
-const QUESTION: &str = "Proceed? [y/N] ";
+const ANSWER_SHAPE: &str = "[y/N]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Asking {
@@ -97,17 +100,17 @@ impl Operator {
 }
 
 impl Confirm for Operator {
-    fn confirmation(&self) -> Confirmation {
+    fn confirmation(&self, question: &str) -> Confirmation {
         match self {
             Operator::AnsweredInAdvance => Confirmation::Proceed,
-            Operator::AtATerminal => ask_at_the_terminal(),
+            Operator::AtATerminal => ask_at_the_terminal(question),
         }
     }
 }
 
-fn ask_at_the_terminal() -> Confirmation {
+fn ask_at_the_terminal(question: &str) -> Confirmation {
     let mut question_goes_to = std::io::stderr();
-    let _ = write!(question_goes_to, "{QUESTION}");
+    let _ = write!(question_goes_to, "{question} {ANSWER_SHAPE} ");
     let _ = question_goes_to.flush();
 
     let mut answer = String::new();
@@ -153,7 +156,7 @@ mod tests {
     #[test]
     fn an_answer_given_in_advance_is_taken_without_reading_the_terminal() {
         assert_eq!(
-            Operator::AnsweredInAdvance.confirmation(),
+            Operator::AnsweredInAdvance.confirmation("Enact this change set?"),
             Confirmation::Proceed
         );
     }

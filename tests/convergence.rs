@@ -232,9 +232,9 @@ impl Answering {
 }
 
 impl Confirm for Answering {
-    fn confirmation(&self) -> Confirmation {
+    fn confirmation(&self, question: &str) -> Confirmation {
         match self {
-            Answering::InAdvance(operator) => operator.confirmation(),
+            Answering::InAdvance(operator) => operator.confirmation(question),
             Answering::Alice {
                 confirmation,
                 times_asked,

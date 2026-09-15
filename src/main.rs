@@ -4,7 +4,7 @@ use {
     dotfiles_configurator::{
         configuration::{GitHubAccount, MachineClass},
         configuration_source::{ConfigurationSource, LoadFailure, load_desired_state},
-        confirmation::Operator,
+        confirmation::{Confirm, Confirmation, Operator},
         convergence::{
             apply::{Enactment, apply},
             install_release, plan,
@@ -125,13 +125,18 @@ async fn run(task: Task) -> Result<ExitCode> {
                 }
             };
             let machine = LocalMachine::new(&report, &github)?;
-            let desired_state = load_after_updating_if_it_must(
+            let desired_state = match load_after_updating_if_it_must(
                 &arguments.configuration,
                 &machine,
                 &report,
                 &github,
+                &operator,
             )
-            .await?;
+            .await?
+            {
+                Loaded::Read(desired_state) => desired_state,
+                Loaded::DeclinedTheNewerBuild => return Ok(Conclusion::DidNothing.into()),
+            };
 
             match apply(&desired_state, &machine, &report, &operator).await? {
                 Enactment::Enacted(outcome) => {
@@ -167,10 +172,11 @@ async fn load_after_updating_if_it_must(
     machine: &LocalMachine<'_, '_>,
     report: &RunReport,
     github: &GitHubAccess,
-) -> Result<DesiredState> {
+    operator: &impl Confirm,
+) -> Result<Loaded> {
     let repositories_root = repositories_root()?;
     let refusal = match load(arguments, github, &repositories_root).await {
-        Ok(desired_state) => return Ok(desired_state),
+        Ok(desired_state) => return Ok(Loaded::Read(desired_state)),
         Err(refusal) => refusal,
     };
 
@@ -180,11 +186,26 @@ async fn load_after_updating_if_it_must(
 
     report.announce(&format!(
         "{refusal}
-Obtaining a newer build from {} and reading again.",
+A newer build from {} can read it, and installing it replaces the one running now.",
         own_release_repository()
     ));
+
+    if operator.confirmation(OBTAIN_A_NEWER_BUILD) == Confirmation::Declined {
+        report.announce("Declined. Nothing on this machine was changed.");
+        return Ok(Loaded::DeclinedTheNewerBuild);
+    }
+
     obtain_a_newer_build(machine).await?;
-    Ok(load(arguments, github, &repositories_root).await?)
+    Ok(Loaded::Read(
+        load(arguments, github, &repositories_root).await?,
+    ))
+}
+
+const OBTAIN_A_NEWER_BUILD: &str = "Obtain the newer build and read again?";
+
+enum Loaded {
+    Read(DesiredState),
+    DeclinedTheNewerBuild,
 }
 
 async fn obtain_a_newer_build(machine: &LocalMachine<'_, '_>) -> Result<()> {

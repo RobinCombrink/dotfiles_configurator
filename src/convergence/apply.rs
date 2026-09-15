@@ -119,6 +119,8 @@ pub enum Enactment {
     Declined,
 }
 
+pub const ENACT_THE_CHANGE_SET: &str = "Enact this change set?";
+
 // ADR 0004, ADR 0013
 pub async fn apply(
     desired_state: &DesiredState,
@@ -129,7 +131,7 @@ pub async fn apply(
     let (first_change_set, first_readings) = plan(desired_state, machine, report).await?;
     report.announce(&first_change_set.to_string());
 
-    if operator.confirmation() == Confirmation::Declined {
+    if operator.confirmation(ENACT_THE_CHANGE_SET) == Confirmation::Declined {
         report.announce("Declined. Nothing on this machine was changed.");
         return Ok(Enactment::Declined);
     }
