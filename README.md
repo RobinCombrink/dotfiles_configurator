@@ -48,7 +48,7 @@ cargo run -- apply --machine personal --yes
 
 A source is a directory: every `*.dotconfig.json` directly in it is loaded — subdirectories are not descended into — and each one applies only if it declares `everywhere` or the class named. A run reads one configuration for every machine and exactly one for this class, and refuses a set missing either.
 
-`apply` prints the change set before it enacts anything and asks once whether to proceed. `--yes` answers that in advance and suppresses the question, never the change set; a run with no terminal to ask at and no `--yes` is refused before it reads anything, so a prompt can never appear where nothing could answer it.
+`apply` prints the change set before it enacts anything and asks once whether to proceed. A change set that would enact nothing — no drift, no document to rewrite — prints its summary and asks nothing. The one other question is whether to replace the running build, which is asked only where a configuration states a generation this build cannot read. `--yes` answers both in advance and suppresses the questions, never the change set; a run with no terminal to ask at and no `--yes` is refused before it reads anything, so a prompt can never appear where nothing could answer it.
 
 `plan` and `apply` exit non-zero when the machine is left unconverged — whether because something drifted, failed, is held open by whatever is executing it, or could not be read at all. An apply that was declined, or refused for want of a terminal, changed nothing and is neither converged nor failed: it exits 2.
 
