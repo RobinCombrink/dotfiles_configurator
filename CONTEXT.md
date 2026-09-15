@@ -33,10 +33,12 @@ To enact a change set. An apply that finds no drift changes nothing.
 _Avoid_: execute, run, provision
 
 **Confirmation**:
-The one question this program asks: whether to enact the change set it has just shown. Put once,
-at the first change set, and never again — later passes converge what became ready once earlier
-changes landed. `--yes` answers it in advance, which suppresses the question and never the change
-set.
+A question put to a person before this program changes anything: whether to enact the change set
+it has just shown, and — where a configuration cannot be read until this build is replaced —
+whether to obtain that newer build. Each is put once, and a change set that would enact nothing is
+put to nobody. Later passes converge what became ready once earlier changes landed and are not put
+again. `--yes` answers every one of them in advance, which suppresses the questions and never the
+change set.
 _Avoid_: prompt, approval, consent, acknowledgement
 
 **Declined**:
