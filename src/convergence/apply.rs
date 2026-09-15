@@ -128,12 +128,20 @@ pub async fn apply(
     report: &RunReport,
     operator: &impl Confirm,
 ) -> anyhow::Result<Enactment> {
-    let (first_change_set, first_readings) = plan(desired_state, machine, report).await?;
-    report.announce(&first_change_set.to_string());
+    {
+        let _doing = report.doing("removing the binaries earlier runs replaced");
+        machine.sweep_superseded_images();
+    }
 
-    if operator.confirmation(ENACT_THE_CHANGE_SET) == Confirmation::Declined {
-        report.announce("Declined. Nothing on this machine was changed.");
-        return Ok(Enactment::Declined);
+    let (first_change_set, first_readings) = plan(desired_state, machine, report).await?;
+
+    if first_change_set.would_enact_something() {
+        report.announce(&first_change_set.to_string());
+
+        if operator.confirmation(ENACT_THE_CHANGE_SET) == Confirmation::Declined {
+            report.announce("Declined. Nothing on this machine was changed.");
+            return Ok(Enactment::Declined);
+        }
     }
 
     let mut converged: Vec<ResolvedResource> = Vec::new();
@@ -141,11 +149,6 @@ pub async fn apply(
     let mut held: Vec<Held> = Vec::new();
     let mut handled: BTreeSet<Handled> = BTreeSet::new();
     let mut passes = 0;
-
-    {
-        let _doing = report.doing("removing the binaries earlier runs replaced");
-        machine.sweep_superseded_images();
-    }
 
     for migration in &desired_state.migrations {
         let _doing = report.doing(format!("rewriting {migration}"));

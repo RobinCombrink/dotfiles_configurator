@@ -25,13 +25,19 @@ Feature: Confirming a change set before it is enacted
     Then nothing on Alice's machine has changed
     And the run is reported as having done nothing
 
-  Scenario: Declining leaves the binary an earlier run moved aside where it is
+  Scenario: A machine with nothing to enact is asked nothing
     Given Alice declares the application "Neovim"
     And Neovim is installed on Alice's machine
-    And an earlier run superseded the binary "claude-session" on Alice's machine
-    And Alice declines the change set
     When Alice applies
-    Then 1 binary is superseded on Alice's machine
+    Then Alice was asked nothing
+    And the machine is reported as converged
+
+  Scenario: A configuration waiting to be rewritten is asked about even with no drift
+    Given Alice declares the application "Neovim"
+    And Neovim is installed on Alice's machine
+    And Alice's configuration is waiting to be rewritten a generation forward
+    When Alice applies
+    Then Alice was asked once
 
   Scenario: Confirming rewrites the configuration that was waiting to be rewritten
     Given Alice declares the application "Neovim"

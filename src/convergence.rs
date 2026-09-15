@@ -126,6 +126,11 @@ impl ChangeSet {
     pub fn is_converged(&self) -> bool {
         self.changes.is_empty() && self.blocked.is_empty()
     }
+
+    // ADR 0013
+    pub fn would_enact_something(&self) -> bool {
+        !self.changes.is_empty() || !self.migrations.is_empty()
+    }
 }
 
 /// Compares every declared resource against the machine and orders the result. Ordering is by

@@ -1575,6 +1575,11 @@ fn alice_was_asked_once(world: &mut MachineWorld) {
     assert_eq!(world.answering.times_asked(), 1);
 }
 
+#[then(expr = "Alice was asked nothing")]
+fn alice_was_asked_nothing(world: &mut MachineWorld) {
+    assert_eq!(world.answering.times_asked(), 0);
+}
+
 #[then(expr = "Alice was shown {string} before it was converged")]
 fn alice_was_shown_before_converging(world: &mut MachineWorld, resource: String) {
     let path = world
