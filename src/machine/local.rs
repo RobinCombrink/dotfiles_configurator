@@ -354,6 +354,14 @@ fn executable_extensions(pathext: Option<&OsStr>) -> Vec<String> {
         .collect()
 }
 
+fn read_text_file(path: &Path) -> Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("Could not read {}", path.display())),
+    }
+}
+
 fn program_is_on_path(program: &str) -> bool {
     let Some(path) = env::var_os("PATH") else {
         return false;
@@ -402,8 +410,8 @@ impl ReadMachine for LocalMachine<'_, '_> {
         path.canonicalize().ok()
     }
 
-    fn text_file_at(&self, path: &Path) -> Option<String> {
-        fs::read_to_string(path).ok()
+    fn text_file_at(&self, path: &Path) -> Result<Option<String>> {
+        read_text_file(path)
     }
 
     fn tool_is_present(&self, tool: Tool) -> bool {
@@ -868,6 +876,41 @@ mod tests {
         assert!(
             extensions.contains(&".exe".to_owned()) && extensions.contains(&".bat".to_owned()),
             "expected the readable extensions to survive, got: {extensions:?}"
+        );
+    }
+
+    #[test]
+    fn a_file_holding_text_is_read_as_the_text_it_holds() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("machine.json");
+        fs::write(&path, "{ \"machine\": {} }").unwrap();
+
+        assert_eq!(
+            read_text_file(&path).unwrap(),
+            Some("{ \"machine\": {} }".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_path_holding_nothing_is_read_as_nothing_being_there() {
+        let directory = tempfile::tempdir().unwrap();
+
+        let held = read_text_file(&directory.path().join("machine.json")).unwrap();
+
+        assert_eq!(held, None);
+    }
+
+    #[test]
+    fn a_file_that_is_there_but_is_not_text_is_refused_rather_than_read_as_absent() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("machine.json");
+        fs::write(&path, [0xF0, 0x28, 0x8C, 0x28]).unwrap();
+
+        let error = read_text_file(&path).unwrap_err();
+
+        assert!(
+            format!("{error:#}").contains("machine.json"),
+            "expected the message to name the file it could not read, got: {error:#}"
         );
     }
 

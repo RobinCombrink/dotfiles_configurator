@@ -421,6 +421,7 @@ impl FakeMachine {
 
     pub fn machine_manifest(&self) -> Option<String> {
         self.text_file_at(&MachineManifest::path_within(self.home_directory()))
+            .expect("a fake reads its own held files")
     }
 
     pub fn hold_environment_variable(&self, name: &VariableName, value: &VariableValue) {
@@ -635,8 +636,8 @@ impl ReadMachine for FakeMachine {
         }
     }
 
-    fn text_file_at(&self, path: &Path) -> Option<String> {
-        self.state.borrow().text_files.get(path).cloned()
+    fn text_file_at(&self, path: &Path) -> Result<Option<String>> {
+        Ok(self.state.borrow().text_files.get(path).cloned())
     }
 
     fn tool_is_present(&self, tool: Tool) -> bool {

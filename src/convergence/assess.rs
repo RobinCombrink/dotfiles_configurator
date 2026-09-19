@@ -621,9 +621,12 @@ fn assess_machine_manifest(manifest: &MachineManifest, machine: &impl ReadMachin
     };
 
     match machine.text_file_at(&MachineManifest::path_within(machine.home_directory())) {
-        None => Assessment::Drifted("the machine holds no manifest".into()),
-        Some(held) if held == declared => Assessment::Converged,
-        Some(_) => Assessment::Drifted("the manifest says something else".into()),
+        Ok(None) => Assessment::Drifted("the machine holds no manifest".into()),
+        Ok(Some(held)) if held == declared => Assessment::Converged,
+        Ok(Some(_)) => Assessment::Drifted("the manifest says something else".into()),
+        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            format!("{error:#}").into(),
+        )),
     }
 }
 

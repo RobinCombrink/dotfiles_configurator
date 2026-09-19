@@ -88,7 +88,20 @@ pub trait ReadMachine {
 
     fn tool_is_present(&self, tool: Tool) -> bool;
 
-    fn text_file_at(&self, path: &Path) -> Option<String>;
+    /// The text held at `path`, where `Ok(None)` means nothing is there and an error means
+    /// something is but could not be read as text.
+    ///
+    /// ```no_run
+    /// # use {dotfiles_configurator::machine::ReadMachine, std::path::Path};
+    /// # fn held_by(machine: &impl ReadMachine, path: &Path) -> String {
+    /// match machine.text_file_at(path) {
+    ///     Ok(Some(text)) => text,
+    ///     Ok(None) => "the machine holds no such file".to_owned(),
+    ///     Err(error) => format!("{error:#}"),
+    /// }
+    /// # }
+    /// ```
+    fn text_file_at(&self, path: &Path) -> Result<Option<String>>;
 
     /// Runs one of the invocations this crate defines for reading state. The set is closed, so
     /// plan cannot be handed the ability to run an installer.
