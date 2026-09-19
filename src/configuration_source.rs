@@ -453,7 +453,7 @@ impl ConfigurationSource {
 mod tests {
     use super::*;
     use crate::configuration::{BUILD_GENERATION, OLDEST_READABLE_GENERATION};
-    use std::{env, fs::File, io::Write};
+    use std::{env, fs::File, io::Write, process};
 
     #[test]
     fn a_local_source_resolves_its_files_root_by_walking_up_to_a_checkout() {
@@ -612,6 +612,7 @@ mod tests {
     fn temporary_checkout(name: &str) -> PathBuf {
         let checkout = env::temp_dir()
             .join("dotfiles_configuration_source_tests")
+            .join(process::id().to_string())
             .join(name);
         let _ = fs::remove_dir_all(&checkout);
         fs::create_dir_all(checkout.join(".git")).unwrap();
@@ -685,6 +686,7 @@ mod tests {
     async fn a_directory_inside_no_checkout_has_nothing_to_read_a_configurations_files_out_of() {
         let outside_any_checkout = env::temp_dir()
             .join("dotfiles_configuration_source_tests")
+            .join(process::id().to_string())
             .join("outside_any_checkout");
         let _ = fs::remove_dir_all(&outside_any_checkout);
         fs::create_dir_all(outside_any_checkout.join("config")).unwrap();
