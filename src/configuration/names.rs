@@ -8,10 +8,10 @@ use {
 /// boundary, so one kind of name cannot be passed where another is meant.
 macro_rules! name {
     ($(#[$documentation:meta])* $name:ident) => {
-        $(#[$documentation])*
         #[derive(
             Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
         )]
+        $(#[$documentation])*
         #[serde(transparent)]
         #[repr(transparent)]
         pub struct $name(String);
@@ -43,17 +43,23 @@ macro_rules! name {
 }
 
 name!(
-    /// The account a repository belongs to on GitHub.
+    #[schemars(description = "The account a repository belongs to on GitHub.")]
     RepositoryOwner
 );
 
 name!(
-    /// A repository's own name, which is also the name of the directory it is cloned into.
+    #[schemars(
+        description = "A repository's own name, which is also the name of the directory it is \
+                       cloned into."
+    )]
     RepositoryName
 );
 
 name!(
-    /// The account a configuration acts as, inherited by every resource it declares.
+    #[schemars(
+        description = "The account a configuration acts as, inherited by every resource it \
+                       declares."
+    )]
     GitHubAccount
 );
 
@@ -80,7 +86,7 @@ impl From<&std::path::Path> for ConfigurationName {
 }
 
 name!(
-    /// The name an application is known by.
+    #[schemars(description = "The name an application is known by.")]
     ApplicationName
 );
 
@@ -103,17 +109,17 @@ impl BinaryName {
 }
 
 name!(
-    /// The identifier winget knows a package by.
+    #[schemars(description = "The identifier winget knows a package by.")]
     WingetPackageId
 );
 
 name!(
-    /// The name Cargo knows a crate by.
+    #[schemars(description = "The name Cargo knows a crate by.")]
     CrateName
 );
 
 name!(
-    /// The name Claude Code holds an MCP server under.
+    #[schemars(description = "The name Claude Code holds an MCP server under.")]
     McpServerName
 );
 
