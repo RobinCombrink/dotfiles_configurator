@@ -46,6 +46,7 @@ use {
         collections::{BTreeMap, BTreeSet},
         env, fs,
         path::{Path, PathBuf},
+        process,
         sync::atomic::{AtomicUsize, Ordering},
     },
     tempfile::TempDir,
@@ -1063,7 +1064,8 @@ fn write_configurations(
     static NEXT_CHECKOUT_NUMBER: AtomicUsize = AtomicUsize::new(0);
 
     let checkout = env::temp_dir().join(format!(
-        "dotfiles_loading_scenarios/{}",
+        "dotfiles_loading_scenarios/{}/{}",
+        process::id(),
         NEXT_CHECKOUT_NUMBER.fetch_add(1, Ordering::Relaxed)
     ));
     let _ = fs::remove_dir_all(&checkout);
