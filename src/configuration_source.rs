@@ -221,13 +221,15 @@ impl Display for LoadFailure {
                 second,
             } => write!(
                 formatter,
-                "{source} holds a configuration for {first}, which clones under {}, and one for                  {second}, which clones under {}. One source cannot be cloned into two trees.",
+                "{source} holds a configuration for {first}, which clones under {}, and one for \
+                 {second}, which clones under {}. One source cannot be cloned into two trees.",
                 first.repositories_leaf(),
                 second.repositories_leaf()
             ),
             LoadFailure::SourceOutsideACheckout(directory) => write!(
                 formatter,
-                "{} is inside no checkout, so there is nothing to read a configuration's files                  out of. Read it from the repository it was written in instead.",
+                "{} is inside no checkout, so there is nothing to read a configuration's files \
+                 out of. Read it from the repository it was written in instead.",
                 directory.display()
             ),
             LoadFailure::Irreconcilable(fault) => write!(formatter, "{fault:#}"),

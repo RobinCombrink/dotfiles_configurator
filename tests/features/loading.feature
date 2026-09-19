@@ -45,6 +45,7 @@ Feature: Loading a configuration
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "two trees"
+    And the refusal mentions "and one for work, which clones under Work"
 
   Scenario: A file that is not a configuration is left where it lies
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
@@ -151,6 +152,7 @@ Feature: Loading a configuration
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "no checkout"
+    And the refusal mentions "a configuration's files out of"
 
   Scenario: A variable claiming the search path is refused, naming the shape that owns it
     Given Alice has a configuration declaring a variable named "Path"
