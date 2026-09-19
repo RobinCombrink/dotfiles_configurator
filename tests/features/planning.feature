@@ -207,11 +207,19 @@ Feature: Planning what a machine needs
 
   Scenario: A command checked through WSL is blocked without it, which is what runs the check
     Given Alice declares the command "refresh-completions" checked through WSL
+    And the check "completions --status" already passes through WSL on Alice's machine
     And wsl is absent from Alice's machine
     When Alice plans
     Then the change set reports 0 changes
     And the change set reports 1 blocked resource
     And the change set does not report the machine as converged
+
+  Scenario: A command checked through WSL is converged when WSL is there to run the check
+    Given Alice declares the command "refresh-completions" checked through WSL
+    And the check "completions --status" already passes through WSL on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
 
   Scenario: A workspace crate whose content matches the repository is converged
     Given Alice declares the cargo workspace in the dotfiles repository

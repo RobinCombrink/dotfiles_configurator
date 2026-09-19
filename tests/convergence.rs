@@ -553,6 +553,13 @@ fn the_check_already_passes(world: &mut MachineWorld, invocation: String) {
         .answer_presence_check(output_check(&invocation, Shell::Bash), true);
 }
 
+#[given(expr = "the check {string} already passes through WSL on Alice's machine")]
+fn the_check_already_passes_through_wsl(world: &mut MachineWorld, invocation: String) {
+    world
+        .machine
+        .answer_presence_check(output_check(&invocation, Shell::Wsl), true);
+}
+
 #[given(expr = "the check {string} does not pass on Alice's machine")]
 fn the_check_does_not_pass(world: &mut MachineWorld, invocation: String) {
     world
