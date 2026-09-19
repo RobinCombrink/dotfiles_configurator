@@ -132,7 +132,7 @@ fn members_at(
         )?)?;
         let member_tree = MemberTree {
             holds_a_main_file: entry_hash(&tree, &format!("{path}/src/main.rs")).is_some(),
-            inferable_binaries: inferable_binaries_in(repository, &tree, &path),
+            inferable_binaries: inferable_binaries_in(repository, &tree, &path)?,
         };
 
         let binaries = member.binaries(&member_tree);
@@ -158,17 +158,20 @@ fn inferable_binaries_in(
     repository: &Repository,
     tree: &Tree,
     member_path: &str,
-) -> Vec<InferableBinary> {
+) -> Result<Vec<InferableBinary>> {
     let directory = format!("{member_path}/src/bin");
-    let Some(entries) = tree
-        .get_path(Path::new(&directory))
-        .ok()
-        .and_then(|entry| repository.find_tree(entry.id()).ok())
-    else {
-        return Vec::new();
+    let entry = match tree.get_path(Path::new(&directory)) {
+        Ok(entry) => entry,
+        Err(error) if error.code() == git2::ErrorCode::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("{directory} could not be read"));
+        }
     };
+    let entries = repository
+        .find_tree(entry.id())
+        .with_context(|| format!("{directory} is not a directory"))?;
 
-    entries
+    Ok(entries
         .iter()
         .filter_map(|entry| {
             let name = entry.name()?;
@@ -185,7 +188,7 @@ fn inferable_binaries_in(
                 _ => None,
             }
         })
-        .collect()
+        .collect())
 }
 
 fn entry_hash(tree: &Tree, path: &str) -> Option<ObjectHash> {

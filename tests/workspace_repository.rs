@@ -402,6 +402,41 @@ fn a_member_declaring_several_binaries_names_only_the_ones_that_are_gone() {
 }
 
 #[test]
+fn a_member_holding_no_binaries_directory_is_read_rather_than_refused() {
+    let repository = workspace_holding_a_binary_and_a_library();
+
+    let reading = workspace::read(
+        repository.path(),
+        &BTreeMap::new(),
+        installed_binaries(&["alpha"]).path(),
+    )
+    .unwrap()
+    .unwrap();
+
+    assert!(reading.members.contains_key(&CrateName::from("alpha")));
+}
+
+#[test]
+fn a_member_whose_binaries_directory_cannot_be_read_as_one_refuses_the_workspace() {
+    let repository = workspace_holding_a_binary_and_a_library();
+    repository.write("tools/alpha/src/bin", "not a directory at all\n");
+    repository.commit("a file where the binaries directory belongs");
+    repository.push();
+
+    let error = workspace::read(
+        repository.path(),
+        &BTreeMap::new(),
+        installed_binaries(&["alpha"]).path(),
+    )
+    .unwrap_err();
+
+    assert!(
+        format!("{error:#}").contains("tools/alpha/src/bin"),
+        "expected the message to name the directory it could not read, got: {error:#}"
+    );
+}
+
+#[test]
 fn a_directory_holding_no_clone_yet_reports_no_workspace_rather_than_failing() {
     let directory = tempfile::tempdir().unwrap();
 
