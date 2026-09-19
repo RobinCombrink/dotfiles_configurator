@@ -83,10 +83,13 @@ pub struct Configuration {
     pub notices: Vec<DeclaredNotice>,
 }
 
-/// A message for a person about something the tool cannot do. Not a resource — it never
-/// converges, is reported by every change set, and is never applied.
 #[derive(
     Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[schemars(
+    description = "A message for a person about something the tool cannot do. Not a resource — \
+                   it never\n\
+                   converges, is reported by every change set, and is never applied."
 )]
 #[serde(transparent)]
 #[repr(transparent)]
