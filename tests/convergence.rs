@@ -244,15 +244,22 @@ impl Confirm for Answering {
 /// An application whose presence is read as "a program of that name is on the path", which is
 /// what most of the live declarations use.
 fn application(name: &str) -> Application {
+    application_checked_by(
+        name,
+        PresenceCheck::CommandOnPath {
+            command: name.to_owned(),
+        },
+    )
+}
+
+fn application_checked_by(name: &str, presence_check: PresenceCheck) -> Application {
     Application::Installer(Installer {
         name: ApplicationName::from(name),
         source: ApplicationSource::Uri {
             uri: Url::parse("https://example.invalid/installer.exe").unwrap(),
             installer_file_name: format!("{name}.exe"),
         },
-        presence_check: PresenceCheck::CommandOnPath {
-            command: name.to_owned(),
-        },
+        presence_check,
     })
 }
 
@@ -276,6 +283,24 @@ fn declare_application(world: &mut MachineWorld, name: String) {
     world
         .resources
         .push(Resource::Application(application(&name)));
+}
+
+#[given(expr = "Alice declares the application {string} checked by the path {string}")]
+fn declare_application_checked_by_a_path(world: &mut MachineWorld, name: String, path: String) {
+    world
+        .resources
+        .push(Resource::Application(application_checked_by(
+            &name,
+            PresenceCheck::PathExists {
+                path: PathBuf::from(path),
+            },
+        )));
+}
+
+#[given(expr = "{string} is on Alice's machine")]
+fn a_path_is_on_alices_machine(world: &mut MachineWorld, path: String) {
+    let resolved = world.machine.resolve_against_home(Path::new(&path));
+    world.machine.add_own_file(resolved);
 }
 
 #[given(expr = "Alice declares the released binary {string} from {string}")]

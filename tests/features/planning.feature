@@ -17,6 +17,19 @@ Feature: Planning what a machine needs
     Then the change set reports 0 changes
     And the change set reports the machine as converged
 
+  Scenario: An application checked by a path is reported as converged once that path is there
+    Given Alice declares the application "Neovim" checked by the path ".local/share/nvim"
+    And ".local/share/nvim" is on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: An application checked by a path the machine lacks is reported as a change
+    Given Alice declares the application "Neovim" checked by the path ".local/share/nvim"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "Neovim"
+
   Scenario: A released binary the machine does not have is reported as a change
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
     And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
