@@ -263,6 +263,13 @@ Feature: Applying a change set
     When Alice applies
     Then Alice's machine holds a manifest naming the repositories directory "Work"
 
+  Scenario: A notice Alice declared is reported by an apply and not only by a plan
+    Given Alice declares the notice "Sync the Android Studio settings repository"
+    And Alice declares the application "Neovim"
+    And Neovim is installed on Alice's machine
+    When Alice applies
+    Then the run reports a notice mentioning "Sync the Android Studio settings repository"
+
   Scenario: An environment change is reported as reaching no process already running
     Given Alice declares the environment variable "EDITOR" as "nvim"
     When Alice applies
