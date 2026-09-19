@@ -22,10 +22,13 @@ use {
     url::Url,
 };
 
-/// One declared fact about a machine, whose actual state can be read and whose drift can be
-/// closed.
 // ADR 0004
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, EnumDiscriminants)]
+#[schemars(
+    description = "One declared fact about a machine, whose actual state can be read and whose \
+                   drift can be\n\
+                   closed."
+)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[strum_discriminants(name(ResourceKind), derive(PartialOrd, Ord, Hash))]
 pub enum Resource {
@@ -134,9 +137,11 @@ impl Display for Resource {
     }
 }
 
-/// A repository on GitHub, named by the owner it belongs to and its own name.
 #[derive(
     Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[schemars(
+    description = "A repository on GitHub, named by the owner it belongs to and its own name."
 )]
 pub struct GitHubRepository {
     pub owner: RepositoryOwner,
@@ -352,12 +357,14 @@ impl Display for VersionWord {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum ApplicationSource {
-    /// An installer downloaded straight from a URL.
+    #[schemars(description = "An installer downloaded straight from a URL.")]
     Uri {
         uri: Url,
         installer_file_name: String,
     },
-    /// An installer downloaded from the latest release of a GitHub repository.
+    #[schemars(
+        description = "An installer downloaded from the latest release of a GitHub repository."
+    )]
     GitHubRelease {
         owner: RepositoryOwner,
         repository: RepositoryName,
@@ -365,8 +372,8 @@ pub enum ApplicationSource {
     },
 }
 
-/// How the wanted asset is picked out of a release's assets.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(description = "How the wanted asset is picked out of a release's assets.")]
 #[serde(tag = "match", content = "value", rename_all = "snake_case")]
 pub enum AssetPattern {
     Exact(String),
@@ -396,10 +403,14 @@ impl AssetPattern {
     }
 }
 
-/// A resource whose installation is owned by a package manager, which is consequently also what
-/// can be asked whether it is installed. Which manager owns it is part of what the resource is,
-/// so it is the variant rather than a field.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(
+    description = "A resource whose installation is owned by a package manager, which is \
+                   consequently also what\n\
+                   can be asked whether it is installed. Which manager owns it is part of what \
+                   the resource is,\n\
+                   so it is the variant rather than a field."
+)]
 #[serde(tag = "manager", rename_all = "snake_case")]
 pub enum Package {
     Winget(WingetPackage),
@@ -511,18 +522,24 @@ impl Display for SearchPathDirectory {
     }
 }
 
-/// A configuration file or directory owned by the dotfiles repository and linked into place on the
-/// machine, rather than copied.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(
+    description = "A configuration file or directory owned by the dotfiles repository and linked \
+                   into place on the\n\
+                   machine, rather than copied."
+)]
 pub struct Symlink {
-    /// Path within the dotfiles repository that the link points at.
+    #[schemars(description = "Path within the dotfiles repository that the link points at.")]
     pub source_path: PathBuf,
-    /// Path of the link itself, resolved against the home directory unless it is absolute.
+    #[schemars(
+        description = "Path of the link itself, resolved against the home directory unless it is \
+                       absolute."
+    )]
     pub link_path: PathBuf,
 }
 
-/// A record this machine holds in another tool's configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(description = "A record this machine holds in another tool's configuration.")]
 #[serde(tag = "registry", rename_all = "snake_case")]
 pub enum Registration {
     ClaudeMcpServer(ClaudeMcpServer),
@@ -603,9 +620,13 @@ impl McpScope {
     }
 }
 
-/// An arbitrary shell invocation, and the resource kind of last resort. A command claims no
-/// machine fact and so has no identity; one without a presence check has drift on every run.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(
+    description = "An arbitrary shell invocation, and the resource kind of last resort. A command \
+                   claims no\n\
+                   machine fact and so has no identity; one without a presence check has drift on \
+                   every run."
+)]
 pub struct Command {
     pub shell: Shell,
     pub args: Vec<String>,
