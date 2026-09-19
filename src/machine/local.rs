@@ -27,7 +27,9 @@ use {
     secrecy::ExposeSecret,
     std::{
         collections::BTreeMap,
-        env, fs,
+        env,
+        ffi::OsStr,
+        fs,
         io::{BufRead, BufReader, Read},
         path::{Path, PathBuf},
         process::{Command as ProcessCommand, Stdio},
@@ -342,16 +344,21 @@ fn superseded_images_in(directory: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+fn executable_extensions(pathext: Option<&OsStr>) -> Vec<String> {
+    let Some(pathext) = pathext else {
+        return vec![String::new()];
+    };
+
+    std::iter::once(String::new())
+        .chain(pathext.to_string_lossy().split(';').map(str::to_lowercase))
+        .collect()
+}
+
 fn program_is_on_path(program: &str) -> bool {
     let Some(path) = env::var_os("PATH") else {
         return false;
     };
-    let extensions: Vec<String> = match env::var("PATHEXT") {
-        Ok(pathext) => std::iter::once(String::new())
-            .chain(pathext.split(';').map(str::to_lowercase))
-            .collect(),
-        Err(_) => vec![String::new()],
-    };
+    let extensions = executable_extensions(env::var_os("PATHEXT").as_deref());
 
     env::split_paths(&path).any(|directory| {
         extensions
@@ -826,6 +833,42 @@ mod tests {
         let path = directory.join(name);
         fs::write(&path, contents).unwrap();
         path
+    }
+
+    #[test]
+    fn a_machine_naming_no_executable_extensions_looks_only_for_the_bare_program_name() {
+        assert_eq!(executable_extensions(None), vec![String::new()]);
+    }
+
+    #[test]
+    fn a_machine_naming_executable_extensions_looks_for_each_of_them_as_well() {
+        assert_eq!(
+            executable_extensions(Some(OsStr::new(".COM;.EXE;.BAT"))),
+            vec![
+                String::new(),
+                ".com".to_owned(),
+                ".exe".to_owned(),
+                ".bat".to_owned()
+            ]
+        );
+    }
+
+    #[cfg(target_family = "windows")]
+    #[test]
+    fn extensions_that_are_not_text_still_leave_the_ones_beside_them_searchable() {
+        use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+
+        let unpaired_surrogate = OsString::from_wide(&[
+            0x002E, 0x0045, 0x0058, 0x0045, 0x003B, 0x002E, 0xD800, 0x003B, 0x002E, 0x0042, 0x0041,
+            0x0054,
+        ]);
+
+        let extensions = executable_extensions(Some(&unpaired_surrogate));
+
+        assert!(
+            extensions.contains(&".exe".to_owned()) && extensions.contains(&".bat".to_owned()),
+            "expected the readable extensions to survive, got: {extensions:?}"
+        );
     }
 
     #[test]
