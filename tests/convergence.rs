@@ -34,7 +34,7 @@ use {
             CommandOutput, ReadInvocation, ReadMachine,
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
-                Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
+                Fingerprint, InstalledState, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
         reporting::{RunKind, RunReport},
@@ -876,7 +876,7 @@ fn workspace_holds_crate(world: &mut MachineWorld, crate_name: String) {
         CrateName::from(crate_name.as_str()),
         MemberReading {
             desired: content_named("what the workspace holds now"),
-            installed: None,
+            installed: InstalledState::NotInstalled,
             absent_binaries: BTreeSet::new(),
         },
     );
@@ -885,7 +885,7 @@ fn workspace_holds_crate(world: &mut MachineWorld, crate_name: String) {
 #[given(expr = "cargo installed {string} from the content the workspace holds now")]
 fn installed_from_current_content(world: &mut MachineWorld, crate_name: String) {
     let member = world.member(&crate_name);
-    member.installed = Some(member.desired.clone());
+    member.installed = InstalledState::At(member.desired.clone());
 }
 
 #[given(expr = "the binary {string} of {string} is gone from where cargo installs it")]
@@ -935,7 +935,7 @@ fn cargo_asked_to_install(world: &mut MachineWorld, expected: usize) {
 
 #[given(expr = "cargo installed {string} from content the workspace has since changed")]
 fn installed_from_older_content(world: &mut MachineWorld, crate_name: String) {
-    world.member(&crate_name).installed = Some(content_named("what it held before"));
+    world.member(&crate_name).installed = InstalledState::At(content_named("what it held before"));
 }
 
 fn content_named(content: &str) -> Fingerprint {

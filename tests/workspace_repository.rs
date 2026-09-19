@@ -3,7 +3,10 @@
 use {
     dotfiles_configurator::{
         configuration::{BinaryName, CrateName},
-        machine::{local::workspace, workspace_reading::Revision},
+        machine::{
+            local::workspace,
+            workspace_reading::{InstalledState, Revision},
+        },
     },
     git2::{IndexAddOption, Repository, Signature},
     std::{collections::BTreeMap, fs, path::Path},
@@ -145,7 +148,7 @@ fn installed_binaries(names: &[&str]) -> tempfile::TempDir {
 
 fn alpha(reading: &dotfiles_configurator::machine::workspace_reading::WorkspaceReading) -> bool {
     let member = &reading.members[&CrateName::from("alpha")];
-    member.installed.as_ref() == Some(&member.desired)
+    member.installed == InstalledState::At(member.desired.clone())
 }
 
 #[test]
@@ -285,7 +288,7 @@ fn the_abbreviated_commit_cargo_lists_still_finds_the_content_it_names() {
 }
 
 #[test]
-fn a_crate_whose_installed_commit_is_absent_from_the_clone_reads_as_not_installed() {
+fn a_crate_whose_installed_commit_is_absent_from_the_clone_reads_as_unreadable() {
     let repository = workspace_holding_a_binary_and_a_library();
     let absent = Revision::from("0123456789012345678901234567890123456789");
 
@@ -297,7 +300,28 @@ fn a_crate_whose_installed_commit_is_absent_from_the_clone_reads_as_not_installe
     .unwrap()
     .unwrap();
 
-    assert_eq!(reading.members[&CrateName::from("alpha")].installed, None);
+    assert_eq!(
+        reading.members[&CrateName::from("alpha")].installed,
+        InstalledState::AtAnUnreadableRevision(absent)
+    );
+}
+
+#[test]
+fn a_crate_cargo_never_installed_is_not_read_as_one_installed_at_an_unreadable_revision() {
+    let repository = workspace_holding_a_binary_and_a_library();
+
+    let reading = workspace::read(
+        repository.path(),
+        &BTreeMap::new(),
+        installed_binaries(&["alpha"]).path(),
+    )
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        reading.members[&CrateName::from("alpha")].installed,
+        InstalledState::NotInstalled
+    );
 }
 
 fn absent_binaries_of(

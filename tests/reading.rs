@@ -25,7 +25,7 @@ use {
             ReadInvocation,
             release_reading::ReleaseReading,
             workspace_reading::{
-                Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
+                Fingerprint, InstalledState, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
         reporting::RunKind,
@@ -148,7 +148,7 @@ fn workspace_holding(crate_names: &[&str]) -> WorkspaceReading {
                             workspace_manifest: ObjectHash::from("the workspace manifest"),
                             lockfile: ObjectHash::from("the lockfile"),
                         },
-                        installed: None,
+                        installed: InstalledState::NotInstalled,
                         absent_binaries: BTreeSet::new(),
                     },
                 )

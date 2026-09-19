@@ -2,8 +2,8 @@ use {
     crate::{
         configuration::{BinaryName, CrateName},
         machine::workspace_reading::{
-            Fingerprint, InferableBinary, MemberReading, MemberTree, ObjectHash, Revision,
-            WorkspaceReading, member_paths, read_member_manifest,
+            Fingerprint, InferableBinary, InstalledState, MemberReading, MemberTree, ObjectHash,
+            Revision, WorkspaceReading, member_paths, read_member_manifest,
         },
     },
     anyhow::{Context, Result, anyhow},
@@ -40,8 +40,8 @@ pub fn read(
 
     let mut by_revision: BTreeMap<Revision, BTreeMap<CrateName, MemberAtRevision>> =
         BTreeMap::new();
-    for installed_revision in installed.values() {
-        if by_revision.contains_key(installed_revision) {
+    for (crate_name, installed_revision) in installed {
+        if !desired.contains_key(crate_name) || by_revision.contains_key(installed_revision) {
             continue;
         }
         if let Ok(members) = members_at(&repository, installed_revision) {
@@ -52,11 +52,16 @@ pub fn read(
     let members = desired
         .into_iter()
         .map(|(crate_name, desired)| {
-            let installed = installed
-                .get(&crate_name)
-                .and_then(|revision| by_revision.get(revision))
-                .and_then(|members| members.get(&crate_name))
-                .map(|member| member.fingerprint.clone());
+            let installed = match installed.get(&crate_name) {
+                None => InstalledState::NotInstalled,
+                Some(revision) => match by_revision
+                    .get(revision)
+                    .and_then(|members| members.get(&crate_name))
+                {
+                    Some(member) => InstalledState::At(member.fingerprint.clone()),
+                    None => InstalledState::AtAnUnreadableRevision(revision.clone()),
+                },
+            };
             let absent_binaries = desired
                 .binaries
                 .into_iter()

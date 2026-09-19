@@ -15,7 +15,7 @@ use {
             ReadInvocation, ReadMachine,
             environment_reading::SearchPathReading,
             release_reading::ReleaseReading,
-            workspace_reading::{Revision, WorkspaceReading},
+            workspace_reading::{MemberComparison, Revision, WorkspaceReading},
         },
         version::Version,
     },
@@ -164,6 +164,23 @@ impl SourceReadings {
         match self.workspaces.get(clone_directory) {
             Some(reading) => reading.read().map(Option::as_ref),
             None => Err(ReadSource::CargoWorkspace(clone_directory.to_path_buf()).was_not_read()),
+        }
+    }
+
+    // ADR 0007
+    pub fn resolved_workspace(
+        &self,
+        clone_directory: &Path,
+    ) -> Result<&WorkspaceReading, Impediment> {
+        match self.workspace(clone_directory)? {
+            Some(reading) => Ok(reading),
+            None => Err(Impediment::ActualStateUnreadable(
+                format!(
+                    "{} holds no clone, so its members cannot be read",
+                    clone_directory.display()
+                )
+                .into(),
+            )),
         }
     }
 }
@@ -435,11 +452,8 @@ fn assess_workspace_member(
     clone_directory: &Path,
     readings: &SourceReadings,
 ) -> Assessment {
-    let reading = match readings.workspace(clone_directory) {
-        Ok(Some(reading)) => reading,
-        Ok(None) => {
-            return Assessment::Drifted("its repository has not been cloned".into());
-        }
+    let reading = match readings.resolved_workspace(clone_directory) {
+        Ok(reading) => reading,
         Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
@@ -447,9 +461,12 @@ fn assess_workspace_member(
         return Assessment::Drifted("the workspace no longer holds it".into());
     };
 
-    match member.difference() {
-        None => Assessment::Converged,
-        Some(difference) => Assessment::Drifted(difference.into()),
+    match member.compare() {
+        MemberComparison::Matches => Assessment::Converged,
+        MemberComparison::Differs(difference) => Assessment::Drifted(difference.into()),
+        MemberComparison::Unreadable(reason) => {
+            Assessment::Unassessable(Impediment::ActualStateUnreadable(reason.into()))
+        }
     }
 }
 

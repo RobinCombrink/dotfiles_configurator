@@ -69,16 +69,38 @@ impl Fingerprint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstalledState {
+    NotInstalled,
+    At(Fingerprint),
+    AtAnUnreadableRevision(Revision),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemberComparison {
+    Matches,
+    Differs(String),
+    Unreadable(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberReading {
     pub desired: Fingerprint,
-    pub installed: Option<Fingerprint>,
+    pub installed: InstalledState,
     pub absent_binaries: BTreeSet<BinaryName>,
 }
 
 impl MemberReading {
-    pub fn difference(&self) -> Option<String> {
-        let Some(installed) = &self.installed else {
-            return Some("cargo has not installed it".to_owned());
+    pub fn compare(&self) -> MemberComparison {
+        let installed = match &self.installed {
+            InstalledState::NotInstalled => {
+                return MemberComparison::Differs("cargo has not installed it".to_owned());
+            }
+            InstalledState::AtAnUnreadableRevision(revision) => {
+                return MemberComparison::Unreadable(format!(
+                    "cargo installed it at {revision}, which this clone cannot answer for"
+                ));
+            }
+            InstalledState::At(fingerprint) => fingerprint,
         };
 
         let differences: Vec<String> = self
@@ -89,8 +111,8 @@ impl MemberReading {
             .collect();
 
         match differences.is_empty() {
-            true => None,
-            false => Some(differences.join(", and ")),
+            true => MemberComparison::Matches,
+            false => MemberComparison::Differs(differences.join(", and ")),
         }
     }
 }
@@ -473,21 +495,21 @@ mod tests {
     fn reading_missing(absent: &[&str]) -> MemberReading {
         MemberReading {
             desired: a_fingerprint(),
-            installed: Some(a_fingerprint()),
+            installed: InstalledState::At(a_fingerprint()),
             absent_binaries: absent.iter().map(|name| BinaryName::from(*name)).collect(),
         }
     }
 
     #[test]
     fn a_member_whose_every_binary_is_on_disk_at_the_installed_revision_has_not_drifted() {
-        assert_eq!(reading_missing(&[]).difference(), None);
+        assert_eq!(reading_missing(&[]).compare(), MemberComparison::Matches);
     }
 
     #[test]
     fn a_member_missing_one_binary_drifts_and_names_it() {
         assert_eq!(
-            reading_missing(&["tool-use-statistics"]).difference(),
-            Some(
+            reading_missing(&["tool-use-statistics"]).compare(),
+            MemberComparison::Differs(
                 "tool-use-statistics is missing from the directory cargo installs into".to_owned()
             )
         );
@@ -496,8 +518,8 @@ mod tests {
     #[test]
     fn a_member_missing_several_binaries_names_every_one_of_them() {
         assert_eq!(
-            reading_missing(&["sweep-status", "session-census", "reach"]).difference(),
-            Some(
+            reading_missing(&["sweep-status", "session-census", "reach"]).compare(),
+            MemberComparison::Differs(
                 "reach, session-census and sweep-status are missing from the directory cargo \
                  installs into"
                     .to_owned()
@@ -512,13 +534,13 @@ mod tests {
                 lockfile: ObjectHash::from("ddd"),
                 ..a_fingerprint()
             },
-            installed: Some(a_fingerprint()),
+            installed: InstalledState::At(a_fingerprint()),
             absent_binaries: BTreeSet::from([BinaryName::from("sweep")]),
         };
 
         assert_eq!(
-            reading.difference(),
-            Some(
+            reading.compare(),
+            MemberComparison::Differs(
                 "its dependencies have changed, and sweep is missing from the directory cargo \
                  installs into"
                     .to_owned()
@@ -530,13 +552,44 @@ mod tests {
     fn a_member_cargo_never_installed_drifts_without_listing_binaries_it_could_not_have() {
         let reading = MemberReading {
             desired: a_fingerprint(),
-            installed: None,
+            installed: InstalledState::NotInstalled,
             absent_binaries: BTreeSet::from([BinaryName::from("sweep")]),
         };
 
         assert_eq!(
-            reading.difference(),
-            Some("cargo has not installed it".to_owned())
+            reading.compare(),
+            MemberComparison::Differs("cargo has not installed it".to_owned())
         );
+    }
+
+    #[test]
+    fn a_member_installed_at_a_revision_this_clone_cannot_read_is_unreadable_rather_than_drifted() {
+        let reading = MemberReading {
+            desired: a_fingerprint(),
+            installed: InstalledState::AtAnUnreadableRevision(Revision::from("2ae2ffff")),
+            absent_binaries: BTreeSet::new(),
+        };
+
+        assert_eq!(
+            reading.compare(),
+            MemberComparison::Unreadable(
+                "cargo installed it at 2ae2ffff, which this clone cannot answer for".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn a_member_installed_at_an_unreadable_revision_is_not_the_one_cargo_never_installed() {
+        let unreadable = MemberReading {
+            desired: a_fingerprint(),
+            installed: InstalledState::AtAnUnreadableRevision(Revision::from("2ae2ffff")),
+            absent_binaries: BTreeSet::new(),
+        };
+        let never_installed = MemberReading {
+            installed: InstalledState::NotInstalled,
+            ..unreadable.clone()
+        };
+
+        assert_ne!(unreadable.compare(), never_installed.compare());
     }
 }

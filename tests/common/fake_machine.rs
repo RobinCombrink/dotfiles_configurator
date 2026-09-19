@@ -23,7 +23,7 @@ use {
             environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
-            workspace_reading::{Revision, WorkspaceReading},
+            workspace_reading::{InstalledState, Revision, WorkspaceReading},
         },
         version::Version,
     },
@@ -237,7 +237,7 @@ impl FakeMachine {
             let Some(member) = reading.members.get_mut(crate_name) else {
                 continue;
             };
-            member.installed = Some(member.desired.clone());
+            member.installed = InstalledState::At(member.desired.clone());
             member.absent_binaries.clear();
         }
 
