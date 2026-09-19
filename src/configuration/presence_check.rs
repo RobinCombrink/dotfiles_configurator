@@ -5,23 +5,34 @@ use {
     std::{fmt::Display, path::PathBuf},
 };
 
-/// An author-declared test that establishes whether a resource is already in its desired state,
-/// used where the machine cannot be asked directly.
-///
-/// The forms are a fixed set rather than arbitrary shell so that plan's guarantee is precise: plan
-/// cannot change a machine through anything the tool decides, and can change one only through a
-/// check the configuration's author wrote and declared as a check. Two of the three forms cannot
-/// change anything by construction; `CommandOutputContains` is the narrow, deliberate escape
-/// hatch. See ADR 0006.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(
+    description = "An author-declared test that establishes whether a resource is already in its \
+                   desired state,\n\
+                   used where the machine cannot be asked directly.\n\
+                   \n\
+                   The forms are a fixed set rather than arbitrary shell so that plan's guarantee \
+                   is precise: plan\n\
+                   cannot change a machine through anything the tool decides, and can change one \
+                   only through a\n\
+                   check the configuration's author wrote and declared as a check. Two of the \
+                   three forms cannot\n\
+                   change anything by construction; `CommandOutputContains` is the narrow, \
+                   deliberate escape\n\
+                   hatch. See ADR 0006."
+)]
 #[serde(tag = "check", rename_all = "snake_case")]
 pub enum PresenceCheck {
-    /// A path exists. Relative paths resolve against the home directory.
+    #[schemars(description = "A path exists. Relative paths resolve against the home directory.")]
     PathExists { path: PathBuf },
-    /// A program is resolvable on the machine's search path.
+    #[schemars(description = "A program is resolvable on the machine's search path.")]
     CommandOnPath { command: String },
-    /// A declared command's output contains a string. The only form that can run something the
-    /// author chose, and so the only one that is not side-effect-free by construction.
+    #[schemars(
+        description = "A declared command's output contains a string. The only form that can run \
+                       something the\n\
+                       author chose, and so the only one that is not side-effect-free by \
+                       construction."
+    )]
     CommandOutputContains {
         shell: Shell,
         args: Vec<String>,
