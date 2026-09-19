@@ -657,6 +657,7 @@ impl ReadMachine for FakeMachine {
             return Ok(output);
         }
 
+        let mut standard_error = String::new();
         let (succeeded, standard_output) = match invocation {
             ReadInvocation::WingetInstalledPackages => {
                 (true, winget_listing(&self.state.borrow().winget_packages))
@@ -664,7 +665,10 @@ impl ReadMachine for FakeMachine {
             ReadInvocation::CargoInstalledCrates => (true, String::new()),
             ReadInvocation::ClaudeMcpServer { name } => {
                 match self.state.borrow().claude_mcp_servers.get(name) {
-                    None => (false, String::new()),
+                    None => {
+                        standard_error = format!("No MCP server named \"{name}\".");
+                        (false, String::new())
+                    }
                     Some(server) => (true, claude_mcp_get_output(server)),
                 }
             }
@@ -673,7 +677,7 @@ impl ReadMachine for FakeMachine {
         Ok(CommandOutput {
             succeeded,
             standard_output,
-            standard_error: String::new(),
+            standard_error,
         })
     }
 

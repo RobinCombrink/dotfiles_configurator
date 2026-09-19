@@ -641,12 +641,26 @@ fn assess_claude_mcp_server(server: &ClaudeMcpServer, machine: &impl ReadMachine
     };
 
     if !output.succeeded {
-        return Assessment::Drifted("claude holds no such server".into());
+        return claude_refusal(&output.standard_error);
     }
 
     match first_difference(server, &output.standard_output) {
         None => Assessment::Converged,
         Some(difference) => Assessment::Drifted(difference.into()),
+    }
+}
+
+// 2026-09-19: `claude mcp get <name>` exits 1 with an empty standard output and a standard
+// error opening with this phrase when it holds no server under that name. Claude Code 2.1.278
+// on Windows 11.
+const NO_SUCH_SERVER: &str = "No MCP server named";
+
+fn claude_refusal(standard_error: &str) -> Assessment {
+    match standard_error.trim_start().starts_with(NO_SUCH_SERVER) {
+        true => Assessment::Drifted("claude holds no such server".into()),
+        false => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            format!("claude could not be read: {}", standard_error.trim()).into(),
+        )),
     }
 }
 
@@ -981,6 +995,26 @@ mod tests {
         assert_eq!(
             first_difference(&probe_server(), reported),
             Some("claude reports no command for it".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_claude_that_reports_no_server_under_the_name_has_drifted() {
+        let refusal = "No MCP server named \"probe-server\". Configured servers: serena, github";
+
+        assert_eq!(
+            claude_refusal(refusal),
+            Assessment::Drifted("claude holds no such server".into())
+        );
+    }
+
+    #[test]
+    fn a_claude_that_failed_for_any_other_reason_is_unassessable_rather_than_drifted() {
+        assert_eq!(
+            claude_refusal("Invalid API key · Please run /login"),
+            Assessment::Unassessable(Impediment::ActualStateUnreadable(
+                "claude could not be read: Invalid API key · Please run /login".into()
+            ))
         );
     }
 }
