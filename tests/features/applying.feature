@@ -268,6 +268,15 @@ Feature: Applying a change set
     When Alice applies
     Then the run reports a notice mentioning "open a new one"
 
+  Scenario: A configuration its source cannot rewrite is announced rather than rewritten
+    Given Alice declares the application "Neovim"
+    And Neovim is installed on Alice's machine
+    And Alice's configuration is a generation back in a source that cannot be written
+    When Alice applies
+    Then the run reports a notice mentioning "everywhere.dotconfig.json"
+    And the run reports a notice mentioning "stops being read"
+    And Alice's configuration was not rewritten
+
   Scenario: A directory the run already carries is not put on the search path a second time
     Given nothing is on Alice's search path
     And Alice declares the search path entry ".dotfiles_configurator/bin" under her home directory

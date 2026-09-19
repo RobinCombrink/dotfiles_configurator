@@ -14,11 +14,11 @@ use {
     dotfiles_configurator::{
         configuration::{
             Application, ApplicationName, ApplicationSource, AssetPattern, BUILD_GENERATION,
-            BinaryName, CargoWorkspace, ClaudeMcpServer, Configuration, Context, CrateName,
-            DeclaredNotice, EnvironmentVariable, GitHubAccount, Installer, MachineClass,
-            MachineManifest, McpScope, McpServerName, Migration, OLDEST_READABLE_GENERATION,
-            PresenceCheck, Registration, Resource, SearchPathDirectory, SearchPathEntry, Shell,
-            Symlink, Tool, Variable, VariableName, VariableValue,
+            BinaryName, CargoWorkspace, ClaudeMcpServer, Configuration, ConfigurationName, Context,
+            CrateName, DeclaredNotice, EnvironmentVariable, GitHubAccount, Installer, MachineClass,
+            MachineManifest, McpScope, McpServerName, Migration, Notice,
+            OLDEST_READABLE_GENERATION, PresenceCheck, Registration, Resource, SearchPathDirectory,
+            SearchPathEntry, Shell, Symlink, Tool, Variable, VariableName, VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -74,6 +74,7 @@ struct MachineWorld {
     enactment: Option<Enactment>,
     answering: Answering,
     migrations: Vec<Migration>,
+    announcements: Vec<Notice>,
     fingerprint_before: Option<String>,
     loading_error: Option<String>,
     loaded: Option<DesiredState>,
@@ -100,6 +101,7 @@ impl MachineWorld {
             enactment: None,
             answering: Answering::default(),
             migrations: Vec::new(),
+            announcements: Vec::new(),
             fingerprint_before: None,
             loading_error: None,
             loaded: None,
@@ -134,7 +136,7 @@ impl MachineWorld {
             self.workspaces.clone(),
             self.notices.clone(),
         )
-        .also_reporting(self.migrations.clone(), Vec::new())
+        .also_reporting(self.migrations.clone(), self.announcements.clone())
     }
 
     fn linked_paths(&self) -> Vec<String> {
@@ -1547,6 +1549,14 @@ fn migrated_configuration_path() -> PathBuf {
 #[given(expr = "Alice's configuration is waiting to be rewritten a generation forward")]
 fn a_configuration_is_waiting_to_be_rewritten(world: &mut MachineWorld) {
     world.migrations.push(a_configuration_a_generation_behind());
+}
+
+#[given(expr = "Alice's configuration is a generation back in a source that cannot be written")]
+fn a_configuration_a_generation_back_cannot_be_rewritten(world: &mut MachineWorld) {
+    world.announcements.push(Notice::SourceCannotBeRewritten {
+        source: ConfigurationName::from("Alice/dotfiles/config/everywhere.dotconfig.json"),
+        from: BUILD_GENERATION.stepped_by(-1),
+    });
 }
 
 #[then(expr = "Alice's configuration was rewritten")]
