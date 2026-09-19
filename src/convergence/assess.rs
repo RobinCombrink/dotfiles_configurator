@@ -667,9 +667,14 @@ fn first_difference(server: &ClaudeMcpServer, reported: &str) -> Option<String> 
         None => return Some("claude reports no command for it".to_owned()),
     }
 
-    let registered_args = field("Args").unwrap_or_default();
-    if registered_args != server.args.join(" ") {
-        return Some(format!("registered with the arguments {registered_args}"));
+    // 2026-09-19: `claude mcp get` leaves out the line for a field that does not apply rather
+    // than printing it empty — the output for an http server carries no Command and no Args
+    // line at all. Claude Code 2.1.278 on Windows 11.
+    match field("Args") {
+        Some(registered) if registered == server.args.join(" ") => {}
+        Some(registered) => return Some(format!("registered with the arguments {registered}")),
+        None if server.args.is_empty() => {}
+        None => return Some("registered with no arguments".to_owned()),
     }
 
     server
@@ -944,6 +949,29 @@ mod tests {
             first_difference(&declared, REGISTERED),
             Some("registered without ALPHA set as declared".to_owned())
         );
+    }
+
+    #[test]
+    fn a_registration_reporting_no_arguments_for_a_server_declaring_some_names_that_rather_than_nothing()
+     {
+        let reported = "probe-server:\n  Type: stdio\n  Command: my-program\n";
+
+        assert_eq!(
+            first_difference(&probe_server(), reported),
+            Some("registered with no arguments".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_registration_reporting_no_arguments_for_a_server_declaring_none_has_not_drifted() {
+        let declared = ClaudeMcpServer {
+            args: Vec::new(),
+            environment: BTreeMap::new(),
+            ..probe_server()
+        };
+        let reported = "probe-server:\n  Type: stdio\n  Command: my-program\n";
+
+        assert_eq!(first_difference(&declared, reported), None);
     }
 
     #[test]
