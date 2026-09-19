@@ -29,7 +29,7 @@ Feature: Confirming a change set before it is enacted
     Given Alice declares the application "Neovim"
     And Neovim is installed on Alice's machine
     When Alice applies
-    Then Alice was asked nothing
+    Then the run asked nothing
     And the machine is reported as converged
 
   Scenario: A configuration waiting to be rewritten is asked about even with no drift
@@ -37,7 +37,7 @@ Feature: Confirming a change set before it is enacted
     And Neovim is installed on Alice's machine
     And Alice's configuration is waiting to be rewritten a generation forward
     When Alice applies
-    Then Alice was asked once
+    Then the run asked once
 
   Scenario: Confirming rewrites the configuration that was waiting to be rewritten
     Given Alice declares the application "Neovim"
@@ -59,7 +59,7 @@ Feature: Confirming a change set before it is enacted
     And the dotfiles repository has not been cloned on Alice's machine
     When Alice applies
     Then the link ".gitconfig" points into the dotfiles repository
-    And Alice was asked once
+    And the run asked once
 
   Scenario: An answer given in advance enacts the change set
     Given Alice declares the application "Neovim"
@@ -75,3 +75,18 @@ Feature: Confirming a change set before it is enacted
     And Alice has answered in advance
     When Alice applies
     Then Alice was shown "application Neovim" before it was converged
+
+  Scenario: An answer given in advance answers the one question the run asks
+    Given Alice declares the application "Neovim"
+    And Neovim is not installed on Alice's machine
+    And Alice has answered in advance
+    When Alice applies
+    Then the run asked once
+    And Neovim is installed on Alice's machine
+
+  Scenario: A run answered in advance with nothing to enact asks nothing
+    Given Alice declares the application "Neovim"
+    And Neovim is installed on Alice's machine
+    And Alice has answered in advance
+    When Alice applies
+    Then the run asked nothing

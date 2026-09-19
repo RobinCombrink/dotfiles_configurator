@@ -198,50 +198,43 @@ impl MachineWorld {
 }
 
 #[derive(Debug)]
-enum Answering {
+struct Answering {
+    answer: Answer,
+    questions_put: Cell<usize>,
+}
+
+#[derive(Debug)]
+enum Answer {
     InAdvance(Operator),
-    Alice {
-        confirmation: Confirmation,
-        times_asked: Cell<usize>,
-    },
+    Alice(Confirmation),
 }
 
 impl Default for Answering {
     fn default() -> Self {
-        Answering::Alice {
-            confirmation: Confirmation::Proceed,
-            times_asked: Cell::new(0),
-        }
+        Answering::of(Answer::Alice(Confirmation::Proceed))
     }
 }
 
 impl Answering {
-    fn declining() -> Self {
-        Answering::Alice {
-            confirmation: Confirmation::Declined,
-            times_asked: Cell::new(0),
+    fn of(answer: Answer) -> Self {
+        Self {
+            answer,
+            questions_put: Cell::new(0),
         }
     }
 
-    fn times_asked(&self) -> usize {
-        match self {
-            Answering::InAdvance(_) => 0,
-            Answering::Alice { times_asked, .. } => times_asked.get(),
-        }
+    fn declining() -> Self {
+        Answering::of(Answer::Alice(Confirmation::Declined))
     }
 }
 
 impl Confirm for Answering {
     fn confirmation(&self, question: &str) -> Confirmation {
-        match self {
-            Answering::InAdvance(operator) => operator.confirmation(question),
-            Answering::Alice {
-                confirmation,
-                times_asked,
-            } => {
-                times_asked.set(times_asked.get() + 1);
-                *confirmation
-            }
+        self.questions_put.set(self.questions_put.get() + 1);
+
+        match &self.answer {
+            Answer::InAdvance(operator) => operator.confirmation(question),
+            Answer::Alice(confirmation) => *confirmation,
         }
     }
 }
@@ -1522,9 +1515,9 @@ fn alice_declines(world: &mut MachineWorld) {
 
 #[given(expr = "Alice has answered in advance")]
 fn alice_answered_in_advance(world: &mut MachineWorld) {
-    world.answering = Answering::InAdvance(
+    world.answering = Answering::of(Answer::InAdvance(
         Operator::of_this_run(true).expect("a run answered in advance is never refused"),
-    );
+    ));
 }
 
 fn a_configuration_a_generation_behind() -> Migration {
@@ -1571,14 +1564,14 @@ fn the_run_did_nothing(world: &mut MachineWorld) {
     assert!(world.was_declined());
 }
 
-#[then(expr = "Alice was asked once")]
-fn alice_was_asked_once(world: &mut MachineWorld) {
-    assert_eq!(world.answering.times_asked(), 1);
+#[then(expr = "the run asked once")]
+fn the_run_asked_once(world: &mut MachineWorld) {
+    assert_eq!(world.answering.questions_put.get(), 1);
 }
 
-#[then(expr = "Alice was asked nothing")]
-fn alice_was_asked_nothing(world: &mut MachineWorld) {
-    assert_eq!(world.answering.times_asked(), 0);
+#[then(expr = "the run asked nothing")]
+fn the_run_asked_nothing(world: &mut MachineWorld) {
+    assert_eq!(world.answering.questions_put.get(), 0);
 }
 
 #[then(expr = "Alice was shown {string} before it was converged")]
