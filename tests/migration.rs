@@ -13,6 +13,7 @@ use {
     std::{
         env, fs,
         path::{Path, PathBuf},
+        process,
     },
 };
 
@@ -32,7 +33,10 @@ fn fixture(name: &str) -> String {
 }
 
 fn a_checkout_holding(name: &str, documents: &[(&str, String)]) -> PathBuf {
-    let checkout = env::temp_dir().join("dotfiles_migration_tests").join(name);
+    let checkout = env::temp_dir()
+        .join("dotfiles_migration_tests")
+        .join(process::id().to_string())
+        .join(name);
     let _ = fs::remove_dir_all(&checkout);
     fs::create_dir_all(checkout.join(".git")).unwrap();
     fs::create_dir_all(checkout.join("config")).unwrap();
