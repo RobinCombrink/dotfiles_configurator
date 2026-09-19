@@ -12,8 +12,12 @@ concurrency:
 
 jobs:
   check:
-    name: Build, lint & test
-    runs-on: ubuntu-latest
+    name: Build, lint & test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     permissions:
       contents: read
