@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 use {
+    crate::fake_machine::{HOME_DIRECTORY, REPOSITORIES_ROOT, dotfiles_repository_path},
     dotfiles_configurator::{
         configuration::{
             ArchiveEntry, AssetPattern, BUILD_GENERATION, CargoWorkspace, Configuration,
@@ -13,15 +14,9 @@ use {
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         reporting::{RunKind, RunReport},
     },
-    std::{
-        num::NonZeroUsize,
-        path::{Path, PathBuf},
-    },
+    std::{num::NonZeroUsize, path::Path},
     tempfile::TempDir,
 };
-
-pub const REPOSITORIES_ROOT: &str = "/repositories";
-pub const HOME_DIRECTORY: &str = "/home/Alice";
 
 pub struct Reporting {
     _logs: TempDir,
@@ -48,8 +43,6 @@ pub fn manifest_for(machine: MachineClass) -> MachineManifest {
         repositories_directory_path: Path::new(REPOSITORIES_ROOT).join(machine.repositories_leaf()),
     }
 }
-
-pub const DOTFILES_FILES_ROOT: &str = "/repositories/Personal/dotfiles";
 
 pub fn named_repository(owner_and_name: &str) -> GitHubRepository {
     let (owner, repository) = owner_and_name
@@ -84,7 +77,7 @@ pub fn read_out_of_a_checkout(
     notices: Vec<DeclaredNotice>,
 ) -> DesiredState {
     read_from(
-        SourceLocation::Checkout(PathBuf::from(DOTFILES_FILES_ROOT)),
+        SourceLocation::Checkout(dotfiles_repository_path()),
         resources,
         workspaces,
         notices,
@@ -138,7 +131,7 @@ pub fn read_as_two_accounts(
             ResolvedConfiguration::read(
                 ConfigurationName::from("everywhere.dotconfig.json"),
                 everywhere,
-                SourceLocation::Checkout(PathBuf::from(DOTFILES_FILES_ROOT)),
+                SourceLocation::Checkout(dotfiles_repository_path()),
                 Path::new(REPOSITORIES_ROOT),
             ),
             ResolvedConfiguration::read(

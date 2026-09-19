@@ -8,9 +8,8 @@ mod fake_machine;
 use {
     cucumber::{World, given, then, when},
     declarations::{
-        DOTFILES_FILES_ROOT, REPOSITORIES_ROOT, dotfiles_repository, named_repository,
-        read_as_two_accounts, read_out_of_a_checkout, read_out_of_the_dotfiles_repository,
-        reporting_its_version_in_the_second_word,
+        dotfiles_repository, named_repository, read_as_two_accounts, read_out_of_a_checkout,
+        read_out_of_the_dotfiles_repository, reporting_its_version_in_the_second_word,
     },
     dotfiles_configurator::{
         configuration::{
@@ -40,7 +39,7 @@ use {
         reporting::{RunKind, RunReport},
         version::Version,
     },
-    fake_machine::FakeMachine,
+    fake_machine::{FakeMachine, REPOSITORIES_ROOT, dotfiles_repository_path},
     std::{
         cell::Cell,
         collections::{BTreeMap, BTreeSet},
@@ -163,7 +162,7 @@ impl MachineWorld {
         }
 
         self.machine.hold_cargo_workspace(
-            PathBuf::from(DOTFILES_FILES_ROOT),
+            dotfiles_repository_path(),
             WorkspaceReading {
                 revision: Revision::from("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c"),
                 members: self.members.clone(),
@@ -1278,7 +1277,7 @@ fn link_points_into_repository(world: &mut MachineWorld, link_path: String) {
         .unwrap_or_else(|| panic!("nothing is linked at {}", resolved.display()));
 
     assert!(
-        target.starts_with(DOTFILES_FILES_ROOT),
+        target.starts_with(dotfiles_repository_path()),
         "expected the link to point into the dotfiles repository, got {}",
         target.display()
     );
@@ -1547,7 +1546,7 @@ fn a_configuration_a_generation_behind() -> Migration {
 }
 
 fn migrated_configuration_path() -> PathBuf {
-    PathBuf::from(DOTFILES_FILES_ROOT)
+    dotfiles_repository_path()
         .join("config")
         .join("everywhere.dotconfig.json")
 }

@@ -91,11 +91,20 @@ enum Displacement {
 /// so that the configurator's own currency is converged in every scenario that is not about it.
 pub const CONFIGURATOR_VERSION: &str = "9.9.9";
 
+pub const HOME_DIRECTORY: &str = "/home/alice";
+pub const REPOSITORIES_ROOT: &str = "/repositories";
+
+pub fn dotfiles_repository_path() -> PathBuf {
+    Path::new(REPOSITORIES_ROOT)
+        .join("Personal")
+        .join("dotfiles")
+}
+
 impl Default for FakeMachine {
     fn default() -> Self {
-        let home_directory = PathBuf::from("/home/alice");
-        let repositories_root = PathBuf::from("/repositories");
-        let dotfiles_repository_path = repositories_root.join("Personal").join("dotfiles");
+        let home_directory = PathBuf::from(HOME_DIRECTORY);
+        let repositories_root = PathBuf::from(REPOSITORIES_ROOT);
+        let dotfiles_repository_path = dotfiles_repository_path();
         let machine = Self {
             cargo_binaries_directory: home_directory.join(".cargo").join("bin"),
             home_directory,
