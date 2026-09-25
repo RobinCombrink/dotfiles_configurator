@@ -536,7 +536,16 @@ mod tests {
 
     #[test]
     fn a_run_answered_in_advance_hands_its_successor_the_answer_once() {
-        assert!(parsed_successor_of(&["apply", "--machine", "personal", "--yes"]).yes);
+        let successor = successor_of(&["apply", "--machine", "personal", "--yes"]);
+
+        assert_eq!(
+            successor
+                .iter()
+                .filter(|argument| *argument == "--yes")
+                .count(),
+            1,
+            "{successor:?}"
+        );
     }
 
     #[test]
