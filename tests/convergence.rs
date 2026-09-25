@@ -63,6 +63,9 @@ struct MachineWorld {
     notices: Vec<DeclaredNotice>,
     configurations_come_from_a_repository: bool,
     configurations_are_inside_a_checkout: bool,
+    configurations_are_named_relative_to_the_checkout: bool,
+    files_the_checkout_holds: Vec<PathBuf>,
+    checkout: Option<PathBuf>,
     /// Configurations as they are written down, for the scenarios about loading them.
     documents: Vec<String>,
     /// A second source, held by a repository Alice does not own.
@@ -93,6 +96,9 @@ impl MachineWorld {
             notices: Vec::new(),
             configurations_come_from_a_repository: false,
             configurations_are_inside_a_checkout: true,
+            configurations_are_named_relative_to_the_checkout: false,
+            files_the_checkout_holds: Vec::new(),
+            checkout: None,
             documents: Vec::new(),
             employers_documents: Vec::new(),
             employers_resources: Vec::new(),
@@ -828,6 +834,16 @@ fn stray_file_alongside_configurations(world: &mut MachineWorld, file_name: Stri
     world.stray_file_names.push(file_name);
 }
 
+#[given(expr = "Alice's checkout holds {string}")]
+fn checkout_holds(world: &mut MachineWorld, path: String) {
+    world.files_the_checkout_holds.push(PathBuf::from(path));
+}
+
+#[given(expr = "Alice names her configurations relative to the checkout she runs in")]
+fn configurations_named_relative_to_the_checkout(world: &mut MachineWorld) {
+    world.configurations_are_named_relative_to_the_checkout = true;
+}
+
 #[given(expr = "Alice keeps her configurations outside any checkout")]
 fn configurations_outside_any_checkout(world: &mut MachineWorld) {
     world.configurations_are_inside_a_checkout = false;
@@ -1300,12 +1316,44 @@ async fn alice_loads_for_a_personal_machine(world: &mut MachineWorld) {
     alice_loads(world, MachineClass::Personal).await;
 }
 
+#[when(expr = "Alice applies her configurations for a personal machine")]
+async fn alice_applies_her_configurations_for_a_personal_machine(world: &mut MachineWorld) {
+    alice_loads(world, MachineClass::Personal).await;
+    let desired_state = world.loaded.as_ref().unwrap_or_else(|| {
+        panic!(
+            "loading was refused: {}",
+            world.loading_error.as_deref().unwrap_or_default()
+        )
+    });
+
+    let report = world.open_a_report(RunKind::Apply);
+    let enactment = apply(desired_state, &world.machine, &report, &world.answering)
+        .await
+        .unwrap();
+    world.enactment = Some(enactment);
+    world.report = Some(report);
+}
+
 async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
-    let mut sources = vec![named_in_full(write_configurations(
+    let directory = write_configurations(
         &world.documents,
         &world.stray_file_names,
         world.configurations_are_inside_a_checkout,
-    ))];
+    );
+    let checkout = directory
+        .parent()
+        .expect("configurations are written into a directory of a checkout")
+        .to_path_buf();
+    for held in &world.files_the_checkout_holds {
+        world.machine.add_own_file(checkout.join(held));
+    }
+    let first_source = match world.configurations_are_named_relative_to_the_checkout {
+        true => named_relative_to(&checkout, &directory),
+        false => named_in_full(directory),
+    };
+    world.checkout = Some(checkout);
+
+    let mut sources = vec![first_source];
     if !world.employers_documents.is_empty() {
         sources.push(named_in_full(write_configurations(
             &world.employers_documents,
@@ -1331,6 +1379,18 @@ fn named_in_full(directory: PathBuf) -> ConfigurationSource {
     ConfigurationSource::LocalDirectory(
         AbsoluteDirectory::of(directory).expect("a temporary directory is absolute"),
     )
+}
+
+fn named_relative_to(working_directory: &Path, directory: &Path) -> ConfigurationSource {
+    let relative = directory
+        .strip_prefix(working_directory)
+        .expect("the configurations are inside the working directory");
+    ConfigurationSource::named(
+        &format!("local:{}", relative.display()),
+        &AbsoluteDirectory::of(working_directory.to_path_buf())
+            .expect("a temporary directory is absolute"),
+    )
+    .expect("a relative local source names a directory under the working directory")
 }
 
 fn write_configurations(
@@ -1559,6 +1619,20 @@ fn link_points_into_repository(world: &mut MachineWorld, link_path: String) {
         "expected the link to point into the dotfiles repository, got {}",
         target.display()
     );
+}
+
+#[then(expr = "the link {string} resolves to {string} in Alice's checkout")]
+fn link_resolves_into_the_checkout(world: &mut MachineWorld, link_path: String, held: String) {
+    let checkout = world.checkout.as_ref().expect("nothing was loaded");
+    let link = world.machine.resolve_against_home(Path::new(&link_path));
+    let link_directory = link.parent().expect("a link sits in a directory");
+
+    let resolved = world
+        .machine
+        .link_at(&link)
+        .map(|target| link_directory.join(target));
+
+    assert_eq!(resolved, Some(checkout.join(held)));
 }
 
 #[then(expr = "loading is refused")]

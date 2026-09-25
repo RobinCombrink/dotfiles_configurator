@@ -345,3 +345,12 @@ Feature: Applying a change set
     And Alice declares the search path entry "Tools/Bin" under her home directory
     When Alice applies
     Then "tools/bin" is on Alice's own search path exactly once
+
+  Scenario: A source named relative to where Alice runs links into the checkout it names
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    And Alice's checkout holds "gitconfig/.gitconfig"
+    And Alice's checkout holds "npm/.npmrc"
+    And Alice names her configurations relative to the checkout she runs in
+    When Alice applies her configurations for a personal machine
+    Then the link ".gitconfig" resolves to "gitconfig/.gitconfig" in Alice's checkout
