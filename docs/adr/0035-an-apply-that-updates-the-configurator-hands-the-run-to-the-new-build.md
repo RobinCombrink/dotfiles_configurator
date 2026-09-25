@@ -27,7 +27,10 @@ reported version disagrees with its release tag would otherwise restart without 
 
 The operator's answer travels with the run. The successor is started answered in advance, so a
 change set confirmed by the build it replaced is not put to the operator a second time; `--yes`
-passes through as any other argument does.
+passes through as any other argument does. A build obtained because a configuration was too new to
+read is handed the run the same way, but only the question of obtaining it has been answered, so
+it still asks whether to enact the change set it produces, and a configuration it cannot read
+either ends the run naming the build it replaced.
 
 What the successor is told travels as a hidden argument rather than an environment variable. An
 environment variable is inherited by every process the successor starts, including a declared
