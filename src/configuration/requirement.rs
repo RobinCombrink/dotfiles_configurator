@@ -7,6 +7,7 @@ pub enum Tool {
     Claude,
     Wsl,
     Git,
+    Uv,
 }
 
 impl Tool {
@@ -17,6 +18,7 @@ impl Tool {
             Tool::Claude => "claude",
             Tool::Wsl => "wsl",
             Tool::Git => "git",
+            Tool::Uv => "uv",
         }
     }
 }

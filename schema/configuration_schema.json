@@ -436,6 +436,19 @@
           "required": [
             "manager"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "manager": {
+              "type": "string",
+              "const": "uv_tool"
+            }
+          },
+          "$ref": "#/$defs/UvToolPackage",
+          "required": [
+            "manager"
+          ]
         }
       ]
     },
@@ -505,6 +518,10 @@
           ]
         }
       ]
+    },
+    "PythonInterpreter": {
+      "description": "The Python interpreter uv builds a tool's environment with when it first installs it, in any form `uv tool install --python` accepts.",
+      "type": "string"
     },
     "Registration": {
       "description": "A record this machine holds in another tool's configuration.",
@@ -738,6 +755,32 @@
       "required": [
         "source_path",
         "link_path"
+      ]
+    },
+    "UvToolName": {
+      "description": "The name a Python package is published under, which uv also knows the tool it installs by.",
+      "type": "string"
+    },
+    "UvToolPackage": {
+      "description": "A Python package uv installs as a tool in an environment of its own, kept at the newest\nversion that resolves.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/UvToolName"
+        },
+        "python": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PythonInterpreter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name"
       ]
     },
     "Variable": {

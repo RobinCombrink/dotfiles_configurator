@@ -3,7 +3,8 @@ use {
         configuration::{
             names::{
                 ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName,
-                RepositoryName, RepositoryOwner, VariableName, VariableValue, WingetPackageId,
+                PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, VariableName,
+                VariableValue, WingetPackageId,
             },
             presence_check::PresenceCheck,
             requirement::{Requirement, Tool},
@@ -81,6 +82,7 @@ impl Resource {
             }
             Resource::Application(Application::ReleasedBinary(_)) => Vec::new(),
             Resource::Package(Package::Winget(_)) => vec![Requirement::Tool(Tool::Winget)],
+            Resource::Package(Package::UvTool(_)) => vec![Requirement::Tool(Tool::Uv)],
             Resource::Package(Package::Cargo(package)) => match package.source {
                 CargoSource::Workspace { .. } => {
                     vec![Requirement::Tool(Tool::Cargo), Requirement::Tool(Tool::Git)]
@@ -415,6 +417,7 @@ impl AssetPattern {
 pub enum Package {
     Winget(WingetPackage),
     Cargo(CargoPackage),
+    UvTool(UvToolPackage),
 }
 
 impl Display for Package {
@@ -422,6 +425,7 @@ impl Display for Package {
         match self {
             Package::Winget(package) => write!(formatter, "winget {}", package.id),
             Package::Cargo(package) => write!(formatter, "cargo {}", package.crate_name),
+            Package::UvTool(package) => write!(formatter, "uv tool {}", package.name),
         }
     }
 }
@@ -429,6 +433,18 @@ impl Display for Package {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct WingetPackage {
     pub id: WingetPackageId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(
+    description = "A Python package uv installs as a tool in an environment of its own, kept at \
+                   the newest\n\
+                   version that resolves."
+)]
+pub struct UvToolPackage {
+    pub name: UvToolName,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python: Option<PythonInterpreter>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

@@ -4,7 +4,8 @@ use {
             Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
             CrateName, EnvironmentVariable, GitHubAccount, GitHubRepository, Installer,
             MachineManifest, Package, Registration, ReleasedBinary, Requirement, Resource,
-            SearchPathEntry, Symlink, Variable, WingetPackage,
+            SearchPathEntry, Symlink, UvToolName, UvToolPackage, UvToolVersion, Variable,
+            WingetPackage,
         },
         convergence::{
             Assessment, Impediment, ReadSource, SourceReading, UnreadableReason,
@@ -36,6 +37,8 @@ use {
 pub struct SourceReadings {
     winget_packages: SourceReading<String>,
     cargo_crates: SourceReading<String>,
+    uv_tools: SourceReading<String>,
+    uv_outdated_tools: SourceReading<String>,
     workspaces: BTreeMap<PathBuf, SourceReading<Option<WorkspaceReading>>>,
     releases: BTreeMap<GitHubRepository, SourceReading<Option<ReleaseReading>>>,
     search_path: SourceReading<SearchPathReading>,
@@ -44,6 +47,7 @@ pub struct SourceReadings {
 impl SourceReadings {
     pub async fn read_for(desired_state: &DesiredState, machine: &impl ReadMachine) -> Self {
         let mut winget_is_needed = false;
+        let mut uv_is_needed = false;
         let mut cargo_is_needed = !desired_state.workspaces.is_empty();
         let mut search_path_is_needed = false;
         let mut released_from: BTreeMap<GitHubRepository, GitHubAccount> = BTreeMap::new();
@@ -51,6 +55,7 @@ impl SourceReadings {
             match resource.declared() {
                 Resource::Package(Package::Winget(_)) => winget_is_needed = true,
                 Resource::Package(Package::Cargo(_)) => cargo_is_needed = true,
+                Resource::Package(Package::UvTool(_)) => uv_is_needed = true,
                 Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(_)) => {
                     search_path_is_needed = true;
                 }
@@ -116,6 +121,8 @@ impl SourceReadings {
                 machine,
             ),
             cargo_crates,
+            uv_tools: read_listing(uv_is_needed, ReadInvocation::UvInstalledTools, machine),
+            uv_outdated_tools: read_listing(uv_is_needed, ReadInvocation::UvOutdatedTools, machine),
             workspaces,
             releases,
             search_path: match search_path_is_needed {
@@ -130,6 +137,52 @@ impl SourceReadings {
 
     pub fn search_path(&self) -> Result<&SearchPathReading, Impediment> {
         self.search_path.read()
+    }
+
+    /// The version uv reports a tool installed at, or `None` where uv has not installed it.
+    ///
+    /// ```no_run
+    /// # use dotfiles_configurator::{
+    /// #     configuration::UvToolName, convergence::SourceReadings,
+    /// # };
+    /// # fn describe(readings: &SourceReadings) -> String {
+    /// match readings.installed_uv_tool(&UvToolName::from("serena-agent")) {
+    ///     Ok(Some(version)) => format!("installed at {version}"),
+    ///     Ok(None) => "not installed".to_owned(),
+    ///     Err(impediment) => impediment.to_string(),
+    /// }
+    /// # }
+    /// ```
+    pub fn installed_uv_tool(&self, name: &UvToolName) -> Result<Option<UvToolVersion>, Impediment> {
+        let listing = self.uv_tools.read()?;
+        listed_uv_tool(listing, name)
+            .map(|listed| listed.map(|(installed, _)| installed))
+            .map_err(Impediment::ActualStateUnreadable)
+    }
+
+    /// The newer version a tool would be upgraded to, or `None` where no newer one resolves.
+    ///
+    /// ```no_run
+    /// # use dotfiles_configurator::{
+    /// #     configuration::UvToolName, convergence::SourceReadings,
+    /// # };
+    /// # fn describe(readings: &SourceReadings) -> String {
+    /// match readings.newer_uv_tool(&UvToolName::from("serena-agent")) {
+    ///     Ok(Some(latest)) => format!("{latest} resolves"),
+    ///     Ok(None) => "nothing newer resolves".to_owned(),
+    ///     Err(impediment) => impediment.to_string(),
+    /// }
+    /// # }
+    /// ```
+    pub fn newer_uv_tool(&self, name: &UvToolName) -> Result<Option<UvToolVersion>, Impediment> {
+        let listing = self.uv_outdated_tools.read()?;
+        match listed_uv_tool(listing, name).map_err(Impediment::ActualStateUnreadable)? {
+            None => Ok(None),
+            Some((_, Some(latest))) => Ok(Some(latest)),
+            Some((_, None)) => Err(Impediment::ActualStateUnreadable(
+                format!("uv listed {name} as behind without naming the version it is behind").into(),
+            )),
+        }
     }
 
     /// The latest release of a repository, or the typed absence of one where the repository has
@@ -246,6 +299,7 @@ pub fn assess(
             assess_released_binary(binary, machine, readings)
         }
         Resource::Package(Package::Winget(package)) => assess_winget_package(package, readings),
+        Resource::Package(Package::UvTool(package)) => assess_uv_tool(package, readings),
         Resource::Package(Package::Cargo(package)) => {
             assess_cargo_package(package, resource, machine, readings)
         }
@@ -427,6 +481,70 @@ fn winget_id_column(listing: &str) -> Option<(usize, usize)> {
         let version = line[id..].find("Version").map(|offset| id + offset)?;
         Some((characters_before(id), characters_before(version)))
     })
+}
+
+fn assess_uv_tool(package: &UvToolPackage, readings: &SourceReadings) -> Assessment {
+    let installed = match readings.installed_uv_tool(&package.name) {
+        Ok(Some(installed)) => installed,
+        Ok(None) => return Assessment::Drifted("uv has not installed it".into()),
+        Err(impediment) => return Assessment::Unassessable(impediment),
+    };
+
+    match readings.newer_uv_tool(&package.name) {
+        Ok(None) => Assessment::Converged,
+        Ok(Some(latest)) => Assessment::Drifted(
+            format!("{installed} is installed, and the newest version that resolves is {latest}")
+                .into(),
+        ),
+        Err(impediment) => Assessment::Unassessable(impediment),
+    }
+}
+
+const LATEST_MARKER: &str = "[latest: ";
+
+// 2026-09-25: `uv tool list` names each tool on a line of its own as `name vX.Y.Z`, with its
+// executables beneath as `- executable` lines, and `--outdated` appends `[latest: A.B.C]` to each
+// tool it lists. uv 0.10.12 on Windows 11.
+fn listed_uv_tool(
+    listing: &str,
+    name: &UvToolName,
+) -> Result<Option<(UvToolVersion, Option<UvToolVersion>)>, UnreadableReason> {
+    let Some(line) = listing
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('-'))
+        .find(|line| {
+            line.split_whitespace()
+                .next()
+                .is_some_and(|listed| name.is_listed_as(listed))
+        })
+    else {
+        return Ok(None);
+    };
+
+    let Some(installed) = line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|word| word.strip_prefix('v'))
+        .filter(|version| !version.is_empty())
+    else {
+        return Err(format!("uv listed {name} without the version it is installed at: {line}").into());
+    };
+
+    let latest = match line.split_once(LATEST_MARKER) {
+        None => None,
+        Some((_, remainder)) => match remainder.split_once(']') {
+            Some((latest, _)) if !latest.trim().is_empty() => {
+                Some(UvToolVersion::from(latest.trim()))
+            }
+            Some(_) | None => {
+                return Err(
+                    format!("uv listed {name} as behind a version it did not name: {line}").into(),
+                );
+            }
+        },
+    };
+
+    Ok(Some((UvToolVersion::from(installed), latest)))
 }
 
 fn assess_cargo_package(
@@ -1019,5 +1137,76 @@ mod tests {
                 "claude could not be read: Invalid API key · Please run /login".into()
             ))
         );
+    }
+
+    // 2026-09-25: taken verbatim from `uv tool list` and `uv tool list --outdated` under uv
+    // 0.10.12 on Windows 11, with a second tool added to the first.
+    const UV_TOOLS: &str = concat!(
+        "cowsay v6.1\n",
+        "- cowsay\n",
+        "serena-agent v1.5.3\n",
+        "- serena\n",
+        "- serena-agent\n",
+        "- serena-hooks\n",
+    );
+    const UV_OUTDATED_TOOLS: &str = concat!(
+        "serena-agent v1.5.3 [latest: 1.7.0]\n",
+        "- serena\n",
+        "- serena-agent\n",
+        "- serena-hooks\n",
+    );
+
+    fn serena() -> UvToolName {
+        UvToolName::from("serena-agent")
+    }
+
+    #[test]
+    fn a_tool_uv_lists_is_read_at_the_version_it_is_installed_at() {
+        assert_eq!(
+            listed_uv_tool(UV_TOOLS, &serena()),
+            Ok(Some((UvToolVersion::from("1.5.3"), None)))
+        );
+    }
+
+    #[test]
+    fn a_tool_uv_does_not_list_is_not_installed() {
+        assert_eq!(listed_uv_tool(UV_TOOLS, &UvToolName::from("ruff")), Ok(None));
+    }
+
+    #[test]
+    fn an_executable_named_after_a_tool_is_not_mistaken_for_the_tool() {
+        let listing = "serena-agent v1.5.3\n- serena\n";
+
+        assert_eq!(listed_uv_tool(listing, &UvToolName::from("serena")), Ok(None));
+    }
+
+    #[test]
+    fn a_tool_uv_lists_as_behind_is_read_with_the_newest_version_that_resolves() {
+        assert_eq!(
+            listed_uv_tool(UV_OUTDATED_TOOLS, &serena()),
+            Ok(Some((
+                UvToolVersion::from("1.5.3"),
+                Some(UvToolVersion::from("1.7.0"))
+            )))
+        );
+    }
+
+    #[test]
+    fn a_tool_is_found_under_the_name_uv_normalises_it_to() {
+        assert!(
+            listed_uv_tool(UV_TOOLS, &UvToolName::from("Serena_Agent"))
+                .expect("a readable listing")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_tool_listed_without_a_version_is_refused_rather_than_read_as_absent() {
+        assert!(listed_uv_tool("serena-agent\n- serena\n", &serena()).is_err());
+    }
+
+    #[test]
+    fn a_tool_listed_as_behind_nothing_it_names_is_refused_rather_than_read_as_current() {
+        assert!(listed_uv_tool("serena-agent v1.5.3 [latest: ]\n", &serena()).is_err());
     }
 }

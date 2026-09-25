@@ -119,6 +119,46 @@ name!(
 );
 
 name!(
+    #[schemars(
+        description = "The name a Python package is published under, which uv also knows the \
+                       tool it installs by."
+    )]
+    UvToolName
+);
+
+impl UvToolName {
+    /// Whether uv reports this tool under the name it lists, comparing both in the normalised
+    /// form a Python package index compares names in.
+    ///
+    /// ```
+    /// # use dotfiles_configurator::configuration::UvToolName;
+    /// assert!(UvToolName::from("Serena_Agent").is_listed_as("serena-agent"));
+    /// assert!(!UvToolName::from("serena").is_listed_as("serena-agent"));
+    /// ```
+    pub fn is_listed_as(&self, listed: &str) -> bool {
+        normalised_package_name(&self.0) == normalised_package_name(listed)
+    }
+}
+
+fn normalised_package_name(name: &str) -> String {
+    name.split(['-', '_', '.'])
+        .filter(|part| !part.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+name!(UvToolVersion);
+
+name!(
+    #[schemars(
+        description = "The Python interpreter uv builds a tool's environment with when it first \
+                       installs it, in any form `uv tool install --python` accepts."
+    )]
+    PythonInterpreter
+);
+
+name!(
     #[schemars(description = "The name Claude Code holds an MCP server under.")]
     McpServerName
 );

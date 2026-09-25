@@ -3,7 +3,7 @@ use {
         configuration::{
             Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
             EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, MachineManifest,
-            Package, Registration, ReleasedBinary, Resource, Symlink, WingetPackage,
+            Package, Registration, ReleasedBinary, Resource, Symlink, UvToolPackage, WingetPackage,
         },
         convergence::{SourceReadings, search_path_directory, symlink_location},
         desired_state::ResolvedResource,
@@ -50,6 +50,9 @@ pub async fn converge(
                 .with_context(|| format!("Could not install {}", binary.installed_name()));
         }
         Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
+        Resource::Package(Package::UvTool(package)) => {
+            converge_uv_tool(package, machine, readings)
+        }
         Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => machine
             .set_environment_variable(&variable.name, &variable.value)
             .with_context(|| format!("Could not set {}", variable.name)),
@@ -160,6 +163,27 @@ fn converge_winget_package(package: &WingetPackage, machine: &impl WriteMachine)
             id: package.id.clone(),
         })
         .map(|_| ())
+}
+
+fn converge_uv_tool(
+    package: &UvToolPackage,
+    machine: &impl WriteMachine,
+    readings: &SourceReadings,
+) -> Result<()> {
+    let installed = readings
+        .installed_uv_tool(&package.name)
+        .map_err(|impediment| anyhow!("{impediment}"))?;
+    let invocation = match installed {
+        Some(_) => WriteInvocation::UpgradeUvTool {
+            name: package.name.clone(),
+        },
+        None => WriteInvocation::InstallUvTool {
+            name: package.name.clone(),
+            python: package.python.clone(),
+        },
+    };
+
+    machine.write(&invocation).map(|_| ())
 }
 
 fn converge_cargo_package(

@@ -12,8 +12,8 @@ use {
         configuration::{
             ApplicationName, ApplicationSource, ClaudeMcpServer, CrateName, GitHubAccount,
             GitHubRepository, Installer, MachineClass, MachineManifest, McpServerName, Migration,
-            PresenceCheck, ReleasedBinary, Shell, Tool, VariableName, VariableValue,
-            WingetPackageId,
+            PresenceCheck, PythonInterpreter, ReleasedBinary, Shell, Tool, UvToolName,
+            UvToolVersion, VariableName, VariableValue, WingetPackageId,
         },
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
@@ -52,6 +52,9 @@ struct MachineState {
     tools: BTreeSet<Tool>,
     installed_applications: BTreeSet<ApplicationName>,
     winget_packages: BTreeSet<WingetPackageId>,
+    uv_tools: BTreeMap<UvToolName, UvToolVersion>,
+    uv_newest_versions: BTreeMap<UvToolName, UvToolVersion>,
+    uv_tool_interpreters: BTreeMap<UvToolName, Option<PythonInterpreter>>,
     failing_applications: BTreeSet<ApplicationName>,
     /// Installers that exit zero without putting anything on the machine.
     silent_applications: BTreeSet<ApplicationName>,
@@ -117,6 +120,7 @@ impl Default for FakeMachine {
                     Tool::Claude,
                     Tool::Wsl,
                     Tool::Git,
+                    Tool::Uv,
                 ]),
                 ..MachineState::default()
             }),
@@ -452,6 +456,33 @@ impl FakeMachine {
         self.state.borrow_mut().winget_packages.insert(id.clone());
     }
 
+    pub fn install_uv_tool(&self, name: &UvToolName, version: &UvToolVersion) {
+        self.state
+            .borrow_mut()
+            .uv_tools
+            .insert(name.clone(), version.clone());
+    }
+
+    pub fn publish_uv_tool(&self, name: &UvToolName, version: &UvToolVersion) {
+        self.state
+            .borrow_mut()
+            .uv_newest_versions
+            .insert(name.clone(), version.clone());
+    }
+
+    pub fn uv_tool_version(&self, name: &UvToolName) -> Option<UvToolVersion> {
+        self.state.borrow().uv_tools.get(name).cloned()
+    }
+
+    pub fn uv_tool_interpreter(&self, name: &UvToolName) -> Option<PythonInterpreter> {
+        self.state
+            .borrow()
+            .uv_tool_interpreters
+            .get(name)
+            .cloned()
+            .flatten()
+    }
+
     pub fn install_application(&self, name: &ApplicationName) {
         self.state
             .borrow_mut()
@@ -522,11 +553,12 @@ impl FakeMachine {
     pub fn fingerprint(&self) -> String {
         let state = self.state.borrow();
         format!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
             state.paths,
             state.links,
             state.installed_applications,
             state.winget_packages,
+            state.uv_tools,
             state.commands_run,
             state.user_search_path,
             state.environment_variables
@@ -563,6 +595,26 @@ fn claude_mcp_get_output(server: &ClaudeMcpServer) -> String {
         }
     }
     reported
+}
+
+fn uv_tool_listing(state: &MachineState) -> String {
+    state
+        .uv_tools
+        .iter()
+        .map(|(name, installed)| format!("{name} v{installed}\n- {name}\n"))
+        .collect()
+}
+
+fn uv_outdated_tool_listing(state: &MachineState) -> String {
+    state
+        .uv_tools
+        .iter()
+        .filter_map(|(name, installed)| {
+            let newest = state.uv_newest_versions.get(name)?;
+            (newest != installed)
+                .then(|| format!("{name} v{installed} [latest: {newest}]\n- {name}\n"))
+        })
+        .collect()
 }
 
 fn winget_listing(packages: &BTreeSet<WingetPackageId>) -> String {
@@ -673,6 +725,10 @@ impl ReadMachine for FakeMachine {
                 (true, winget_listing(&self.state.borrow().winget_packages))
             }
             ReadInvocation::CargoInstalledCrates => (true, String::new()),
+            ReadInvocation::UvInstalledTools => (true, uv_tool_listing(&self.state.borrow())),
+            ReadInvocation::UvOutdatedTools => {
+                (true, uv_outdated_tool_listing(&self.state.borrow()))
+            }
             ReadInvocation::ClaudeMcpServer { name } => {
                 match self.state.borrow().claude_mcp_servers.get(name) {
                     None => {
@@ -913,8 +969,31 @@ impl WriteMachine for FakeMachine {
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        let WriteInvocation::InstallWingetPackage { id } = invocation;
-        self.state.borrow_mut().winget_packages.insert(id.clone());
+        let mut state = self.state.borrow_mut();
+        match invocation {
+            WriteInvocation::InstallWingetPackage { id } => {
+                state.winget_packages.insert(id.clone());
+            }
+            WriteInvocation::InstallUvTool { name, python } => {
+                if !state.uv_tools.contains_key(name) {
+                    let Some(newest) = state.uv_newest_versions.get(name).cloned() else {
+                        bail!("no version of {name} resolves");
+                    };
+                    state.uv_tools.insert(name.clone(), newest);
+                    state
+                        .uv_tool_interpreters
+                        .insert(name.clone(), python.clone());
+                }
+            }
+            WriteInvocation::UpgradeUvTool { name } => {
+                if !state.uv_tools.contains_key(name) {
+                    bail!("Failed to upgrade {name}: `{name}` is not installed");
+                }
+                if let Some(newest) = state.uv_newest_versions.get(name).cloned() {
+                    state.uv_tools.insert(name.clone(), newest);
+                }
+            }
+        }
 
         Ok(CommandOutput {
             succeeded: true,

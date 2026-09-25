@@ -68,6 +68,27 @@ Feature: Applying a change set
     And 1 resource is reported as failed
     And the machine is not reported as converged
 
+  Scenario: A uv tool uv does not hold is installed at the newest version that resolves
+    Given Alice declares the uv tool "serena-agent"
+    And the newest version of "serena-agent" that resolves is "1.7.0"
+    When Alice applies
+    Then uv holds "serena-agent" at "1.7.0" on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A uv tool behind the newest version that resolves is upgraded to it
+    Given Alice declares the uv tool "serena-agent"
+    And uv holds "serena-agent" at "1.5.3" on Alice's machine
+    And the newest version of "serena-agent" that resolves is "1.7.0"
+    When Alice applies
+    Then uv holds "serena-agent" at "1.7.0" on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A uv tool declaring an interpreter is installed into an environment built with it
+    Given Alice declares the uv tool "serena-agent" built with Python "3.13"
+    And the newest version of "serena-agent" that resolves is "1.7.0"
+    When Alice applies
+    Then uv built "serena-agent" with Python "3.13" on Alice's machine
+
   Scenario: A resource that cannot be read leaves the machine reported as unconverged
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget is absent from Alice's machine

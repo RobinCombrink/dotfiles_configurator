@@ -9,7 +9,7 @@ Reads declarative JSON configuration files (from a local directory, or from path
 Resource kinds:
 - **Repository** — cloned from GitHub
 - **Application** — installed by downloading and running an installer, from a URL or a GitHub release asset
-- **Package** — installed by a package manager (winget, cargo)
+- **Package** — installed by a package manager (winget, cargo, or uv as a tool kept at the newest version that resolves)
 - **Symlink** — a file or directory in the dotfiles repository, linked into place
 - **Registration** — a record this machine holds in another tool's configuration
 - **Command** — an arbitrary shell invocation (Bash, PowerShell, Command Prompt, WSL), the escape hatch

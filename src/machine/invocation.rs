@@ -1,8 +1,8 @@
 use {
     crate::{
         configuration::{
-            ClaudeMcpServer, CrateName, GitHubAccount, GitHubRepository, McpServerName, Tool,
-            WingetPackageId,
+            ClaudeMcpServer, CrateName, GitHubAccount, GitHubRepository, McpServerName,
+            PythonInterpreter, Tool, UvToolName, WingetPackageId,
         },
         machine::{CommandOutput, Replacement, workspace_reading::Revision},
     },
@@ -28,6 +28,8 @@ pub enum ReadInvocation {
     /// server. Read per resource because `claude mcp list` health-checks every server it
     /// reports, which costs more than asking about each one and reaches the network.
     ClaudeMcpServer { name: McpServerName },
+    UvInstalledTools,
+    UvOutdatedTools,
 }
 
 impl ReadInvocation {
@@ -36,6 +38,7 @@ impl ReadInvocation {
             ReadInvocation::WingetInstalledPackages => Tool::Winget,
             ReadInvocation::CargoInstalledCrates => Tool::Cargo,
             ReadInvocation::ClaudeMcpServer { .. } => Tool::Claude,
+            ReadInvocation::UvInstalledTools | ReadInvocation::UvOutdatedTools => Tool::Uv,
         }
     }
 
@@ -55,6 +58,20 @@ impl ReadInvocation {
             ReadInvocation::ClaudeMcpServer { name } => {
                 vec!["mcp".to_owned(), "get".to_owned(), name.to_string()]
             }
+            // 2026-09-25: `uv tool list` prints each tool as `name vX.Y.Z` with its executables
+            // indented beneath as `- name` lines. uv 0.10.12 on Windows 11.
+            ReadInvocation::UvInstalledTools => vec!["tool".to_owned(), "list".to_owned()],
+            // 2026-09-25: `--outdated` lists only the tools a newer version resolves for, as
+            // `name vX.Y.Z [latest: A.B.C]`, and exits non-zero when the index cannot be reached.
+            // Offline — `--offline` or `UV_OFFLINE` — it silently leaves out every tool it cannot
+            // look up and exits 0, and `--no-offline` overrides the environment. uv 0.10.12 on
+            // Windows 11.
+            ReadInvocation::UvOutdatedTools => vec![
+                "tool".to_owned(),
+                "list".to_owned(),
+                "--outdated".to_owned(),
+                "--no-offline".to_owned(),
+            ],
         }
     }
 }
@@ -62,7 +79,16 @@ impl ReadInvocation {
 /// The closed set of invocations this crate defines for changing state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteInvocation {
-    InstallWingetPackage { id: WingetPackageId },
+    InstallWingetPackage {
+        id: WingetPackageId,
+    },
+    InstallUvTool {
+        name: UvToolName,
+        python: Option<PythonInterpreter>,
+    },
+    UpgradeUvTool {
+        name: UvToolName,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,6 +219,9 @@ impl WriteInvocation {
     pub fn tool(&self) -> Tool {
         match self {
             WriteInvocation::InstallWingetPackage { .. } => Tool::Winget,
+            WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => {
+                Tool::Uv
+            }
         }
     }
 
@@ -207,6 +236,18 @@ impl WriteInvocation {
                 "--accept-source-agreements".to_owned(),
                 "--disable-interactivity".to_owned(),
             ],
+            WriteInvocation::InstallUvTool { name, python } => {
+                let mut arguments = vec!["tool".to_owned(), "install".to_owned()];
+                if let Some(python) = python {
+                    arguments.push("--python".to_owned());
+                    arguments.push(python.to_string());
+                }
+                arguments.push(name.to_string());
+                arguments
+            }
+            WriteInvocation::UpgradeUvTool { name } => {
+                vec!["tool".to_owned(), "upgrade".to_owned(), name.to_string()]
+            }
         }
     }
 }
@@ -586,5 +627,40 @@ mod tests {
             .expect_err("a refusal that changed nothing is an error");
 
         assert_eq!(error.to_string(), "claude refused");
+    }
+
+    #[test]
+    fn a_uv_tool_declaring_an_interpreter_is_installed_into_an_environment_built_with_it() {
+        let installing = WriteInvocation::InstallUvTool {
+            name: UvToolName::from("serena-agent"),
+            python: Some(PythonInterpreter::from("3.13")),
+        };
+
+        assert_eq!(
+            installing.arguments(),
+            vec!["tool", "install", "--python", "3.13", "serena-agent"]
+        );
+    }
+
+    #[test]
+    fn a_uv_tool_declaring_no_interpreter_leaves_the_choice_of_one_to_uv() {
+        let installing = WriteInvocation::InstallUvTool {
+            name: UvToolName::from("serena-agent"),
+            python: None,
+        };
+
+        assert_eq!(
+            installing.arguments(),
+            vec!["tool", "install", "serena-agent"]
+        );
+    }
+
+    #[test]
+    fn the_tools_uv_reports_as_behind_are_asked_for_even_where_uv_is_set_to_work_offline() {
+        assert!(
+            ReadInvocation::UvOutdatedTools
+                .arguments()
+                .contains(&"--no-offline".to_owned())
+        );
     }
 }

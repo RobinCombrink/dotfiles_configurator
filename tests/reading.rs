@@ -17,7 +17,8 @@ use {
     dotfiles_configurator::{
         configuration::{
             Application, CargoPackage, CargoSource, CargoWorkspace, CrateName, GitHubAccount,
-            GitHubRepository, Package, RepositoryName, RepositoryOwner, Resource, WingetPackage,
+            GitHubRepository, Package, RepositoryName, RepositoryOwner, Resource, UvToolPackage,
+            WingetPackage,
         },
         convergence::plan,
         desired_state::DesiredState,
@@ -112,6 +113,32 @@ async fn a_manager_nothing_is_declared_against_is_never_asked() {
     .unwrap();
 
     assert_eq!(machine.times_read(&ReadInvocation::CargoInstalledCrates), 0);
+    assert_eq!(machine.times_read(&ReadInvocation::UvInstalledTools), 0);
+    assert_eq!(machine.times_read(&ReadInvocation::UvOutdatedTools), 0);
+}
+
+fn uv_tool(name: &str) -> Resource {
+    Resource::Package(Package::UvTool(UvToolPackage {
+        name: name.into(),
+        python: None,
+    }))
+}
+
+#[tokio::test]
+async fn many_uv_tools_ask_uv_once_for_what_it_holds_and_once_for_what_is_behind() {
+    let machine = FakeMachine::default();
+    let desired_state = desired_state(vec![uv_tool("serena-agent"), uv_tool("ruff")]);
+
+    plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(machine.times_read(&ReadInvocation::UvInstalledTools), 1);
+    assert_eq!(machine.times_read(&ReadInvocation::UvOutdatedTools), 1);
 }
 
 #[tokio::test]

@@ -36,7 +36,8 @@ pub use {
     migration::Migration,
     names::{
         ApplicationName, BinaryName, ConfigurationName, CrateName, GitHubAccount, McpServerName,
-        RepositoryName, RepositoryOwner, VariableName, VariableValue, WingetPackageId,
+        PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, UvToolVersion,
+        VariableName, VariableValue, WingetPackageId,
     },
     presence_check::PresenceCheck,
     requirement::{Requirement, Tool},
@@ -44,7 +45,8 @@ pub use {
         Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,
         ClaudeMcpServer, Command, EnvironmentVariable, GitHubRepository, Installer,
         MachineManifest, McpScope, Package, Registration, ReleasedBinary, Resource, ResourceKind,
-        SearchPathDirectory, SearchPathEntry, Shell, Symlink, Variable, VersionWord, WingetPackage,
+        SearchPathDirectory, SearchPathEntry, Shell, Symlink, UvToolPackage, Variable, VersionWord,
+        WingetPackage,
     },
     unreadable::Unreadable,
     workspace::CargoWorkspace,
@@ -536,6 +538,24 @@ mod tests {
             panic!("the configuration declared no released binary");
         };
         assert_eq!(binary.version_arguments, vec!["--version".to_owned()]);
+    }
+
+    #[test]
+    fn a_uv_tool_naming_no_interpreter_leaves_the_choice_of_one_to_uv() {
+        let configuration = parse(
+            r#""resources": [
+                { "kind": "package", "manager": "uv_tool", "name": "serena-agent" }
+            ]"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            configuration.resources[0],
+            Resource::Package(Package::UvTool(UvToolPackage {
+                name: UvToolName::from("serena-agent"),
+                python: None,
+            }))
+        );
     }
 
     #[test]

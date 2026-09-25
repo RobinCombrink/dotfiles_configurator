@@ -141,6 +141,39 @@ Feature: Planning what a machine needs
     And the change set reports 1 blocked resource
     And the change set does not report the machine as converged
 
+  Scenario: A uv tool at the newest version that resolves is reported as converged
+    Given Alice declares the uv tool "serena-agent"
+    And uv holds "serena-agent" at "1.7.0" on Alice's machine
+    And the newest version of "serena-agent" that resolves is "1.7.0"
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A uv tool behind the newest version that resolves is a change naming both versions
+    Given Alice declares the uv tool "serena-agent"
+    And uv holds "serena-agent" at "1.5.3" on Alice's machine
+    And the newest version of "serena-agent" that resolves is "1.7.0"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "1.5.3"
+    And the change set mentions "1.7.0"
+
+  Scenario: A uv tool uv does not hold is reported as a change
+    Given Alice declares the uv tool "serena-agent"
+    And the newest version of "serena-agent" that resolves is "1.7.0"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "serena-agent"
+
+  Scenario: A uv tool whose newest version cannot be asked for is blocked rather than converged
+    Given Alice declares the uv tool "serena-agent"
+    And uv holds "serena-agent" at "1.7.0" on Alice's machine
+    And uv cannot reach the index its tools resolve against on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set does not report the machine as converged
+
   Scenario: An application whose presence check cannot be run is blocked rather than drifted
     Given Alice declares the application "Neovim"
     And the presence check for "Neovim" cannot be run on Alice's machine

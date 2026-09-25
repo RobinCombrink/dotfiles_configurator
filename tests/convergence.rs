@@ -17,8 +17,9 @@ use {
             BinaryName, CargoWorkspace, ClaudeMcpServer, Configuration, ConfigurationName, Context,
             CrateName, DeclaredNotice, EnvironmentVariable, GitHubAccount, Installer, MachineClass,
             MachineManifest, McpScope, McpServerName, Migration, Notice,
-            OLDEST_READABLE_GENERATION, PresenceCheck, Registration, Resource, SearchPathDirectory,
-            SearchPathEntry, Shell, Symlink, Tool, Variable, VariableName, VariableValue,
+            OLDEST_READABLE_GENERATION, Package, PresenceCheck, PythonInterpreter, Registration,
+            Resource, SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
+            UvToolVersion, Variable, VariableName, VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -391,6 +392,61 @@ fn declare_winget_package(world: &mut MachineWorld, id: String) {
 #[given(expr = "winget holds {string} on Alice's machine")]
 fn winget_holds_package(world: &mut MachineWorld, id: String) {
     world.machine.install_winget_package(&id.into());
+}
+
+fn declare_uv_tool(world: &mut MachineWorld, name: String, python: Option<PythonInterpreter>) {
+    world.resources.push(Resource::Package(Package::UvTool(UvToolPackage {
+        name: name.into(),
+        python,
+    })));
+}
+
+#[given(expr = "Alice declares the uv tool {string}")]
+fn declare_uv_tool_with_any_interpreter(world: &mut MachineWorld, name: String) {
+    declare_uv_tool(world, name, None);
+}
+
+#[given(expr = "Alice declares the uv tool {string} built with Python {string}")]
+fn declare_uv_tool_built_with(world: &mut MachineWorld, name: String, python: String) {
+    declare_uv_tool(world, name, Some(python.into()));
+}
+
+#[given(expr = "uv holds {string} at {string} on Alice's machine")]
+fn uv_holds_tool(world: &mut MachineWorld, name: String, version: String) {
+    world
+        .machine
+        .install_uv_tool(&name.into(), &UvToolVersion::from(version));
+}
+
+#[given(expr = "the newest version of {string} that resolves is {string}")]
+fn newest_uv_tool_version(world: &mut MachineWorld, name: String, version: String) {
+    world
+        .machine
+        .publish_uv_tool(&name.into(), &UvToolVersion::from(version));
+}
+
+#[given(expr = "uv cannot reach the index its tools resolve against on Alice's machine")]
+fn uv_cannot_reach_its_index(world: &mut MachineWorld) {
+    world.machine.make_reading_fail(
+        ReadInvocation::UvOutdatedTools,
+        "error: Failed to fetch: `https://pypi.org/simple/serena-agent/`",
+    );
+}
+
+#[then(expr = "uv holds {string} at {string} on Alice's machine")]
+fn uv_now_holds_tool(world: &mut MachineWorld, name: String, version: String) {
+    assert_eq!(
+        world.machine.uv_tool_version(&name.into()),
+        Some(UvToolVersion::from(version))
+    );
+}
+
+#[then(expr = "uv built {string} with Python {string} on Alice's machine")]
+fn uv_built_tool_with(world: &mut MachineWorld, name: String, python: String) {
+    assert_eq!(
+        world.machine.uv_tool_interpreter(&name.into()),
+        Some(PythonInterpreter::from(python))
+    );
 }
 
 fn declared_mcp_server(name: &str) -> ClaudeMcpServer {
