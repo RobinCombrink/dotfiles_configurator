@@ -6,7 +6,9 @@ status: accepted
 
 When apply installs a newer release of this program, nothing else in that run is converged by the
 build it replaced. Apply starts the installed build with the arguments it was given and exits with
-that build's exit status; the new build plans afresh, finds itself current, and carries on.
+that build's exit status; the new build plans afresh, finds itself current, and carries on. The
+update is ordered ahead of every other resource, repositories included, so the build it replaces
+enacts nothing before handing over; the kind ordering of ADR 0004 governs everything after it.
 
 The build that plans is the build that enacts. Carrying on in the old image applies a change set
 computed by code the run has just declared outdated, so a fix to planning or linking lands one run
