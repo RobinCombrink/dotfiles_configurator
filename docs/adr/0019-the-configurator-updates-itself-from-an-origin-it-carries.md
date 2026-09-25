@@ -53,4 +53,4 @@ applied — and gains a distinction in what happens next.
   already records: nothing is running yet to make the first fetch automatic, and the bootstrap
   document lives in this repository because it is the only one reachable before anything is
   authenticated.
-- **The run that upgrades continues on the image it started with**, as ADR 0008 records.
+- **The run that upgrades is handed to the build it installed**, as ADR 0035 records.

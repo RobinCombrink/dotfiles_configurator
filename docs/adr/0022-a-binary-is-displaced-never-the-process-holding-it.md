@@ -78,7 +78,7 @@ not a call a caller makes, it is what the operation does on its own failure path
 - **A running process keeps executing the image that was moved.** The file on disk is current while
   the process is not, and since convergence's interest ends at the file, that staleness is not
   drift and belongs to the program holding it.
-- **The self-update displaces the image its own run is executing**, and continues on it, as ADR
-  0019 already records of the run that upgrades.
+- **The self-update displaces the image its own run is executing**, and the process executing it
+  waits on the build it installed, which carries on the run, as ADR 0035 records.
 - **Nothing is listed or removed that was not named.** Displacement touches the path being
   converged; the sweep touches one suffix in a fixed set of directories.

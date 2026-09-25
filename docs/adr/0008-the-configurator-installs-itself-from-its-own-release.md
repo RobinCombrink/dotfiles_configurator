@@ -36,9 +36,8 @@ already stamps it, so the comparison is between two things the machine can be as
   2026-08-01: copying over a running executable fails, renaming over it fails, and renaming the
   running executable aside succeeds. An installer that writes in place will fail every self
   upgrade.
-- **An upgrade takes effect on the following run.** The run that performs it continues on the
-  image it started with, which is the ordinary meaning of replacing a running program rather than
-  a defect to work around.
+- **An upgrade takes effect for the rest of the run that performs it.** That run is handed to the
+  build it installed, as ADR 0035 records.
 - The first machine still bootstraps out of band. Declaring the tool makes every subsequent
   machine and every subsequent version automatic; it cannot make the first arrival automatic,
   because nothing is yet running to make it so.
