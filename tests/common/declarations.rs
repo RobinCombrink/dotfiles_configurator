@@ -7,7 +7,7 @@ use {
     dotfiles_configurator::{
         configuration::{
             ArchiveEntry, AssetPattern, BUILD_GENERATION, CargoWorkspace, Configuration,
-            ConfigurationName, Context, DeclaredNotice, GitHubAccount, GitHubRepository,
+            ConfigurationName, Context, DeclaredNotice, Estates, GitHubAccount, GitHubRepository,
             MachineClass, MachineManifest, ReleasedBinary, RepositoryName, RepositoryOwner,
             Resource, VersionWord,
         },
@@ -41,6 +41,7 @@ impl Reporting {
 pub fn manifest_for(machine: MachineClass) -> MachineManifest {
     MachineManifest {
         repositories_directory_path: Path::new(REPOSITORIES_ROOT).join(machine.repositories_leaf()),
+        estates: Estates::new(),
     }
 }
 
@@ -113,6 +114,7 @@ pub fn read_as_two_accounts(
         version: BUILD_GENERATION,
         applies_to: Context::Everywhere,
         github_account: GitHubAccount::from("Alice"),
+        estate: None,
         workspaces: Vec::new(),
         resources: alices_resources,
         notices: Vec::new(),
@@ -121,6 +123,7 @@ pub fn read_as_two_accounts(
         version: BUILD_GENERATION,
         applies_to: Context::Work,
         github_account: GitHubAccount::from(employers_repository().owner.as_ref()),
+        estate: None,
         workspaces: Vec::new(),
         resources: employers_resources,
         notices: Vec::new(),
@@ -157,6 +160,7 @@ fn read_from(
         version: BUILD_GENERATION,
         applies_to: Context::Everywhere,
         github_account: GitHubAccount::from("Alice"),
+        estate: None,
         workspaces,
         resources,
         notices,
@@ -165,6 +169,7 @@ fn read_from(
         version: BUILD_GENERATION,
         applies_to: Context::Personal,
         github_account: GitHubAccount::from("Alice"),
+        estate: None,
         workspaces: Vec::new(),
         resources: Vec::new(),
         notices: Vec::new(),

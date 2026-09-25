@@ -1,6 +1,7 @@
 use {
     crate::{
         configuration::{
+            estate::Estates,
             names::{
                 ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName,
                 PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, VariableName,
@@ -594,6 +595,7 @@ pub struct ClaudeMcpServer {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct MachineManifest {
     pub repositories_directory_path: PathBuf,
+    pub estates: Estates,
 }
 
 const MANIFEST_DIRECTORY: &str = ".dotconfig";
@@ -670,7 +672,11 @@ pub enum Shell {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        crate::configuration::estate::{EstateName, EstateOwner},
+        std::collections::BTreeSet,
+    };
 
     #[test]
     fn an_archive_entry_is_known_by_a_name_carrying_no_platform_executable_suffix() {
@@ -684,12 +690,45 @@ mod tests {
     fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own() {
         let document = String::try_from(&MachineManifest {
             repositories_directory_path: PathBuf::from("/repositories/Personal"),
+            estates: Estates::new(),
         })
         .expect("a manifest that serialises");
 
         assert_eq!(
             document,
-            "{\n  \"machine\": {\n    \"repositories_directory_path\": \"/repositories/Personal\"\n  }\n}"
+            "{\n  \"machine\": {\n    \"repositories_directory_path\": \"/repositories/Personal\",\n    \
+             \"estates\": {}\n  }\n}"
+        );
+    }
+
+    #[test]
+    fn the_manifest_names_each_estate_with_its_owners_as_they_were_spelled() {
+        let estates = Estates::from([
+            (
+                EstateName::try_from("personal").unwrap(),
+                BTreeSet::from([EstateOwner::from("RobinCombrink")]),
+            ),
+            (
+                EstateName::try_from("work").unwrap(),
+                BTreeSet::from([
+                    EstateOwner::from("skynamo"),
+                    EstateOwner::from("Robin-Combrink"),
+                ]),
+            ),
+        ]);
+
+        let document = String::try_from(&MachineManifest {
+            repositories_directory_path: PathBuf::from("/repositories/Work"),
+            estates,
+        })
+        .expect("a manifest that serialises");
+
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&document).unwrap()["machine"]["estates"],
+            serde_json::json!({
+                "personal": ["RobinCombrink"],
+                "work": ["Robin-Combrink", "skynamo"]
+            })
         );
     }
 

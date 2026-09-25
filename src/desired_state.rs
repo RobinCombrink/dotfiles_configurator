@@ -449,6 +449,7 @@ mod tests {
             MachineManifest {
                 repositories_directory_path: Path::new(REPOSITORIES_ROOT)
                     .join(MachineClass::Personal.repositories_leaf()),
+                estates: crate::configuration::Estates::new(),
             },
             Path::new(HOME_DIRECTORY),
         )

@@ -1,9 +1,9 @@
 use {
     crate::{
         configuration::{
-            Configuration, ConfigurationName, Context, GitHubAccount, GitHubRepository,
-            MachineClass, MachineManifest, Migration, Notice, RepositoryName, RepositoryOwner,
-            Unreadable, parse_configuration,
+            Configuration, ConfigurationName, Context, EstateConflict, GitHubAccount,
+            GitHubRepository, MachineClass, MachineManifest, Migration, Notice, RepositoryName,
+            RepositoryOwner, Unreadable, parse_configuration, resolve_estates,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
@@ -140,6 +140,13 @@ pub async fn load_desired_state(
         return Err(LoadFailure::NoneAppliesTo(machine));
     }
 
+    let estates = resolve_estates(
+        applicable
+            .iter()
+            .map(|(loaded, _)| (&loaded.name, &loaded.configuration)),
+    )
+    .map_err(LoadFailure::Estates)?;
+
     let mut migrations: Vec<Migration> = Vec::new();
     let mut announcements: Vec<Notice> = Vec::new();
     let mut resolved: Vec<ResolvedConfiguration> = Vec::new();
@@ -159,6 +166,7 @@ pub async fn load_desired_state(
 
     let machine_manifest = MachineManifest {
         repositories_directory_path: repositories_root.join(machine.repositories_leaf()),
+        estates,
     };
 
     let home_directory = home_directory().map_err(LoadFailure::Irreconcilable)?;
@@ -179,6 +187,7 @@ pub enum LoadFailure {
         second: Context,
     },
     SourceOutsideACheckout(PathBuf),
+    Estates(EstateConflict),
     Irreconcilable(Error),
 }
 
@@ -192,6 +201,7 @@ impl LoadFailure {
             | LoadFailure::NoneAppliesTo(_)
             | LoadFailure::TwoTrees { .. }
             | LoadFailure::SourceOutsideACheckout(_)
+            | LoadFailure::Estates(_)
             | LoadFailure::Irreconcilable(_) => false,
         }
     }
@@ -232,6 +242,7 @@ impl Display for LoadFailure {
                  out of. Read it from the repository it was written in instead.",
                 directory.display()
             ),
+            LoadFailure::Estates(conflict) => Display::fmt(conflict, formatter),
             LoadFailure::Irreconcilable(fault) => write!(formatter, "{fault:#}"),
         }
     }

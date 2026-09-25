@@ -8,6 +8,8 @@ use {
 // ADR 0031
 #[path = "configuration/context.rs"]
 pub mod context;
+#[path = "configuration/estate.rs"]
+pub mod estate;
 #[path = "configuration/generation.rs"]
 pub mod generation;
 #[path = "configuration/identity.rs"]
@@ -31,6 +33,9 @@ pub mod workspace;
 
 pub use {
     context::{Context, MachineClass},
+    estate::{
+        EstateConflict, EstateDeclaration, EstateName, EstateOwner, Estates, resolve_estates,
+    },
     generation::{BUILD_GENERATION, Generation, OLDEST_READABLE_GENERATION},
     identity::{Identity, LinkPath},
     migration::Migration,
@@ -77,6 +82,8 @@ pub struct Configuration {
                        all."
     )]
     pub github_account: GitHubAccount,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estate: Option<EstateDeclaration>,
     #[serde(default)]
     pub workspaces: Vec<CargoWorkspace>,
     #[serde(default)]

@@ -15,11 +15,11 @@ use {
         configuration::{
             Application, ApplicationName, ApplicationSource, AssetPattern, BUILD_GENERATION,
             BinaryName, CargoWorkspace, ClaudeMcpServer, Configuration, ConfigurationName, Context,
-            CrateName, DeclaredNotice, EnvironmentVariable, GitHubAccount, Installer, MachineClass,
-            MachineManifest, McpScope, McpServerName, Migration, Notice,
-            OLDEST_READABLE_GENERATION, Package, PresenceCheck, PythonInterpreter, Registration,
-            Resource, SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
-            UvToolVersion, Variable, VariableName, VariableValue,
+            CrateName, DeclaredNotice, EnvironmentVariable, EstateName, EstateOwner, Estates,
+            GitHubAccount, Installer, MachineClass, MachineManifest, McpScope, McpServerName,
+            Migration, Notice, OLDEST_READABLE_GENERATION, Package, PresenceCheck,
+            PythonInterpreter, Registration, Resource, SearchPathDirectory, SearchPathEntry, Shell,
+            Symlink, Tool, UvToolPackage, UvToolVersion, Variable, VariableName, VariableValue,
         },
         configuration_source::{ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -956,6 +956,143 @@ fn document(version: &str, applies_to: &str, resources: &str) -> String {
     )
 }
 
+fn document_declaring_an_estate(
+    applies_to: &str,
+    estate: &str,
+    workspaces: &str,
+    resources: &str,
+) -> String {
+    format!(
+        r#"{{
+            "version": "{BUILD_GENERATION}",
+            "applies_to": "{applies_to}",
+            "github_account": "Alice",
+            "estate": {estate},
+            "workspaces": {workspaces},
+            "resources": {resources}
+        }}"#
+    )
+}
+
+fn workspace_of(owner_and_name: &str) -> String {
+    let repository = named_repository(owner_and_name);
+    format!(
+        r#"[{{ "repository": {{ "owner": "{}", "repository": "{}" }} }}]"#,
+        repository.owner, repository.repository
+    )
+}
+
+#[given(expr = "Alice has a configuration for every machine declaring the estate {string}")]
+fn every_machine_declaring_an_estate(world: &mut MachineWorld, estate: String) {
+    world.documents.push(document_declaring_an_estate(
+        "everywhere",
+        &format!(r#"{{ "name": "{estate}" }}"#),
+        "[]",
+        "[]",
+    ));
+}
+
+#[given(
+    expr = "Alice has a configuration for every machine declaring the estate {string} and building \
+            the workspace {string}"
+)]
+fn every_machine_declaring_an_estate_building(
+    world: &mut MachineWorld,
+    estate: String,
+    workspace: String,
+) {
+    world.documents.push(document_declaring_an_estate(
+        "everywhere",
+        &format!(r#"{{ "name": "{estate}" }}"#),
+        &workspace_of(&workspace),
+        "[]",
+    ));
+}
+
+#[given(
+    expr = "Alice has a configuration for every machine declaring the estate {string} and cloning \
+            {string}"
+)]
+fn every_machine_declaring_an_estate_cloning(
+    world: &mut MachineWorld,
+    estate: String,
+    cloned: String,
+) {
+    let repository = named_repository(&cloned);
+    world.documents.push(document_declaring_an_estate(
+        "everywhere",
+        &format!(r#"{{ "name": "{estate}" }}"#),
+        "[]",
+        &format!(
+            r#"[{{ "kind": "repository", "owner": "{}", "repository": "{}" }}]"#,
+            repository.owner, repository.repository
+        ),
+    ));
+}
+
+#[given(
+    expr = "Alice has a configuration for personal machines declaring the estate {string} with the \
+            owner {string}"
+)]
+fn personal_declaring_an_estate_with_an_owner(
+    world: &mut MachineWorld,
+    estate: String,
+    owner: String,
+) {
+    world.documents.push(document_declaring_an_estate(
+        "personal",
+        &format!(r#"{{ "name": "{estate}", "owners": ["{owner}"] }}"#),
+        "[]",
+        "[]",
+    ));
+}
+
+impl MachineWorld {
+    fn loaded_estates(&self) -> Estates {
+        let loaded = self.loaded.as_ref().expect("a desired state was loaded");
+        loaded
+            .resources
+            .iter()
+            .find_map(|resource| match resource.declared() {
+                Resource::Registration(Registration::MachineManifest(manifest)) => {
+                    Some(manifest.estates.clone())
+                }
+                _ => None,
+            })
+            .expect("every desired state carries the machine manifest")
+    }
+}
+
+#[then(expr = "the machine's manifest places {string} in the estate {string}")]
+fn manifest_places_owner_in_estate(world: &mut MachineWorld, owner: String, estate: String) {
+    let estates = world.loaded_estates();
+    let owners = estates.get(&EstateName::try_from(estate.as_str()).unwrap());
+
+    assert!(
+        owners.is_some_and(|owners| owners.contains(&EstateOwner::from(owner.as_str()))),
+        "expected {owner} in the estate {estate}, got {estates:?}"
+    );
+}
+
+#[then(expr = "the machine's manifest places {string} in no estate")]
+fn manifest_places_owner_in_no_estate(world: &mut MachineWorld, owner: String) {
+    let estates = world.loaded_estates();
+
+    assert!(
+        !estates
+            .values()
+            .any(|owners| owners.contains(&EstateOwner::from(owner.as_str()))),
+        "expected {owner} in no estate, got {estates:?}"
+    );
+}
+
+#[then(expr = "the machine's manifest names no estate")]
+fn manifest_names_no_estate(world: &mut MachineWorld) {
+    let estates = world.loaded_estates();
+
+    assert!(estates.is_empty(), "{estates:?}");
+}
+
 #[given(expr = "Alice declares the cargo package {string}")]
 fn declare_cargo_package(world: &mut MachineWorld, crate_name: String) {
     world.resources.push(Resource::Package(
@@ -1567,6 +1704,7 @@ fn the_machine_holds_no_manifest(world: &mut MachineWorld) {
 fn the_manifest_names_the_repositories_directory(world: &mut MachineWorld, leaf: String) {
     let expected = String::try_from(&MachineManifest {
         repositories_directory_path: Path::new(REPOSITORIES_ROOT).join(leaf),
+        estates: Estates::new(),
     })
     .expect("a manifest that serialises");
 
@@ -1638,6 +1776,7 @@ fn a_configuration_a_generation_behind() -> Migration {
         version: BUILD_GENERATION,
         applies_to: Context::Everywhere,
         github_account: GitHubAccount::from("Alice"),
+        estate: None,
         workspaces: Vec::new(),
         resources: Vec::new(),
         notices: Vec::new(),

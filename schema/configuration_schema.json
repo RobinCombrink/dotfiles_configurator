@@ -8,6 +8,16 @@
       "description": "Which machines this configuration is for. One declaring \"everywhere\" applies to every machine; any other applies only to a machine an invocation names as being that.",
       "$ref": "#/$defs/Context"
     },
+    "estate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EstateDeclaration"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "github_account": {
       "description": "The GitHub account every resource this configuration declares acts as. Not a repository's owner — a public repository is read by any account at all.",
       "$ref": "#/$defs/GitHubAccount"
@@ -352,6 +362,33 @@
           ]
         }
       ]
+    },
+    "EstateDeclaration": {
+      "description": "The estate this configuration governs. Its owners are the configuration's GitHub account, the\nowners of its workspaces, and any named here besides; the owner of a repository it only clones\nis never one of them.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/EstateName"
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EstateOwner"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "EstateName": {
+      "description": "The name of an estate, which also names its directory: letters, digits, '-' and '_' alone.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "EstateOwner": {
+      "description": "An account or organisation that owns repositories on GitHub.",
+      "type": "string"
     },
     "Generation": {
       "type": "string",

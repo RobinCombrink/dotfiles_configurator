@@ -10,7 +10,7 @@ use {
     anyhow::{Result, anyhow, bail},
     dotfiles_configurator::{
         configuration::{
-            ApplicationName, ApplicationSource, ClaudeMcpServer, CrateName, GitHubAccount,
+            ApplicationName, ApplicationSource, ClaudeMcpServer, CrateName, Estates, GitHubAccount,
             GitHubRepository, Installer, MachineClass, MachineManifest, McpServerName, Migration,
             PresenceCheck, PythonInterpreter, ReleasedBinary, Shell, Tool, UvToolName,
             UvToolVersion, VariableName, VariableValue, WingetPackageId,
@@ -504,6 +504,7 @@ impl FakeMachine {
     pub fn hold_machine_manifest(&self, machine: MachineClass) {
         let manifest = MachineManifest {
             repositories_directory_path: self.repositories_root.join(machine.repositories_leaf()),
+            estates: Estates::new(),
         };
         let document = String::try_from(&manifest).expect("a manifest that serialises");
 

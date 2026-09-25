@@ -37,6 +37,7 @@ impl From<OutgoingConfiguration> for Configuration {
             version: BUILD_GENERATION,
             applies_to: outgoing.applies_to,
             github_account: outgoing.github_account,
+            estate: None,
             workspaces: outgoing.workspaces,
             resources: outgoing.resources,
             notices: outgoing.notices,

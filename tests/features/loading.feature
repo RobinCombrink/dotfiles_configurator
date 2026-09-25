@@ -159,3 +159,55 @@ Feature: Loading a configuration
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "search path entry"
+
+  Scenario: The account a configuration acts as is an owner in the estate it declares
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest places "Alice" in the estate "personal"
+
+  Scenario: The owner of a workspace a configuration builds is an owner in its estate
+    Given Alice has a configuration for every machine declaring the estate "personal" and building the workspace "AliceTools/tools"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest places "AliceTools" in the estate "personal"
+
+  Scenario: The owner of a repository a configuration only clones is in no estate
+    Given Alice has a configuration for every machine declaring the estate "personal" and cloning "flutter/flutter"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest places "flutter" in no estate
+
+  Scenario: An owner a configuration names besides its own is an owner in its estate
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines declaring the estate "hobby" with the owner "Bob"
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest places "Bob" in the estate "hobby"
+    And the machine's manifest places "Alice" in the estate "hobby"
+
+  Scenario: Configurations declaring no estate place no owner in any
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest names no estate
+
+  Scenario: Two configurations declaring one estate are refused
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And Alice has a configuration for personal machines declaring the estate "personal" with the owner "Bob"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "declared by both"
+
+  Scenario: One owner in two estates is refused, however it is capitalised
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And Alice has a configuration for personal machines declaring the estate "hobby" with the owner "alice"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "one estate"
+
+  Scenario: An estate whose name cannot be a directory's is refused
+    Given Alice has a configuration for every machine declaring the estate "../personal"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "../personal"
