@@ -1,7 +1,7 @@
 use {
     crate::{
-        configuration::{Migration, Notice, Requirement, ResourceKind, Symlink},
-        desired_state::{DesiredState, ResolvedResource},
+        configuration::{Migration, Notice, Requirement, Symlink},
+        desired_state::{DesiredState, Precedence, ResolvedResource},
         reporting::RunReport,
     },
     std::fmt::Display,
@@ -151,13 +151,13 @@ pub async fn plan(
     };
     let resources = resolve(desired_state, &readings, machine.home_directory())?;
 
-    let mut assessed: Vec<(ResourceKind, usize, ResolvedResource, Assessment)> = resources
+    let mut assessed: Vec<(Precedence, usize, ResolvedResource, Assessment)> = resources
         .iter()
         .enumerate()
         .map(|(position, resource)| {
             let _doing = report.doing(format!("reading {resource}"));
             (
-                resource.kind(),
+                resource.precedence(),
                 position,
                 resource.clone(),
                 assess(resource, machine, &readings),
@@ -165,7 +165,7 @@ pub async fn plan(
         })
         .collect();
 
-    assessed.sort_by_key(|(kind, position, _, _)| (*kind, *position));
+    assessed.sort_by_key(|(precedence, position, _, _)| (*precedence, *position));
 
     let mut changes = Vec::new();
     let mut blocked = Vec::new();

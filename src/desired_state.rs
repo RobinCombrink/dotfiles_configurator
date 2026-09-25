@@ -102,6 +102,12 @@ impl<T> Resolved<T> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Precedence {
+    TheRunningBuild,
+    Declared(ResourceKind),
+}
+
 impl ResolvedResource {
     pub fn kind(&self) -> ResourceKind {
         self.value.kind()
@@ -125,6 +131,14 @@ impl ResolvedResource {
             | Resource::Symlink(_)
             | Resource::Registration(_)
             | Resource::Command(_) => false,
+        }
+    }
+
+    // ADR 0004, ADR 0035
+    pub fn precedence(&self) -> Precedence {
+        match self.replaces_the_running_build() {
+            true => Precedence::TheRunningBuild,
+            false => Precedence::Declared(self.kind()),
         }
     }
 
@@ -564,6 +578,25 @@ mod tests {
                 currency::own_currency().installed_name()
             )),
             "{claimed:?}"
+        );
+    }
+
+    #[test]
+    fn the_update_of_the_running_build_is_enacted_before_every_other_resource() {
+        let desired_state = merged(vec![
+            read_from_the_dotfiles_repository("everywhere", SYMLINK),
+            read_from_the_dotfiles_repository("personal", EMPTY),
+        ])
+        .unwrap();
+
+        let mut ordered = desired_state.resources.clone();
+        ordered.reverse();
+        ordered.sort_by_key(ResolvedResource::precedence);
+
+        assert!(
+            ordered[0].replaces_the_running_build(),
+            "{:?}",
+            ordered.iter().map(ToString::to_string).collect::<Vec<_>>()
         );
     }
 
