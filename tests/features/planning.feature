@@ -387,3 +387,13 @@ Feature: Planning what a machine needs
     When Alice plans
     Then the change set reports 1 change
     And the change set mentions "the directory this program installs binaries into"
+
+  Scenario: A link already into the checkout a relative source names is planned as converged
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    And Alice's checkout holds "gitconfig/.gitconfig"
+    And Alice's checkout holds "npm/.npmrc"
+    And the link ".gitconfig" already resolves to "gitconfig/.gitconfig" in Alice's checkout
+    And Alice names her configurations relative to the checkout she runs in
+    When Alice plans her configurations for a personal machine
+    Then the link ".gitconfig" is planned as converged

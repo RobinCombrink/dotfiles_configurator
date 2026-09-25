@@ -31,7 +31,7 @@ use {
         desired_state::DesiredState,
         github::GitHubAccess,
         machine::{
-            CommandOutput, ReadInvocation, ReadMachine,
+            CommandOutput, ReadInvocation, ReadMachine, WriteMachine,
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
                 Fingerprint, InstalledState, MemberReading, ObjectHash, Revision, WorkspaceReading,
@@ -65,6 +65,7 @@ struct MachineWorld {
     configurations_are_inside_a_checkout: bool,
     configurations_are_named_relative_to_the_checkout: bool,
     files_the_checkout_holds: Vec<PathBuf>,
+    links_already_into_the_checkout: Vec<(PathBuf, PathBuf)>,
     checkout: Option<PathBuf>,
     /// Configurations as they are written down, for the scenarios about loading them.
     documents: Vec<String>,
@@ -98,6 +99,7 @@ impl MachineWorld {
             configurations_are_inside_a_checkout: true,
             configurations_are_named_relative_to_the_checkout: false,
             files_the_checkout_holds: Vec::new(),
+            links_already_into_the_checkout: Vec::new(),
             checkout: None,
             documents: Vec::new(),
             employers_documents: Vec::new(),
@@ -839,6 +841,13 @@ fn checkout_holds(world: &mut MachineWorld, path: String) {
     world.files_the_checkout_holds.push(PathBuf::from(path));
 }
 
+#[given(expr = "the link {string} already resolves to {string} in Alice's checkout")]
+fn link_already_into_the_checkout(world: &mut MachineWorld, link_path: String, held: String) {
+    world
+        .links_already_into_the_checkout
+        .push((PathBuf::from(link_path), PathBuf::from(held)));
+}
+
 #[given(expr = "Alice names her configurations relative to the checkout she runs in")]
 fn configurations_named_relative_to_the_checkout(world: &mut MachineWorld) {
     world.configurations_are_named_relative_to_the_checkout = true;
@@ -1334,6 +1343,26 @@ async fn alice_applies_her_configurations_for_a_personal_machine(world: &mut Mac
     world.report = Some(report);
 }
 
+#[when(expr = "Alice plans her configurations for a personal machine")]
+async fn alice_plans_her_configurations_for_a_personal_machine(world: &mut MachineWorld) {
+    alice_loads(world, MachineClass::Personal).await;
+    let desired_state = world.loaded.as_ref().unwrap_or_else(|| {
+        panic!(
+            "loading was refused: {}",
+            world.loading_error.as_deref().unwrap_or_default()
+        )
+    });
+
+    let report = world.open_a_report(RunKind::Plan);
+    world.change_set = Some(
+        plan(desired_state, &world.machine, &report)
+            .await
+            .unwrap()
+            .0,
+    );
+    world.report = Some(report);
+}
+
 async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
     let directory = write_configurations(
         &world.documents,
@@ -1346,6 +1375,15 @@ async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
         .to_path_buf();
     for held in &world.files_the_checkout_holds {
         world.machine.add_own_file(checkout.join(held));
+    }
+    for (link_path, held) in &world.links_already_into_the_checkout {
+        world
+            .machine
+            .create_link(
+                &world.machine.resolve_against_home(link_path),
+                &checkout.join(held),
+            )
+            .expect("the fake machine links wherever it is asked");
     }
     let first_source = match world.configurations_are_named_relative_to_the_checkout {
         true => named_relative_to(&checkout, &directory),
@@ -1633,6 +1671,19 @@ fn link_resolves_into_the_checkout(world: &mut MachineWorld, link_path: String, 
         .map(|target| link_directory.join(target));
 
     assert_eq!(resolved, Some(checkout.join(held)));
+}
+
+#[then(expr = "the link {string} is planned as converged")]
+fn link_is_planned_as_converged(world: &mut MachineWorld, link_path: String) {
+    let change_set = world.change_set();
+    let converged = change_set.converged.iter().any(|resource| {
+        let Resource::Symlink(symlink) = resource.declared() else {
+            return false;
+        };
+        symlink.link_path == Path::new(&link_path)
+    });
+
+    assert!(converged, "{change_set}");
 }
 
 #[then(expr = "loading is refused")]
