@@ -23,6 +23,7 @@ use {
     log::{LevelFilter, trace},
     std::{
         ffi::OsString,
+        fmt::Display,
         io::Write,
         path::{Path, PathBuf},
         process::ExitCode,
@@ -160,17 +161,23 @@ async fn run(task: Task) -> Result<Ending> {
             };
             let machine = LocalMachine::new(&report, &github)?;
             let desired_state = match load_after_updating_if_it_must(
-                &arguments.configuration,
-                &machine,
-                &report,
-                &github,
-                &operator,
+                &arguments, &machine, &report, &github, &operator,
             )
             .await?
             {
                 Loaded::Read(desired_state) => desired_state,
                 Loaded::DeclinedTheNewerBuild => {
                     return Ok(Ending::Concluded(Conclusion::DidNothing));
+                }
+                Loaded::ObtainedANewerBuild => {
+                    return hand_over_to_the_installed_build(
+                        &machine,
+                        successor_arguments(
+                            std::env::args_os().skip(1),
+                            &arguments,
+                            CarriedAnswer::Nothing,
+                        ),
+                    );
                 }
             };
 
@@ -191,21 +198,32 @@ async fn run(task: Task) -> Result<Ending> {
                 Enactment::Declined => Ok(Ending::Concluded(Conclusion::DidNothing)),
                 Enactment::ReplacedItself => hand_over_to_the_installed_build(
                     &machine,
-                    successor_arguments(std::env::args_os().skip(1), &arguments),
+                    successor_arguments(
+                        std::env::args_os().skip(1),
+                        &arguments,
+                        CarriedAnswer::ChangeSetConfirmed,
+                    ),
                 ),
             }
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CarriedAnswer {
+    ChangeSetConfirmed,
+    Nothing,
+}
+
 fn successor_arguments(
     own_arguments: impl IntoIterator<Item = OsString>,
     arguments: &ApplyArguments,
+    carried: CarriedAnswer,
 ) -> Vec<OsString> {
     let mut successor: Vec<OsString> = own_arguments.into_iter().collect();
     successor.push(OsString::from("--replaced"));
     successor.push(OsString::from(this_build().to_string()));
-    if !arguments.yes {
+    if carried == CarriedAnswer::ChangeSetConfirmed && !arguments.yes {
         successor.push(OsString::from("--yes"));
     }
     successor
@@ -248,20 +266,27 @@ async fn load(
 /// obtains a newer build once and reads again; a newest release that still does not meet the floor
 /// ends the run saying so rather than trying again. See ADR 0019.
 async fn load_after_updating_if_it_must(
-    arguments: &ConfigurationArguments,
+    arguments: &ApplyArguments,
     machine: &LocalMachine<'_, '_>,
     report: &RunReport,
     github: &GitHubAccess,
     operator: &impl Confirm,
 ) -> Result<Loaded> {
     let repositories_root = repositories_root()?;
-    let refusal = match load(arguments, github, &repositories_root).await {
+    let refusal = match load(&arguments.configuration, github, &repositories_root).await {
         Ok(desired_state) => return Ok(Loaded::Read(desired_state)),
         Err(refusal) => refusal,
     };
 
     if !refusal.is_answered_by_a_newer_build() {
         return Err(refusal.into());
+    }
+
+    if let Some(replaced) = &arguments.replaced {
+        bail!(
+            "{}",
+            still_unreadable_by_the_newest_build(&refusal, replaced)
+        );
     }
 
     report.announce(&format!(
@@ -276,9 +301,17 @@ A newer build from {} can read it, and installing it replaces the one running no
     }
 
     obtain_a_newer_build(machine).await?;
-    Ok(Loaded::Read(
-        load(arguments, github, &repositories_root).await?,
-    ))
+    Ok(Loaded::ObtainedANewerBuild)
+}
+
+fn still_unreadable_by_the_newest_build(refusal: &impl Display, replaced: &Version) -> String {
+    format!(
+        "{refusal}
+{} replaced {replaced} earlier in this run and cannot read it either, so no release of {} does \
+         yet.",
+        this_build(),
+        own_release_repository()
+    )
 }
 
 const OBTAIN_A_NEWER_BUILD: &str = "Obtain the newer build and read again?";
@@ -286,6 +319,7 @@ const OBTAIN_A_NEWER_BUILD: &str = "Obtain the newer build and read again?";
 enum Loaded {
     Read(DesiredState),
     DeclinedTheNewerBuild,
+    ObtainedANewerBuild,
 }
 
 async fn obtain_a_newer_build(machine: &LocalMachine<'_, '_>) -> Result<()> {
@@ -499,14 +533,22 @@ mod tests {
     }
 
     fn successor_of(own_arguments: &[&str]) -> Vec<OsString> {
+        successor_carrying(own_arguments, CarriedAnswer::ChangeSetConfirmed)
+    }
+
+    fn successor_carrying(own_arguments: &[&str], carried: CarriedAnswer) -> Vec<OsString> {
         successor_arguments(
             own_arguments.iter().map(OsString::from),
             &apply_arguments(own_arguments),
+            carried,
         )
     }
 
     fn parsed_successor_of(own_arguments: &[&str]) -> ApplyArguments {
-        let successor = successor_of(own_arguments);
+        parsed(successor_of(own_arguments))
+    }
+
+    fn parsed(successor: Vec<OsString>) -> ApplyArguments {
         match Arguments::try_parse_from(
             std::iter::once(OsString::from("dotfiles_configurator")).chain(successor),
         )
@@ -558,6 +600,43 @@ mod tests {
                 replaced: this_build()
             }
         );
+    }
+
+    #[test]
+    fn a_build_obtained_to_read_a_newer_configuration_still_asks_to_enact_its_change_set() {
+        assert!(
+            !parsed(successor_carrying(
+                &["apply", "--machine", "personal"],
+                CarriedAnswer::Nothing
+            ))
+            .yes
+        );
+    }
+
+    #[test]
+    fn a_build_obtained_to_read_a_newer_configuration_may_not_obtain_another() {
+        assert_eq!(
+            SelfReplacement::from(
+                parsed(successor_carrying(
+                    &["apply", "--machine", "personal"],
+                    CarriedAnswer::Nothing
+                ))
+                .replaced
+            ),
+            SelfReplacement::Spent {
+                replaced: this_build()
+            }
+        );
+    }
+
+    #[test]
+    fn a_configuration_the_newest_build_cannot_read_either_names_the_build_it_replaced() {
+        let message = still_unreadable_by_the_newest_build(
+            &"personal.dotconfig.json needs generation 99",
+            &Version::try_from("3.18.0").unwrap(),
+        );
+
+        assert!(message.contains("replaced 3.18.0"), "{message}");
     }
 
     #[test]
