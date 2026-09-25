@@ -4,7 +4,9 @@
 use {
     dotfiles_configurator::{
         configuration::{BUILD_GENERATION, MachineClass, Migration, OLDEST_READABLE_GENERATION},
-        configuration_source::{ConfigurationSource, WriteSource, load_desired_state},
+        configuration_source::{
+            AbsoluteDirectory, ConfigurationSource, WriteSource, load_desired_state,
+        },
         convergence::plan,
         desired_state::DesiredState,
         github::GitHubAccess,
@@ -64,7 +66,10 @@ fn personal_document(checkout: &Path) -> String {
 
 async fn load(checkout: &Path) -> DesiredState {
     load_desired_state(
-        &[ConfigurationSource::LocalDirectory(checkout.join("config"))],
+        &[ConfigurationSource::LocalDirectory(
+            AbsoluteDirectory::of(checkout.join("config"))
+                .expect("a temporary directory is absolute"),
+        )],
         MachineClass::Personal,
         Path::new("/repositories"),
         &GitHubAccess::new(),

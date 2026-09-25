@@ -21,7 +21,7 @@ use {
             PythonInterpreter, Registration, Resource, SearchPathDirectory, SearchPathEntry, Shell,
             Symlink, Tool, UvToolPackage, UvToolVersion, Variable, VariableName, VariableValue,
         },
-        configuration_source::{ConfigurationSource, load_desired_state},
+        configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
         convergence::{
             ApplyOutcome, ChangeSet,
@@ -1301,13 +1301,13 @@ async fn alice_loads_for_a_personal_machine(world: &mut MachineWorld) {
 }
 
 async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
-    let mut sources = vec![ConfigurationSource::LocalDirectory(write_configurations(
+    let mut sources = vec![named_in_full(write_configurations(
         &world.documents,
         &world.stray_file_names,
         world.configurations_are_inside_a_checkout,
     ))];
     if !world.employers_documents.is_empty() {
-        sources.push(ConfigurationSource::LocalDirectory(write_configurations(
+        sources.push(named_in_full(write_configurations(
             &world.employers_documents,
             &[],
             true,
@@ -1325,6 +1325,12 @@ async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
         Ok(desired_state) => world.loaded = Some(desired_state),
         Err(error) => world.loading_error = Some(format!("{error:#}")),
     }
+}
+
+fn named_in_full(directory: PathBuf) -> ConfigurationSource {
+    ConfigurationSource::LocalDirectory(
+        AbsoluteDirectory::of(directory).expect("a temporary directory is absolute"),
+    )
 }
 
 fn write_configurations(

@@ -13,7 +13,6 @@ use {
         fmt::{Display, Formatter},
         fs,
         path::{Path, PathBuf},
-        str::FromStr,
     },
 };
 
@@ -24,23 +23,53 @@ pub trait WriteSource {
 /// Where a configuration is read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigurationSource {
-    LocalDirectory(PathBuf),
+    LocalDirectory(AbsoluteDirectory),
     GitHubRepository {
         repository: GitHubRepository,
         directory: String,
     },
 }
 
-impl FromStr for ConfigurationSource {
-    type Err = String;
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct AbsoluteDirectory(PathBuf);
 
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
+impl AbsoluteDirectory {
+    pub fn of(path: PathBuf) -> Option<Self> {
+        match path.is_absolute() {
+            true => Some(Self(path)),
+            false => None,
+        }
+    }
+
+    pub fn resolve(&self, path: &Path) -> Option<Self> {
+        Self::of(self.0.join(path))
+    }
+}
+
+impl AsRef<Path> for AbsoluteDirectory {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl ConfigurationSource {
+    pub fn named(value: &str, working_directory: &AbsoluteDirectory) -> Result<Self, String> {
         let (kind, rest) = value
             .split_once(':')
             .ok_or_else(|| format!("{value:?} names no source kind; {EXPECTED_SOURCE}"))?;
 
         match kind {
-            "local" => Ok(ConfigurationSource::LocalDirectory(PathBuf::from(rest))),
+            "local" => working_directory
+                .resolve(Path::new(rest))
+                .map(ConfigurationSource::LocalDirectory)
+                .ok_or_else(|| {
+                    format!(
+                        "{value:?} names a directory relative to a drive rather than to {}; \
+                         name it in full",
+                        working_directory.as_ref().display()
+                    )
+                }),
             "github" => {
                 let mut segments = rest.splitn(3, '/');
                 let (Some(owner), Some(repository), Some(directory)) =
@@ -336,7 +365,7 @@ impl Display for ConfigurationSource {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ConfigurationSource::LocalDirectory(directory) => {
-                write!(formatter, "local:{}", directory.display())
+                write!(formatter, "local:{}", directory.as_ref().display())
             }
             ConfigurationSource::GitHubRepository {
                 repository,
@@ -353,15 +382,15 @@ impl ConfigurationSource {
             ConfigurationSource::GitHubRepository { repository, .. } => {
                 Ok(SourceLocation::Repository(repository.clone()))
             }
-            ConfigurationSource::LocalDirectory(directory) => checkout_holding(directory)
+            ConfigurationSource::LocalDirectory(directory) => checkout_holding(directory.as_ref())
                 .map(SourceLocation::Checkout)
-                .ok_or_else(|| LoadFailure::SourceOutsideACheckout(directory.clone())),
+                .ok_or_else(|| LoadFailure::SourceOutsideACheckout(directory.as_ref().into())),
         }
     }
 
     async fn load(&self, github: &GitHubAccess) -> Vec<Result<LoadedConfiguration, Unreadable>> {
         match self {
-            ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory),
+            ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory.as_ref()),
             ConfigurationSource::GitHubRepository {
                 repository,
                 directory,
@@ -472,7 +501,7 @@ mod tests {
     fn a_local_source_resolves_its_files_root_by_walking_up_to_a_checkout() {
         let checkout = temporary_checkout("files_root");
 
-        let location = ConfigurationSource::LocalDirectory(checkout.join("config"))
+        let location = ConfigurationSource::LocalDirectory(absolute(checkout.join("config")))
             .files_come_from()
             .unwrap();
 
@@ -498,6 +527,51 @@ mod tests {
                 repository: RepositoryName::from("dotfiles"),
             })
         );
+    }
+
+    fn absolute(path: PathBuf) -> AbsoluteDirectory {
+        AbsoluteDirectory::of(path).expect("a temporary directory is absolute")
+    }
+
+    fn where_alice_runs() -> PathBuf {
+        env::temp_dir().join("where_alice_runs")
+    }
+
+    fn directory_read(source: ConfigurationSource) -> PathBuf {
+        let ConfigurationSource::LocalDirectory(directory) = source else {
+            panic!("expected a local directory, got {source}");
+        };
+        directory.as_ref().to_path_buf()
+    }
+
+    #[test]
+    fn a_local_source_named_relative_to_the_working_directory_is_read_from_under_it() {
+        let source =
+            ConfigurationSource::named("local:config", &absolute(where_alice_runs())).unwrap();
+
+        assert_eq!(directory_read(source), where_alice_runs().join("config"));
+    }
+
+    #[test]
+    fn a_local_source_named_in_full_is_read_where_it_names_whatever_the_working_directory() {
+        let checkout = env::temp_dir().join("alices_checkout").join("config");
+
+        let source = ConfigurationSource::named(
+            &format!("local:{}", checkout.display()),
+            &absolute(where_alice_runs()),
+        )
+        .unwrap();
+
+        assert_eq!(directory_read(source), checkout);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_local_source_named_relative_to_a_drive_is_refused() {
+        let refusal = ConfigurationSource::named("local:D:config", &absolute(where_alice_runs()))
+            .unwrap_err();
+
+        assert!(refusal.contains("name it in full"), "{refusal}");
     }
 
     #[test]
@@ -595,7 +669,7 @@ mod tests {
     #[test]
     fn a_failure_that_is_not_a_refusal_to_read_sends_this_build_looking_for_nothing() {
         let failure = LoadFailure::NoConfigurationFound(vec![ConfigurationSource::LocalDirectory(
-            PathBuf::from("/config"),
+            absolute(env::temp_dir().join("config")),
         )]);
 
         assert!(!failure.is_answered_by_a_newer_build());
@@ -655,7 +729,9 @@ mod tests {
         machine: MachineClass,
     ) -> Result<DesiredState, LoadFailure> {
         load_desired_state(
-            &[ConfigurationSource::LocalDirectory(checkout.join("config"))],
+            &[ConfigurationSource::LocalDirectory(absolute(
+                checkout.join("config"),
+            ))],
             machine,
             Path::new("/repositories"),
             &GitHubAccess::new(),
@@ -682,9 +758,9 @@ mod tests {
     #[tokio::test]
     async fn a_directory_that_does_not_exist_is_reported_by_path() {
         let error = load_desired_state(
-            &[ConfigurationSource::LocalDirectory(
-                "/no/such/directory".into(),
-            )],
+            &[ConfigurationSource::LocalDirectory(absolute(
+                env::temp_dir().join("no/such/directory"),
+            ))],
             MachineClass::Personal,
             Path::new("/repositories"),
             &GitHubAccess::new(),
@@ -712,7 +788,9 @@ mod tests {
         let outside_any_checkout = outside_any_checkout.join("config");
 
         let error = load_desired_state(
-            &[ConfigurationSource::LocalDirectory(outside_any_checkout)],
+            &[ConfigurationSource::LocalDirectory(absolute(
+                outside_any_checkout,
+            ))],
             MachineClass::Personal,
             Path::new("/repositories"),
             &GitHubAccess::new(),

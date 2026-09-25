@@ -3,7 +3,9 @@ use {
     clap::{Args, Parser, Subcommand},
     dotfiles_configurator::{
         configuration::{GitHubAccount, MachineClass},
-        configuration_source::{ConfigurationSource, LoadFailure, load_desired_state},
+        configuration_source::{
+            AbsoluteDirectory, ConfigurationSource, LoadFailure, load_desired_state,
+        },
         confirmation::{Confirm, Confirmation, Operator},
         convergence::{
             apply::{Enactment, apply},
@@ -24,10 +26,19 @@ use {
 };
 
 #[cfg(test)]
-use {dotfiles_configurator::configuration::GitHubRepository, std::str::FromStr};
+use dotfiles_configurator::configuration::GitHubRepository;
 
 /// Where configurations are read from when none is named.
 const DEFAULT_SOURCE: &str = "github:RobinCombrink/dotfiles/config";
+
+fn source_named_in_the_working_directory(value: &str) -> Result<ConfigurationSource, String> {
+    let working_directory = std::env::current_dir()
+        .map_err(|failure| format!("{value:?} cannot be resolved: {failure}"))?;
+    let working_directory = AbsoluteDirectory::of(working_directory).ok_or_else(|| {
+        format!("{value:?} cannot be resolved against a working directory that is not absolute")
+    })?;
+    ConfigurationSource::named(value, &working_directory)
+}
 
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 struct ConfigurationArguments {
@@ -44,6 +55,7 @@ struct ConfigurationArguments {
         long = "source",
         value_name = "SOURCE",
         default_value = DEFAULT_SOURCE,
+        value_parser = source_named_in_the_working_directory,
         help = "Where to read configurations from, as `local:<directory>` or \
                 `github:<owner>/<repo>/<directory>`. Repeatable; read in the order given."
     )]
@@ -320,11 +332,23 @@ mod tests {
         parse(arguments).sources
     }
 
+    fn working_directory() -> AbsoluteDirectory {
+        AbsoluteDirectory::of(std::env::current_dir().unwrap())
+            .expect("the working directory is absolute")
+    }
+
+    fn under_the_working_directory(directory: &str) -> ConfigurationSource {
+        ConfigurationSource::LocalDirectory(
+            AbsoluteDirectory::of(std::env::current_dir().unwrap().join(directory))
+                .expect("the working directory is absolute"),
+        )
+    }
+
     #[test]
-    fn naming_a_directory_reads_that_directory_and_nothing_else() {
+    fn naming_a_directory_reads_that_directory_under_the_working_directory_and_nothing_else() {
         assert_eq!(
             sources_from(&["plan", "--machine", "personal", "--source", "local:config"]),
-            vec![ConfigurationSource::LocalDirectory("config".into())]
+            vec![under_the_working_directory("config")]
         );
     }
 
@@ -332,7 +356,7 @@ mod tests {
     fn naming_no_source_reads_the_default_one() {
         assert_eq!(
             sources_from(&["plan", "--machine", "personal"]),
-            vec![ConfigurationSource::from_str(DEFAULT_SOURCE).unwrap()]
+            vec![ConfigurationSource::named(DEFAULT_SOURCE, &working_directory()).unwrap()]
         );
     }
 
@@ -356,22 +380,30 @@ mod tests {
                     },
                     directory: "config".to_owned(),
                 },
-                ConfigurationSource::LocalDirectory("config".into()),
+                under_the_working_directory("config"),
             ]
         );
     }
 
     #[test]
     fn a_windows_directory_keeps_the_colon_in_its_drive_letter() {
-        assert_eq!(
-            ConfigurationSource::from_str("local:C:\\Repositories\\dotfiles\\config").unwrap(),
-            ConfigurationSource::LocalDirectory("C:\\Repositories\\dotfiles\\config".into())
+        let source = ConfigurationSource::named(
+            "local:C:\\Repositories\\dotfiles\\config",
+            &working_directory(),
+        )
+        .unwrap();
+
+        assert!(
+            source
+                .to_string()
+                .ends_with("C:\\Repositories\\dotfiles\\config"),
+            "{source}"
         );
     }
 
     #[test]
     fn a_source_naming_no_kind_is_rejected_with_the_shapes_it_expected() {
-        let error = ConfigurationSource::from_str("config").unwrap_err();
+        let error = ConfigurationSource::named("config", &working_directory()).unwrap_err();
 
         assert!(
             error.contains("local:") && error.contains("github:"),
