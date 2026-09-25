@@ -28,6 +28,7 @@ use {
             apply::{Enactment, apply},
             plan,
         },
+        currency::SelfReplacement,
         desired_state::DesiredState,
         github::GitHubAccess,
         machine::{
@@ -40,7 +41,10 @@ use {
         reporting::{RunKind, RunReport},
         version::Version,
     },
-    fake_machine::{FakeMachine, LauncherCopy, REPOSITORIES_ROOT, dotfiles_repository_path},
+    fake_machine::{
+        CONFIGURATOR_VERSION, FakeMachine, LauncherCopy, REPOSITORIES_ROOT,
+        dotfiles_repository_path,
+    },
     std::{
         cell::Cell,
         collections::{BTreeMap, BTreeSet},
@@ -78,6 +82,7 @@ struct MachineWorld {
     second_change_set: Option<ChangeSet>,
     enactment: Option<Enactment>,
     answering: Answering,
+    self_replacement: SelfReplacement,
     migrations: Vec<Migration>,
     announcements: Vec<Notice>,
     fingerprint_before: Option<String>,
@@ -109,6 +114,7 @@ impl MachineWorld {
             second_change_set: None,
             enactment: None,
             answering: Answering::default(),
+            self_replacement: SelfReplacement::Available,
             migrations: Vec::new(),
             announcements: Vec::new(),
             fingerprint_before: None,
@@ -197,13 +203,23 @@ impl MachineWorld {
         match self.enactment() {
             Enactment::Enacted(outcome) => outcome,
             Enactment::Declined => panic!("the scenario declined the change set"),
+            Enactment::ReplacedItself => {
+                panic!("the run was handed to the newer configurator")
+            }
         }
     }
 
     fn was_declined(&self) -> bool {
         match self.enactment() {
-            Enactment::Enacted(_) => false,
+            Enactment::Enacted(_) | Enactment::ReplacedItself => false,
             Enactment::Declined => true,
+        }
+    }
+
+    fn handed_over(&self) -> bool {
+        match self.enactment() {
+            Enactment::ReplacedItself => true,
+            Enactment::Enacted(_) | Enactment::Declined => false,
         }
     }
 }
@@ -381,6 +397,41 @@ fn configurator_reports_the_latest_release(world: &mut MachineWorld) {
         .expect("the configurator is installed in the tool directory");
 
     assert!(printed.contains(A_NEWER_CONFIGURATOR), "{printed}");
+}
+
+#[then(expr = "the configurator still reports the version the machine held")]
+fn configurator_still_reports_the_version_held(world: &mut MachineWorld) {
+    let printed = world
+        .machine
+        .configurator_reports()
+        .expect("the configurator is installed in the tool directory");
+
+    assert!(printed.ends_with(CONFIGURATOR_VERSION), "{printed}");
+}
+
+#[given(expr = "Alice's run is being carried on by the build that replaced {string}")]
+fn run_carried_on_by_the_build_that_replaced(world: &mut MachineWorld, replaced: String) {
+    world.self_replacement = SelfReplacement::Spent {
+        replaced: Version::try_from(replaced.as_str()).expect("a version"),
+    };
+}
+
+#[then(expr = "the rest of the run is handed to the newer configurator")]
+fn run_is_handed_to_the_newer_configurator(world: &mut MachineWorld) {
+    assert!(
+        world.handed_over(),
+        "the run was not handed over: {:?}",
+        world.enactment()
+    );
+}
+
+#[then(regex = r"^(.+) is not yet installed on Alice's machine$")]
+fn then_application_is_not_yet_installed(world: &mut MachineWorld, name: String) {
+    assert!(
+        !world
+            .machine
+            .application_is_installed(&ApplicationName::from(name.as_str()))
+    );
 }
 
 #[given(expr = "Alice's machine is running the configurator and will not let it be replaced")]
@@ -1286,6 +1337,7 @@ async fn alice_applies_once(world: &mut MachineWorld) {
             &world.machine,
             &report,
             &world.answering,
+            &world.self_replacement,
         )
         .await
         .unwrap(),
@@ -1336,9 +1388,15 @@ async fn alice_applies_her_configurations_for_a_personal_machine(world: &mut Mac
     });
 
     let report = world.open_a_report(RunKind::Apply);
-    let enactment = apply(desired_state, &world.machine, &report, &world.answering)
-        .await
-        .unwrap();
+    let enactment = apply(
+        desired_state,
+        &world.machine,
+        &report,
+        &world.answering,
+        &world.self_replacement,
+    )
+    .await
+    .unwrap();
     world.enactment = Some(enactment);
     world.report = Some(report);
 }

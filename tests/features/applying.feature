@@ -24,7 +24,30 @@ Feature: Applying a change set
     Given a newer configurator than this machine holds has been released
     When Alice applies
     Then the configurator reports the version of its latest release
-    And the machine is reported as converged
+    And the rest of the run is handed to the newer configurator
+
+  Scenario: Nothing after the configurator's own update is converged by the build it replaced
+    Given a newer configurator than this machine holds has been released
+    And Alice declares the application "Neovim"
+    And Neovim is not installed on Alice's machine
+    When Alice applies
+    Then the rest of the run is handed to the newer configurator
+    And Neovim is not yet installed on Alice's machine
+
+  Scenario: A newer configurator that still reads as behind is not installed again in the same run
+    Given a newer configurator than this machine holds has been released
+    And Alice's run is being carried on by the build that replaced "3.18.0"
+    When Alice applies
+    Then the run reports a failure mentioning "3.18.0"
+    And the configurator still reports the version the machine held
+
+  Scenario: The build that took over a run converges the rest of it
+    Given a newer configurator than this machine holds has been released
+    And Alice's run is being carried on by the build that replaced "3.18.0"
+    And Alice declares the application "Neovim"
+    And Neovim is not installed on Alice's machine
+    When Alice applies
+    Then Neovim is installed on Alice's machine
 
   Scenario: A build that cannot replace its own running image is held rather than reported as updated
     Given a newer configurator than this machine holds has been released

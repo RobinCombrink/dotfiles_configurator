@@ -1,7 +1,10 @@
 use {
-    crate::configuration::{
-        ArchiveEntry, AssetPattern, GitHubRepository, ReleasedBinary, RepositoryName,
-        RepositoryOwner, VersionWord,
+    crate::{
+        configuration::{
+            ArchiveEntry, AssetPattern, GitHubRepository, ReleasedBinary, RepositoryName,
+            RepositoryOwner, VersionWord,
+        },
+        version::Version,
     },
     std::num::NonZeroUsize,
 };
@@ -36,6 +39,38 @@ pub fn own_currency() -> ReleasedBinary {
         version_word: VersionWord::from(
             NonZeroUsize::new(VERSION_WORD).expect("a word position counts from one"),
         ),
+    }
+}
+
+pub fn this_build() -> Version {
+    Version::try_from(env!("CARGO_PKG_VERSION")).expect("the build stamps a version")
+}
+
+/// Whether this run may still replace the running build with its latest release. A build started
+/// by the one it replaced has spent that, so one run replaces itself at most once.
+///
+/// ```
+/// # use dotfiles_configurator::{currency::SelfReplacement, version::Version};
+/// assert_eq!(SelfReplacement::from(None), SelfReplacement::Available);
+/// assert_eq!(
+///     SelfReplacement::from(Some(Version::try_from("3.18.0").unwrap())),
+///     SelfReplacement::Spent {
+///         replaced: Version::try_from("3.18.0").unwrap()
+///     }
+/// );
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelfReplacement {
+    Available,
+    Spent { replaced: Version },
+}
+
+impl From<Option<Version>> for SelfReplacement {
+    fn from(replaced: Option<Version>) -> Self {
+        match replaced {
+            None => SelfReplacement::Available,
+            Some(replaced) => SelfReplacement::Spent { replaced },
+        }
     }
 }
 

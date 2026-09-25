@@ -4,10 +4,12 @@ use {
         configuration_source::WriteSource,
         confirmation::{Confirm, Confirmation},
         convergence::{Blocked, Change, ChangeSet, SourceReadings, converge::converge, plan},
+        currency::{self, SelfReplacement},
         desired_state::{DesiredState, ResolvedResource},
         machine::{Placement, WriteMachine},
         reporting::RunReport,
     },
+    anyhow::anyhow,
     std::{
         collections::BTreeSet,
         fmt::Display,
@@ -117,6 +119,7 @@ impl Display for ApplyOutcome {
 pub enum Enactment {
     Enacted(ApplyOutcome),
     Declined,
+    ReplacedItself,
 }
 
 const ENACT_THE_CHANGE_SET: &str = "Enact this change set?";
@@ -127,6 +130,7 @@ pub async fn apply(
     machine: &(impl WriteMachine + WriteSource),
     report: &RunReport,
     operator: &impl Confirm,
+    self_replacement: &SelfReplacement,
 ) -> anyhow::Result<Enactment> {
     {
         let _doing = report.doing("removing the binaries earlier runs replaced");
@@ -163,11 +167,27 @@ pub async fn apply(
         };
         passes += 1;
 
-        let pass = attempt(&change_set, &readings, machine, report, &handled).await;
+        let pass = attempt(
+            &change_set,
+            &readings,
+            machine,
+            report,
+            &handled,
+            self_replacement,
+        )
+        .await;
         report.note(&format!(
             "pass {passes} converged {} resource(s)",
             pass.converged.len()
         ));
+
+        if pass.replaced_itself {
+            report.announce(&format!(
+                "Installed the latest release over {}. The rest of this run belongs to it.",
+                currency::this_build()
+            ));
+            return Ok(Enactment::ReplacedItself);
+        }
 
         let productive = !pass.converged.is_empty();
         handled.extend(pass.handled);
@@ -301,7 +321,6 @@ enum Attempted {
     Converged,
     Held(PathBuf),
     Failed(anyhow::Error),
-    AlreadyHandled,
 }
 
 #[derive(Debug, Default)]
@@ -310,6 +329,7 @@ struct Pass {
     failed: Vec<Failure>,
     held: Vec<Held>,
     handled: BTreeSet<Handled>,
+    replaced_itself: bool,
 }
 
 async fn attempt(
@@ -318,13 +338,22 @@ async fn attempt(
     machine: &impl WriteMachine,
     report: &RunReport,
     handled: &BTreeSet<Handled>,
+    self_replacement: &SelfReplacement,
 ) -> Pass {
     let mut pass = Pass::default();
     for change in &change_set.changes {
         let key = Handled::of(change, machine.home_directory());
+        if handled.contains(&key) || pass.handled.contains(&key) {
+            continue;
+        }
 
-        match attempt_one(change, readings, machine, report, handled, &pass, &key).await {
-            Attempted::AlreadyHandled => continue,
+        let attempted = attempt_one(change, readings, machine, report, self_replacement).await;
+        let replaced_itself = match &attempted {
+            Attempted::Converged => change.resource.replaces_the_running_build(),
+            Attempted::Held(_) | Attempted::Failed(_) => false,
+        };
+
+        match attempted {
             Attempted::Converged => pass.converged.push(change.resource.clone()),
             Attempted::Held(path) => pass.held.push(Held {
                 resource: change.resource.clone(),
@@ -336,8 +365,32 @@ async fn attempt(
             }),
         }
         pass.handled.insert(key);
+
+        if replaced_itself {
+            pass.replaced_itself = true;
+            return pass;
+        }
     }
     pass
+}
+
+fn refusal_to_replace_again(
+    change: &Change,
+    self_replacement: &SelfReplacement,
+) -> Option<anyhow::Error> {
+    let SelfReplacement::Spent { replaced } = self_replacement else {
+        return None;
+    };
+    if !change.resource.replaces_the_running_build() {
+        return None;
+    }
+
+    Some(anyhow!(
+        "{} took this run over from {replaced} and still reads as behind its latest release ({}). \
+         Replacing it a second time in one run could restart it without end.",
+        currency::this_build(),
+        change.reason
+    ))
 }
 
 async fn attempt_one(
@@ -345,12 +398,11 @@ async fn attempt_one(
     readings: &SourceReadings,
     machine: &impl WriteMachine,
     report: &RunReport,
-    handled: &BTreeSet<Handled>,
-    pass: &Pass,
-    key: &Handled,
+    self_replacement: &SelfReplacement,
 ) -> Attempted {
-    if handled.contains(key) || pass.handled.contains(key) {
-        return Attempted::AlreadyHandled;
+    if let Some(refusal) = refusal_to_replace_again(change, self_replacement) {
+        report.note(&format!("FAILED {}: {refusal:#}", change.resource));
+        return Attempted::Failed(refusal);
     }
 
     let outcome = {

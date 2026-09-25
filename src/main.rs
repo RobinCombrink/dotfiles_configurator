@@ -1,5 +1,5 @@
 use {
-    anyhow::{Result, anyhow, bail},
+    anyhow::{Context, Result, anyhow, bail},
     clap::{Args, Parser, Subcommand},
     dotfiles_configurator::{
         configuration::{GitHubAccount, MachineClass},
@@ -11,14 +11,18 @@ use {
             apply::{Enactment, apply},
             install_release, plan,
         },
-        currency::{RELEASE_OWNER, own_currency, own_release_repository},
+        currency::{
+            RELEASE_OWNER, SelfReplacement, own_currency, own_release_repository, this_build,
+        },
         desired_state::DesiredState,
         github::GitHubAccess,
         machine::{Placement, ReadMachine, local::LocalMachine},
         reporting::{RunKind, RunReport},
+        version::Version,
     },
     log::{LevelFilter, trace},
     std::{
+        ffi::OsString,
         io::Write,
         path::{Path, PathBuf},
         process::ExitCode,
@@ -73,6 +77,18 @@ struct ApplyArguments {
                 printed either way, and a run with no terminal to ask at needs this."
     )]
     yes: bool,
+    #[arg(
+        long = "replaced",
+        hide = true,
+        value_name = "VERSION",
+        value_parser = version_named,
+        help = "The build this one replaced earlier in the same run, which it carries on from."
+    )]
+    replaced: Option<Version>,
+}
+
+fn version_named(spelled: &str) -> Result<Version, String> {
+    Version::try_from(spelled)
 }
 
 #[derive(Subcommand, Debug)]
@@ -108,7 +124,8 @@ async fn main() -> ExitCode {
     trace!("Logging setup successful");
 
     match run(arguments.task).await {
-        Ok(exit_code) => exit_code,
+        Ok(Ending::Concluded(conclusion)) => conclusion.into(),
+        Ok(Ending::HandedOver { exit_code }) => std::process::exit(exit_code),
         Err(error) => {
             eprintln!("{error:#}");
             ExitCode::FAILURE
@@ -116,7 +133,12 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(task: Task) -> Result<ExitCode> {
+enum Ending {
+    Concluded(Conclusion),
+    HandedOver { exit_code: i32 },
+}
+
+async fn run(task: Task) -> Result<Ending> {
     let github = GitHubAccess::new();
     match task {
         Task::Plan(arguments) => {
@@ -125,7 +147,7 @@ async fn run(task: Task) -> Result<ExitCode> {
             let machine = LocalMachine::new(&report, &github)?;
             let (change_set, _) = plan(&desired_state, &machine, &report).await?;
             println!("{change_set}");
-            Ok(Conclusion::of(change_set.is_converged()).into())
+            Ok(Ending::Concluded(Conclusion::of(change_set.is_converged())))
         }
         Task::Apply(arguments) => {
             let report = RunReport::open(RunKind::Apply)?;
@@ -133,7 +155,7 @@ async fn run(task: Task) -> Result<ExitCode> {
                 Ok(operator) => operator,
                 Err(refusal) => {
                     report.announce(&refusal.to_string());
-                    return Ok(Conclusion::DidNothing.into());
+                    return Ok(Ending::Concluded(Conclusion::DidNothing));
                 }
             };
             let machine = LocalMachine::new(&report, &github)?;
@@ -147,18 +169,64 @@ async fn run(task: Task) -> Result<ExitCode> {
             .await?
             {
                 Loaded::Read(desired_state) => desired_state,
-                Loaded::DeclinedTheNewerBuild => return Ok(Conclusion::DidNothing.into()),
+                Loaded::DeclinedTheNewerBuild => {
+                    return Ok(Ending::Concluded(Conclusion::DidNothing));
+                }
             };
 
-            match apply(&desired_state, &machine, &report, &operator).await? {
+            let self_replacement = SelfReplacement::from(arguments.replaced.clone());
+            match apply(
+                &desired_state,
+                &machine,
+                &report,
+                &operator,
+                &self_replacement,
+            )
+            .await?
+            {
                 Enactment::Enacted(outcome) => {
                     println!("{outcome}");
-                    Ok(Conclusion::of(outcome.is_converged()).into())
+                    Ok(Ending::Concluded(Conclusion::of(outcome.is_converged())))
                 }
-                Enactment::Declined => Ok(Conclusion::DidNothing.into()),
+                Enactment::Declined => Ok(Ending::Concluded(Conclusion::DidNothing)),
+                Enactment::ReplacedItself => hand_over_to_the_installed_build(
+                    &machine,
+                    successor_arguments(std::env::args_os().skip(1), &arguments),
+                ),
             }
         }
     }
+}
+
+fn successor_arguments(
+    own_arguments: impl IntoIterator<Item = OsString>,
+    arguments: &ApplyArguments,
+) -> Vec<OsString> {
+    let mut successor: Vec<OsString> = own_arguments.into_iter().collect();
+    successor.push(OsString::from("--replaced"));
+    successor.push(OsString::from(this_build().to_string()));
+    if !arguments.yes {
+        successor.push(OsString::from("--yes"));
+    }
+    successor
+}
+
+fn hand_over_to_the_installed_build(
+    machine: &LocalMachine<'_, '_>,
+    successor_arguments: Vec<OsString>,
+) -> Result<Ending> {
+    let installed = machine
+        .binaries_directory()
+        .join(own_currency().installed_name().file_name());
+    let status = std::process::Command::new(&installed)
+        .args(successor_arguments)
+        .status()
+        .with_context(|| format!("Could not start {} to carry on", installed.display()))?;
+
+    status
+        .code()
+        .map(|exit_code| Ending::HandedOver { exit_code })
+        .ok_or_else(|| anyhow!("{} ended without an exit status", installed.display()))
 }
 
 async fn load(
@@ -428,6 +496,67 @@ mod tests {
     fn an_apply_is_asked_to_confirm_unless_it_was_answered_in_advance() {
         assert!(!apply_arguments(&["apply", "--machine", "personal"]).yes);
         assert!(apply_arguments(&["apply", "--machine", "personal", "--yes"]).yes);
+    }
+
+    fn successor_of(own_arguments: &[&str]) -> Vec<OsString> {
+        successor_arguments(
+            own_arguments.iter().map(OsString::from),
+            &apply_arguments(own_arguments),
+        )
+    }
+
+    fn parsed_successor_of(own_arguments: &[&str]) -> ApplyArguments {
+        let successor = successor_of(own_arguments);
+        match Arguments::try_parse_from(
+            std::iter::once(OsString::from("dotfiles_configurator")).chain(successor),
+        )
+        .unwrap()
+        .task
+        {
+            Task::Apply(apply) => apply,
+            Task::Plan(_) => panic!("the successor was started to plan rather than to apply"),
+        }
+    }
+
+    #[test]
+    fn the_build_that_replaced_a_run_is_started_with_the_arguments_that_run_was_given() {
+        let successor =
+            parsed_successor_of(&["apply", "--machine", "work", "--source", "local:config"]);
+
+        assert_eq!(
+            successor.configuration,
+            parse(&["apply", "--machine", "work", "--source", "local:config"])
+        );
+    }
+
+    #[test]
+    fn the_build_that_replaced_a_run_is_not_asked_to_confirm_the_change_set_again() {
+        assert!(parsed_successor_of(&["apply", "--machine", "personal"]).yes);
+    }
+
+    #[test]
+    fn a_run_answered_in_advance_hands_its_successor_the_answer_once() {
+        assert!(parsed_successor_of(&["apply", "--machine", "personal", "--yes"]).yes);
+    }
+
+    #[test]
+    fn the_build_that_replaced_a_run_may_not_replace_itself_again() {
+        assert_eq!(
+            SelfReplacement::from(
+                parsed_successor_of(&["apply", "--machine", "personal"]).replaced
+            ),
+            SelfReplacement::Spent {
+                replaced: this_build()
+            }
+        );
+    }
+
+    #[test]
+    fn a_run_nothing_replaced_may_replace_itself() {
+        assert_eq!(
+            SelfReplacement::from(apply_arguments(&["apply", "--machine", "personal"]).replaced),
+            SelfReplacement::Available
+        );
     }
 
     #[test]

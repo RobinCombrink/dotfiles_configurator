@@ -112,6 +112,22 @@ impl ResolvedResource {
             .identity_within(&self.origin.repositories_directory, home_directory)
     }
 
+    // ADR 0019
+    pub fn replaces_the_running_build(&self) -> bool {
+        match &self.value {
+            Resource::Application(Application::ReleasedBinary(binary)) => {
+                *binary == currency::own_currency()
+            }
+            Resource::Application(Application::Installer(_))
+            | Resource::Repository(_)
+            | Resource::Package(_)
+            | Resource::EnvironmentVariable(_)
+            | Resource::Symlink(_)
+            | Resource::Registration(_)
+            | Resource::Command(_) => false,
+        }
+    }
+
     pub fn requirements(&self) -> Vec<Requirement> {
         let mut requirements = self.value.tool_requirements();
         requirements.extend(self.files_requirement());
