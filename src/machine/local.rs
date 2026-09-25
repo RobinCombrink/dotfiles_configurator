@@ -1016,8 +1016,8 @@ mod tests {
     #[test]
     fn a_running_launcher_differing_from_its_replacement_does_not_hold_it() {
         let directory = tempfile::tempdir().unwrap();
-        let environment_copy = a_binary_at(directory.path(), "environment.exe", "a new launcher");
-        let running = a_binary_at(directory.path(), "serena.exe", "an old launcher");
+        let environment_copy = a_binary_at(directory.path(), "environment.exe", "launcher 1.7.0");
+        let running = a_binary_at(directory.path(), "serena.exe", "launcher 1.5.3");
 
         assert!(!holds_the_same_bytes(&environment_copy, &running).unwrap());
     }
