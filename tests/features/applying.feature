@@ -89,6 +89,35 @@ Feature: Applying a change set
     When Alice applies
     Then uv built "serena-agent" with Python "3.13" on Alice's machine
 
+  Scenario: A uv tool upgraded while it runs converges when its running launcher is already the new one
+    Given Alice declares the uv tool "serena-agent"
+    And uv holds "serena-agent" at "1.5.3" on Alice's machine
+    And the newest version of "serena-agent" that resolves is "1.7.0"
+    And Alice's machine is running the launcher of "serena-agent", which the upgrade leaves unchanged
+    When Alice applies
+    Then uv holds "serena-agent" at "1.7.0" on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A uv tool upgraded while it runs is held when the upgrade would change its running launcher
+    Given Alice declares the uv tool "serena-agent"
+    And uv holds "serena-agent" at "1.5.3" on Alice's machine
+    And the newest version of "serena-agent" that resolves is "1.7.0"
+    And Alice's machine is running the launcher of "serena-agent", which the upgrade changes
+    When Alice applies
+    Then 1 resource is reported as held
+    And 0 resources are reported as failed
+    And the machine is not reported as converged
+
+  Scenario: A uv tool whose upgrade fails for any other reason is reported as failed
+    Given Alice declares the uv tool "serena-agent"
+    And uv holds "serena-agent" at "1.5.3" on Alice's machine
+    And the newest version of "serena-agent" that resolves is "1.7.0"
+    And upgrading "serena-agent" fails on Alice's machine
+    When Alice applies
+    Then 1 resource is reported as failed
+    And 0 resources are reported as held
+    And the machine is not reported as converged
+
   Scenario: A resource that cannot be read leaves the machine reported as unconverged
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget is absent from Alice's machine

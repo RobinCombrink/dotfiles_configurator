@@ -40,7 +40,7 @@ use {
         reporting::{RunKind, RunReport},
         version::Version,
     },
-    fake_machine::{FakeMachine, REPOSITORIES_ROOT, dotfiles_repository_path},
+    fake_machine::{FakeMachine, LauncherCopy, REPOSITORIES_ROOT, dotfiles_repository_path},
     std::{
         cell::Cell,
         collections::{BTreeMap, BTreeSet},
@@ -441,6 +441,27 @@ fn uv_now_holds_tool(world: &mut MachineWorld, name: String, version: String) {
         world.machine.uv_tool_version(&name.into()),
         Some(UvToolVersion::from(version))
     );
+}
+
+#[given(
+    expr = "Alice's machine is running the launcher of {string}, which the upgrade leaves unchanged"
+)]
+fn running_an_unchanged_launcher(world: &mut MachineWorld, name: String) {
+    world
+        .machine
+        .run_uv_tool_launcher(&name.into(), LauncherCopy::Identical);
+}
+
+#[given(expr = "Alice's machine is running the launcher of {string}, which the upgrade changes")]
+fn running_a_changed_launcher(world: &mut MachineWorld, name: String) {
+    world
+        .machine
+        .run_uv_tool_launcher(&name.into(), LauncherCopy::Differs);
+}
+
+#[given(expr = "upgrading {string} fails on Alice's machine")]
+fn upgrading_fails(world: &mut MachineWorld, name: String) {
+    world.machine.make_uv_tool_upgrade_fail(&name.into());
 }
 
 #[then(expr = "uv built {string} with Python {string} on Alice's machine")]

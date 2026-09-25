@@ -25,7 +25,7 @@ pub mod release_reading;
 pub mod workspace_reading;
 
 pub use invocation::{
-    DisplacingInvocation, ReadInvocation, ReplacementCommands, ReplacingInvocation,
+    DisplacingInvocation, ReadInvocation, RefusedCopy, ReplacementCommands, ReplacingInvocation,
     ResolvedCargoSource, WriteInvocation,
 };
 
@@ -214,6 +214,9 @@ pub trait WriteMachine: ReadMachine {
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;
 
     fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement>;
+
+    // ADR 0033
+    fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement>;
 
     /// Runs both commands of one replacement, in the order the invocation gives them. A refusal
     /// of the second after the first has taken the name away is a `Replacement` rather than an

@@ -318,6 +318,15 @@ fn displace(destination: &Path) -> Result<PathBuf> {
     Ok(superseded)
 }
 
+fn holds_the_same_bytes(source: &Path, destination: &Path) -> Result<bool> {
+    let wanted =
+        fs::read(source).with_context(|| format!("Could not read {}", source.display()))?;
+    let held = fs::read(destination)
+        .with_context(|| format!("Could not read {}", destination.display()))?;
+
+    Ok(wanted == held)
+}
+
 fn restore(superseded: &Path, destination: &Path) -> Result<()> {
     fs::rename(superseded, destination).with_context(|| {
         format!(
@@ -687,6 +696,29 @@ impl WriteMachine for LocalMachine<'_, '_> {
         }
     }
 
+    fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
+        let arguments = invocation.arguments();
+        let output = self.run(invocation.tool(), &arguments, &[])?;
+        if output.succeeded {
+            return Ok(Placement::Placed);
+        }
+
+        let Some(copy) = invocation.refused_copy(&output) else {
+            return Err(refused(invocation.tool(), &arguments, &output));
+        };
+
+        match holds_the_same_bytes(&copy.source, &copy.destination)? {
+            true => {
+                self.report.note(&format!(
+                    "{} is running and already holds what would have been copied over it",
+                    copy.destination.display()
+                ));
+                Ok(Placement::Placed)
+            }
+            false => Ok(Placement::Held(copy.destination)),
+        }
+    }
+
     fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
         let tool = invocation.tool();
         let arguments = invocation.arguments();
@@ -970,6 +1002,24 @@ mod tests {
         let zip = partial_download_path(Path::new("C:\\tools\\rg.zip"));
 
         assert_ne!(exe, zip);
+    }
+
+    #[test]
+    fn a_running_launcher_holding_the_bytes_of_its_replacement_already_holds_the_replacement() {
+        let directory = tempfile::tempdir().unwrap();
+        let environment_copy = a_binary_at(directory.path(), "environment.exe", "a launcher");
+        let running = a_binary_at(directory.path(), "serena.exe", "a launcher");
+
+        assert!(holds_the_same_bytes(&environment_copy, &running).unwrap());
+    }
+
+    #[test]
+    fn a_running_launcher_differing_from_its_replacement_does_not_hold_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let environment_copy = a_binary_at(directory.path(), "environment.exe", "a new launcher");
+        let running = a_binary_at(directory.path(), "serena.exe", "an old launcher");
+
+        assert!(!holds_the_same_bytes(&environment_copy, &running).unwrap());
     }
 
     #[test]

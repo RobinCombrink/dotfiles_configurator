@@ -50,7 +50,9 @@ pub async fn converge(
                 .with_context(|| format!("Could not install {}", binary.installed_name()));
         }
         Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
-        Resource::Package(Package::UvTool(package)) => converge_uv_tool(package, machine, readings),
+        Resource::Package(Package::UvTool(package)) => {
+            return converge_uv_tool(package, machine, readings);
+        }
         Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => machine
             .set_environment_variable(&variable.name, &variable.value)
             .with_context(|| format!("Could not set {}", variable.name)),
@@ -167,7 +169,7 @@ fn converge_uv_tool(
     package: &UvToolPackage,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
-) -> Result<()> {
+) -> Result<Placement> {
     let installed = readings
         .installed_uv_tool(&package.name)
         .map_err(|impediment| anyhow!("{impediment}"))?;
@@ -181,7 +183,7 @@ fn converge_uv_tool(
         },
     };
 
-    machine.write(&invocation).map(|_| ())
+    machine.write_over_running_images(&invocation)
 }
 
 fn converge_cargo_package(

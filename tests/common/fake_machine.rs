@@ -55,6 +55,8 @@ struct MachineState {
     uv_tools: BTreeMap<UvToolName, UvToolVersion>,
     uv_newest_versions: BTreeMap<UvToolName, UvToolVersion>,
     uv_tool_interpreters: BTreeMap<UvToolName, Option<PythonInterpreter>>,
+    uv_running_launchers: BTreeMap<PathBuf, LauncherCopy>,
+    uv_tools_failing_to_upgrade: BTreeSet<UvToolName>,
     failing_applications: BTreeSet<ApplicationName>,
     /// Installers that exit zero without putting anything on the machine.
     silent_applications: BTreeSet<ApplicationName>,
@@ -82,6 +84,26 @@ struct MachineState {
     environment_variables: BTreeMap<VariableName, VariableValue>,
     claude_mcp_servers: BTreeMap<McpServerName, ClaudeMcpServer>,
     mcp_servers_claude_refuses_to_add: BTreeSet<McpServerName>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LauncherCopy {
+    Identical,
+    Differs,
+}
+
+const UV_TOOLS_DIRECTORY: &str = "/home/alice/.local/share/uv/tools";
+const UV_BIN_DIRECTORY: &str = "/home/alice/.local/bin";
+
+fn uv_launcher_path(name: &UvToolName) -> PathBuf {
+    Path::new(UV_BIN_DIRECTORY).join(format!("{name}.exe"))
+}
+
+fn uv_environment_launcher_path(name: &UvToolName) -> PathBuf {
+    Path::new(UV_TOOLS_DIRECTORY)
+        .join(name.as_ref())
+        .join("Scripts")
+        .join(format!("{name}.exe"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,6 +247,73 @@ impl FakeMachine {
             .iter()
             .filter(|arguments| arguments.iter().any(|given| given == argument))
             .count()
+    }
+
+    pub fn run_uv_tool_launcher(&self, name: &UvToolName, copy: LauncherCopy) {
+        self.state
+            .borrow_mut()
+            .uv_running_launchers
+            .insert(uv_launcher_path(name), copy);
+    }
+
+    pub fn make_uv_tool_upgrade_fail(&self, name: &UvToolName) {
+        self.state
+            .borrow_mut()
+            .uv_tools_failing_to_upgrade
+            .insert(name.clone());
+    }
+
+    fn run_write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
+        let mut state = self.state.borrow_mut();
+        let mut standard_error = String::new();
+        match invocation {
+            WriteInvocation::InstallWingetPackage { id } => {
+                state.winget_packages.insert(id.clone());
+            }
+            WriteInvocation::InstallUvTool { name, python } => {
+                if !state.uv_tools.contains_key(name) {
+                    let Some(newest) = state.uv_newest_versions.get(name).cloned() else {
+                        bail!("no version of {name} resolves");
+                    };
+                    state.uv_tools.insert(name.clone(), newest);
+                    state
+                        .uv_tool_interpreters
+                        .insert(name.clone(), python.clone());
+                }
+            }
+            WriteInvocation::UpgradeUvTool { name } => {
+                if !state.uv_tools.contains_key(name) {
+                    bail!("Failed to upgrade {name}: `{name}` is not installed");
+                }
+                if state.uv_tools_failing_to_upgrade.contains(name) {
+                    standard_error = format!(
+                        "error: Failed to upgrade {name}\n  Caused by: Failed to fetch the \
+                         index for {name} (os error 10061)\n"
+                    );
+                } else {
+                    if let Some(newest) = state.uv_newest_versions.get(name).cloned() {
+                        state.uv_tools.insert(name.clone(), newest);
+                    }
+                    let launcher = uv_launcher_path(name);
+                    if state.uv_running_launchers.contains_key(&launcher) {
+                        standard_error = format!(
+                            "error: Failed to upgrade {name}\n  Caused by: Failed to install \
+                             entrypoint\n  Caused by: failed to copy file from {} to {}: The \
+                             process cannot access the file because it is being used by another \
+                             process. (os error 32)\n",
+                            uv_environment_launcher_path(name).display(),
+                            launcher.display()
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(CommandOutput {
+            succeeded: standard_error.is_empty(),
+            standard_output: String::new(),
+            standard_error,
+        })
     }
 
     fn run_cargo(&self, invocation: &DisplacingInvocation) -> CommandOutput {
@@ -969,37 +1058,33 @@ impl WriteMachine for FakeMachine {
     }
 
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        let mut state = self.state.borrow_mut();
-        match invocation {
-            WriteInvocation::InstallWingetPackage { id } => {
-                state.winget_packages.insert(id.clone());
-            }
-            WriteInvocation::InstallUvTool { name, python } => {
-                if !state.uv_tools.contains_key(name) {
-                    let Some(newest) = state.uv_newest_versions.get(name).cloned() else {
-                        bail!("no version of {name} resolves");
-                    };
-                    state.uv_tools.insert(name.clone(), newest);
-                    state
-                        .uv_tool_interpreters
-                        .insert(name.clone(), python.clone());
-                }
-            }
-            WriteInvocation::UpgradeUvTool { name } => {
-                if !state.uv_tools.contains_key(name) {
-                    bail!("Failed to upgrade {name}: `{name}` is not installed");
-                }
-                if let Some(newest) = state.uv_newest_versions.get(name).cloned() {
-                    state.uv_tools.insert(name.clone(), newest);
-                }
-            }
+        let output = self.run_write(invocation)?;
+        match output.succeeded {
+            true => Ok(output),
+            false => bail!("{} failed: {}", invocation.tool(), output.standard_error),
+        }
+    }
+
+    fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
+        let output = self.run_write(invocation)?;
+        if output.succeeded {
+            return Ok(Placement::Placed);
         }
 
-        Ok(CommandOutput {
-            succeeded: true,
-            standard_output: String::new(),
-            standard_error: String::new(),
-        })
+        let Some(copy) = invocation.refused_copy(&output) else {
+            bail!("{} failed: {}", invocation.tool(), output.standard_error);
+        };
+        let identical = self
+            .state
+            .borrow()
+            .uv_running_launchers
+            .get(&copy.destination)
+            == Some(&LauncherCopy::Identical);
+
+        match identical {
+            true => Ok(Placement::Placed),
+            false => Ok(Placement::Held(copy.destination)),
+        }
     }
 
     fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement> {

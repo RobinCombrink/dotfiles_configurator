@@ -252,6 +252,43 @@ impl WriteInvocation {
             }
         }
     }
+
+    // 2026-09-25: uv upgrades a tool's environment and then copies each executable from the
+    // environment into its bin directory. A copy over an executable that is running fails with
+    // os error 32, naming both paths, after the environment has already been upgraded; the
+    // running launcher cannot be renamed aside either. uv 0.10.12 on Windows 11.
+    pub fn refused_copy(&self, output: &CommandOutput) -> Option<RefusedCopy> {
+        match self {
+            WriteInvocation::InstallWingetPackage { .. } => None,
+            WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => output
+                .standard_error
+                .lines()
+                .find_map(copy_refused_by_a_running_image),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefusedCopy {
+    pub source: PathBuf,
+    pub destination: PathBuf,
+}
+
+const COPY_REFUSAL: &str = "failed to copy file from ";
+const SHARING_VIOLATION: &str = "(os error 32)";
+
+fn copy_refused_by_a_running_image(line: &str) -> Option<RefusedCopy> {
+    if !line.trim_end().ends_with(SHARING_VIOLATION) {
+        return None;
+    }
+    let (_, refusal) = line.split_once(COPY_REFUSAL)?;
+    let (source, remainder) = refusal.split_once(" to ")?;
+    let (destination, _) = remainder.split_once(": ")?;
+
+    Some(RefusedCopy {
+        source: PathBuf::from(source),
+        destination: PathBuf::from(destination),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -655,6 +692,44 @@ mod tests {
             installing.arguments(),
             vec!["tool", "install", "serena-agent"]
         );
+    }
+
+    fn upgrading_serena() -> WriteInvocation {
+        WriteInvocation::UpgradeUvTool {
+            name: UvToolName::from("serena-agent"),
+        }
+    }
+
+    // 2026-09-25: taken verbatim from `uv tool upgrade serena-agent` with the tool's launcher
+    // running, under uv 0.10.12 on Windows 11.
+    const UV_REFUSED_A_RUNNING_LAUNCHER: &str = concat!(
+        "error: Failed to upgrade serena-agent\n",
+        "  Caused by: Failed to install entrypoint\n",
+        "  Caused by: failed to copy file from ",
+        "C:\\t\\uvprobe\\tools\\serena-agent\\Scripts\\serena.exe to ",
+        "C:/t/uvprobe/bin\\serena.exe: The process cannot access the file because it is being ",
+        "used by another process. (os error 32)\n",
+    );
+
+    #[test]
+    fn a_copy_refused_over_a_running_launcher_names_both_the_copy_and_what_it_would_replace() {
+        assert_eq!(
+            upgrading_serena().refused_copy(&cargo_said(UV_REFUSED_A_RUNNING_LAUNCHER)),
+            Some(RefusedCopy {
+                source: PathBuf::from("C:\\t\\uvprobe\\tools\\serena-agent\\Scripts\\serena.exe"),
+                destination: PathBuf::from("C:/t/uvprobe/bin\\serena.exe"),
+            })
+        );
+    }
+
+    #[test]
+    fn a_copy_refused_for_any_other_reason_is_not_read_as_a_running_launcher() {
+        let output = cargo_said(
+            "  Caused by: failed to copy file from C:\\env\\serena.exe to C:\\bin\\serena.exe: \
+             Access is denied. (os error 5)\n",
+        );
+
+        assert_eq!(upgrading_serena().refused_copy(&output), None);
     }
 
     #[test]
