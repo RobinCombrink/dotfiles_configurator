@@ -200,10 +200,17 @@ Feature: Loading a configuration
 
   Scenario: One owner in two estates is refused, however it is capitalised
     Given Alice has a configuration for every machine declaring the estate "personal"
-    And Alice has a configuration for personal machines declaring the estate "hobby" with the owner "alice"
+    And Alice has a configuration for personal machines acting as "AliceHobbies", declaring the estate "hobby" with the owner "alice"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "one estate"
+
+  Scenario: Two estates with no owner in common are both placed
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And Alice has a configuration for personal machines acting as "AliceHobbies", declaring the estate "hobby" with the owner "Bob"
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest places "Alice" in the estate "personal"
+    And the machine's manifest places "Bob" in the estate "hobby"
 
   Scenario: An estate whose name cannot be a directory's is refused
     Given Alice has a configuration for every machine declaring the estate "../personal"

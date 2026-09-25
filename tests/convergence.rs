@@ -962,11 +962,21 @@ fn document_declaring_an_estate(
     workspaces: &str,
     resources: &str,
 ) -> String {
+    document_acting_as_declaring_an_estate("Alice", applies_to, estate, workspaces, resources)
+}
+
+fn document_acting_as_declaring_an_estate(
+    account: &str,
+    applies_to: &str,
+    estate: &str,
+    workspaces: &str,
+    resources: &str,
+) -> String {
     format!(
         r#"{{
             "version": "{BUILD_GENERATION}",
             "applies_to": "{applies_to}",
-            "github_account": "Alice",
+            "github_account": "{account}",
             "estate": {estate},
             "workspaces": {workspaces},
             "resources": {resources}
@@ -1040,6 +1050,25 @@ fn personal_declaring_an_estate_with_an_owner(
     owner: String,
 ) {
     world.documents.push(document_declaring_an_estate(
+        "personal",
+        &format!(r#"{{ "name": "{estate}", "owners": ["{owner}"] }}"#),
+        "[]",
+        "[]",
+    ));
+}
+
+#[given(
+    expr = "Alice has a configuration for personal machines acting as {string}, declaring the \
+            estate {string} with the owner {string}"
+)]
+fn personal_acting_as_declaring_an_estate_with_an_owner(
+    world: &mut MachineWorld,
+    account: String,
+    estate: String,
+    owner: String,
+) {
+    world.documents.push(document_acting_as_declaring_an_estate(
+        &account,
         "personal",
         &format!(r#"{{ "name": "{estate}", "owners": ["{owner}"] }}"#),
         "[]",
