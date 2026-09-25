@@ -153,7 +153,10 @@ impl SourceReadings {
     /// }
     /// # }
     /// ```
-    pub fn installed_uv_tool(&self, name: &UvToolName) -> Result<Option<UvToolVersion>, Impediment> {
+    pub fn installed_uv_tool(
+        &self,
+        name: &UvToolName,
+    ) -> Result<Option<UvToolVersion>, Impediment> {
         let listing = self.uv_tools.read()?;
         listed_uv_tool(listing, name)
             .map(|listed| listed.map(|(installed, _)| installed))
@@ -180,7 +183,8 @@ impl SourceReadings {
             None => Ok(None),
             Some((_, Some(latest))) => Ok(Some(latest)),
             Some((_, None)) => Err(Impediment::ActualStateUnreadable(
-                format!("uv listed {name} as behind without naming the version it is behind").into(),
+                format!("uv listed {name} as behind without naming the version it is behind")
+                    .into(),
             )),
         }
     }
@@ -527,7 +531,9 @@ fn listed_uv_tool(
         .and_then(|word| word.strip_prefix('v'))
         .filter(|version| !version.is_empty())
     else {
-        return Err(format!("uv listed {name} without the version it is installed at: {line}").into());
+        return Err(
+            format!("uv listed {name} without the version it is installed at: {line}").into(),
+        );
     };
 
     let latest = match line.split_once(LATEST_MARKER) {
@@ -537,9 +543,10 @@ fn listed_uv_tool(
                 Some(UvToolVersion::from(latest.trim()))
             }
             Some(_) | None => {
-                return Err(
-                    format!("uv listed {name} as behind a version it did not name: {line}").into(),
-                );
+                return Err(format!(
+                    "uv listed {name} as behind a version it did not name: {line}"
+                )
+                .into());
             }
         },
     };
@@ -1170,14 +1177,20 @@ mod tests {
 
     #[test]
     fn a_tool_uv_does_not_list_is_not_installed() {
-        assert_eq!(listed_uv_tool(UV_TOOLS, &UvToolName::from("ruff")), Ok(None));
+        assert_eq!(
+            listed_uv_tool(UV_TOOLS, &UvToolName::from("ruff")),
+            Ok(None)
+        );
     }
 
     #[test]
     fn an_executable_named_after_a_tool_is_not_mistaken_for_the_tool() {
         let listing = "serena-agent v1.5.3\n- serena\n";
 
-        assert_eq!(listed_uv_tool(listing, &UvToolName::from("serena")), Ok(None));
+        assert_eq!(
+            listed_uv_tool(listing, &UvToolName::from("serena")),
+            Ok(None)
+        );
     }
 
     #[test]

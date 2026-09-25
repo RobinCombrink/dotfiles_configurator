@@ -395,10 +395,12 @@ fn winget_holds_package(world: &mut MachineWorld, id: String) {
 }
 
 fn declare_uv_tool(world: &mut MachineWorld, name: String, python: Option<PythonInterpreter>) {
-    world.resources.push(Resource::Package(Package::UvTool(UvToolPackage {
-        name: name.into(),
-        python,
-    })));
+    world
+        .resources
+        .push(Resource::Package(Package::UvTool(UvToolPackage {
+            name: name.into(),
+            python,
+        })));
 }
 
 #[given(expr = "Alice declares the uv tool {string}")]

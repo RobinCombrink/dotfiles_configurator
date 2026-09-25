@@ -50,9 +50,7 @@ pub async fn converge(
                 .with_context(|| format!("Could not install {}", binary.installed_name()));
         }
         Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
-        Resource::Package(Package::UvTool(package)) => {
-            converge_uv_tool(package, machine, readings)
-        }
+        Resource::Package(Package::UvTool(package)) => converge_uv_tool(package, machine, readings),
         Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => machine
             .set_environment_variable(&variable.name, &variable.value)
             .with_context(|| format!("Could not set {}", variable.name)),
