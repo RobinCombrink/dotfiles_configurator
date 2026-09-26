@@ -65,8 +65,8 @@ struct Shared {
     current_activity: Mutex<Option<Activity>>,
 }
 
-/// Indicatif draws nothing at all where stderr is not a terminal, so a run under a git trigger
-/// would otherwise be as mute as the one that motivated ADR 0013.
+// 2026-08-07: indicatif draws nothing at all where standard error is not a terminal.
+// ADR 0013
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Screen {
     Terminal,
