@@ -25,6 +25,9 @@ fn the_committed_schema_is_the_one_the_configuration_types_render() {
     let rendered = rendered_schema();
 
     if env::var_os(UPDATE_SCHEMA).is_some_and(|value| value == "1") {
+        if let Some(schema_directory) = path.parent() {
+            fs::create_dir_all(schema_directory).expect("the schema directory is creatable");
+        }
         fs::write(&path, rendered).expect("the committed schema is writable");
         return;
     }
