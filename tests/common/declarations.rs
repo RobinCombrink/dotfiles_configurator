@@ -11,6 +11,7 @@ use {
             MachineClass, MachineManifest, ReleasedBinary, RepositoryName, RepositoryOwner,
             Resource, VersionWord,
         },
+        configuration_source::AbsoluteDirectory,
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         reporting::{RunKind, RunReport},
     },
@@ -59,6 +60,11 @@ pub fn dotfiles_repository() -> GitHubRepository {
     named_repository("Alice/dotfiles")
 }
 
+fn dotfiles_checkout() -> AbsoluteDirectory {
+    AbsoluteDirectory::of(dotfiles_repository_path())
+        .expect("the fake machine roots its repositories")
+}
+
 pub fn reporting_its_version_in_the_second_word(
     entry: &str,
     owner_and_name: &str,
@@ -78,7 +84,7 @@ pub fn read_out_of_a_checkout(
     notices: Vec<DeclaredNotice>,
 ) -> DesiredState {
     read_from(
-        SourceLocation::Checkout(dotfiles_repository_path()),
+        SourceLocation::Checkout(dotfiles_checkout()),
         resources,
         workspaces,
         notices,
@@ -134,7 +140,7 @@ pub fn read_as_two_accounts(
             ResolvedConfiguration::read(
                 ConfigurationName::from("everywhere.dotconfig.json"),
                 everywhere,
-                SourceLocation::Checkout(dotfiles_repository_path()),
+                SourceLocation::Checkout(dotfiles_checkout()),
                 &repositories_root_path(),
             ),
             ResolvedConfiguration::read(

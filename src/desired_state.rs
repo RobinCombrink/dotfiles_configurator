@@ -6,6 +6,7 @@ use {
             Migration, Notice, Registration, Requirement, Resource, ResourceKind,
             SearchPathDirectory, SearchPathEntry,
         },
+        configuration_source::AbsoluteDirectory,
         currency,
     },
     anyhow::{Result, anyhow, bail},
@@ -19,7 +20,7 @@ use {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceLocation {
     Repository(GitHubRepository),
-    Checkout(PathBuf),
+    Checkout(AbsoluteDirectory),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,13 +29,14 @@ enum FilesRoot {
         repository: GitHubRepository,
         directory: PathBuf,
     },
-    Checkout(PathBuf),
+    Checkout(AbsoluteDirectory),
 }
 
 impl FilesRoot {
     fn path(&self) -> &Path {
         match self {
-            FilesRoot::Clone { directory, .. } | FilesRoot::Checkout(directory) => directory,
+            FilesRoot::Clone { directory, .. } => directory,
+            FilesRoot::Checkout(directory) => directory.as_ref(),
         }
     }
 
@@ -482,7 +484,10 @@ mod tests {
         ResolvedConfiguration::read(
             ConfigurationName::from(applies_to),
             document(applies_to, body),
-            SourceLocation::Checkout(PathBuf::from("/checkout")),
+            SourceLocation::Checkout(
+                AbsoluteDirectory::of(std::env::temp_dir().join("checkout"))
+                    .expect("a temporary directory is absolute"),
+            ),
             Path::new(REPOSITORIES_ROOT),
         )
     }

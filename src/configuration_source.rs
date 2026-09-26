@@ -44,6 +44,13 @@ impl AbsoluteDirectory {
     pub fn resolve(&self, path: &Path) -> Option<Self> {
         Self::of(self.0.join(path))
     }
+
+    fn enclosing_checkout(&self) -> Option<Self> {
+        self.0
+            .ancestors()
+            .find(|ancestor| ancestor.join(".git").exists())
+            .map(|checkout| Self(checkout.to_path_buf()))
+    }
 }
 
 impl AsRef<Path> for AbsoluteDirectory {
@@ -106,13 +113,6 @@ enum Pending {
     Nothing,
     Rewriting(Migration),
     Announcing(Notice),
-}
-
-fn checkout_holding(directory: &Path) -> Option<PathBuf> {
-    directory
-        .ancestors()
-        .find(|ancestor| ancestor.join(".git").exists())
-        .map(Path::to_path_buf)
 }
 
 fn is_configuration_file(path: &str) -> bool {
@@ -378,7 +378,8 @@ impl ConfigurationSource {
             ConfigurationSource::GitHubRepository { repository, .. } => {
                 Ok(SourceLocation::Repository(repository.clone()))
             }
-            ConfigurationSource::LocalDirectory(directory) => checkout_holding(directory.as_ref())
+            ConfigurationSource::LocalDirectory(directory) => directory
+                .enclosing_checkout()
                 .map(SourceLocation::Checkout)
                 .ok_or_else(|| LoadFailure::SourceOutsideACheckout(directory.as_ref().into())),
         }
@@ -501,7 +502,7 @@ mod tests {
             .files_come_from()
             .unwrap();
 
-        assert_eq!(location, SourceLocation::Checkout(checkout));
+        assert_eq!(location, SourceLocation::Checkout(absolute(checkout)));
     }
 
     #[test]
