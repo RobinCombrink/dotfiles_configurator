@@ -42,8 +42,8 @@ use {
         version::Version,
     },
     fake_machine::{
-        CONFIGURATOR_VERSION, FakeMachine, LauncherCopy, REPOSITORIES_ROOT,
-        dotfiles_repository_path,
+        CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED, FakeMachine, LauncherCopy,
+        REPOSITORIES_ROOT, dotfiles_repository_path,
     },
     std::{
         cell::Cell,
@@ -263,7 +263,7 @@ impl Confirm for Answering {
     }
 }
 
-fn application(name: &str) -> Application {
+fn application_found_by_its_name_on_the_path(name: &str) -> Application {
     application_checked_by(
         name,
         PresenceCheck::CommandOnPath {
@@ -300,9 +300,9 @@ fn application_installed_from_a_release_of(name: &str, owner_and_name: &str) -> 
 
 #[given(expr = "Alice declares the application {string}")]
 fn declare_application(world: &mut MachineWorld, name: String) {
-    world
-        .resources
-        .push(Resource::Application(application(&name)));
+    world.resources.push(Resource::Application(
+        application_found_by_its_name_on_the_path(&name),
+    ));
 }
 
 #[given(expr = "Alice declares the application {string} checked by the path {string}")]
@@ -401,7 +401,10 @@ fn configurator_still_reports_the_version_held(world: &mut MachineWorld) {
         .configurator_reports()
         .expect("the configurator is installed in the tool directory");
 
-    assert!(printed.ends_with(CONFIGURATOR_VERSION), "{printed}");
+    assert!(
+        printed.ends_with(CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED),
+        "{printed}"
+    );
 }
 
 #[given(expr = "Alice's run is being carried on by the build that replaced {string}")]

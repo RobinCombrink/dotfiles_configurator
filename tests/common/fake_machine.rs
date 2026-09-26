@@ -107,7 +107,7 @@ enum Displacement {
     Refused,
 }
 
-pub const CONFIGURATOR_VERSION: &str = "9.9.9";
+pub const CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED: &str = "9.9.9";
 
 pub const HOME_DIRECTORY: &str = "/home/alice";
 pub const REPOSITORIES_ROOT: &str = "/repositories";
@@ -144,7 +144,8 @@ impl Default for FakeMachine {
         machine.publish_release(
             own_release_repository(),
             ReleaseReading {
-                version: Version::try_from(CONFIGURATOR_VERSION).expect("a version"),
+                version: Version::try_from(CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED)
+                    .expect("a version"),
                 assets: vec![ReleaseAsset {
                     name: own_release_asset_name().to_owned(),
                     download_url: Url::parse("https://example.invalid/configurator.zip")
@@ -156,7 +157,7 @@ impl Default for FakeMachine {
             machine
                 .binaries_directory()
                 .join(own_currency().installed_name().file_name()),
-            format!("dotfiles_configurator {CONFIGURATOR_VERSION}"),
+            format!("dotfiles_configurator {CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED}"),
         );
         machine.hold_user_search_path_entry(machine.binaries_directory());
         machine.hold_machine_manifest(MachineClass::Personal);
