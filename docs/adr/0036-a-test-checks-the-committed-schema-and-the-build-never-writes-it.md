@@ -8,7 +8,7 @@ The configuration schema stays committed, because it is published: the dotfiles 
 editor settings read it from `main` and this repository's read it from the working tree. It is
 still derived from the types the tool reads configurations with. What changes is who derives it:
 a test renders `schema_for!(Configuration)` and fails when the committed file differs, and the
-same test writes the file when `UPDATE_SCHEMA` is set. The build script no longer touches it.
+same test writes the file when `UPDATE_SCHEMA` is `1`. The build script no longer touches it.
 
 This supersedes [ADR 0031](0031-the-configuration-module-tree-compiles-under-two-crate-roots.md),
 which had the build script write the schema into the source tree on every build. Nothing then

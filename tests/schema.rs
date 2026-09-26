@@ -24,7 +24,7 @@ fn the_committed_schema_is_the_one_the_configuration_types_render() {
     let path = committed_schema_path();
     let rendered = rendered_schema();
 
-    if env::var_os(UPDATE_SCHEMA).is_some() {
+    if env::var_os(UPDATE_SCHEMA).is_some_and(|value| value == "1") {
         fs::write(&path, rendered).expect("the committed schema is writable");
         return;
     }
