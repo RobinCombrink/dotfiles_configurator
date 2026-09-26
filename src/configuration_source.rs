@@ -737,9 +737,9 @@ mod tests {
         .await
     }
 
-    /// Every change set carries the configurator's own currency, which these scenarios are not
-    /// about.
-    fn rendered(desired_state: &DesiredState) -> Vec<String> {
+    fn rendered_other_than_what_every_change_set_carries(
+        desired_state: &DesiredState,
+    ) -> Vec<String> {
         let carried = &desired_state.undeclared;
         desired_state
             .resources
@@ -818,7 +818,7 @@ mod tests {
         let desired_state = load_from(&checkout, MachineClass::Personal).await.unwrap();
 
         assert_eq!(
-            rendered(&desired_state),
+            rendered_other_than_what_every_change_set_carries(&desired_state),
             vec!["command first".to_owned(), "command second".to_owned()]
         );
     }
@@ -842,9 +842,10 @@ mod tests {
         let desired_state = load_from(&checkout, MachineClass::Personal).await.unwrap();
 
         assert!(
-            !rendered(&desired_state).contains(&"command for a work machine".to_owned()),
+            !rendered_other_than_what_every_change_set_carries(&desired_state)
+                .contains(&"command for a work machine".to_owned()),
             "{:?}",
-            rendered(&desired_state)
+            rendered_other_than_what_every_change_set_carries(&desired_state)
         );
     }
 
@@ -869,7 +870,7 @@ mod tests {
         let desired_state = load_from(&checkout, MachineClass::Personal).await.unwrap();
 
         assert_eq!(
-            rendered(&desired_state),
+            rendered_other_than_what_every_change_set_carries(&desired_state),
             vec![
                 "command declared".to_owned(),
                 "command also declared".to_owned()
