@@ -52,8 +52,11 @@ kind, and the registry covers the ordinary way to install someone else's crate.
   yet, the crates are blocked until it is, and readiness already expresses this.
 - Adding a crate to the workspace declares it; removing one withdraws it. Withdrawal ends the
   tool's interest without uninstalling anything, per ADR 0005.
-- The fingerprint covers the crate's own subtree together with the workspace manifest and
-  lockfile, because a dependency change alters the built binary without touching the crate.
+- The fingerprint covers the crate's own subtree together with the workspace manifest, the
+  lockfile, and the subtree of every crate it reaches by a path dependency — normal, build and
+  target-specific, directly or through another, including one inherited from
+  `[workspace.dependencies]` — because a dependency change alters the built binary without
+  touching the crate. A dev-dependency is left out: `cargo install` never builds one.
 - **A workspace that cannot be read refuses the whole run.** Cloned but with no tracked remote
   branch, an unparseable manifest, a member named by a glob, or no lockfile: each leaves which
   crates exist unknown, and a source that decides which resources exist cannot fail softly the way

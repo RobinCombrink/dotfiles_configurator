@@ -48,13 +48,15 @@ pub struct Fingerprint {
     pub crate_subtree: ObjectHash,
     pub workspace_manifest: ObjectHash,
     pub lockfile: ObjectHash,
+    pub dependency_subtrees: BTreeMap<String, ObjectHash>,
 }
 
 impl Fingerprint {
     pub fn difference_from(&self, other: &Self) -> Option<String> {
         let crate_differs = self.crate_subtree != other.crate_subtree;
-        let dependencies_differ =
-            self.workspace_manifest != other.workspace_manifest || self.lockfile != other.lockfile;
+        let dependencies_differ = self.workspace_manifest != other.workspace_manifest
+            || self.lockfile != other.lockfile
+            || self.dependency_subtrees != other.dependency_subtrees;
 
         match (crate_differs, dependencies_differ) {
             (false, false) => None,
@@ -161,9 +163,37 @@ struct DeclaredBinary {
 pub struct MemberManifest {
     pub name: CrateName,
     declared_binaries: Vec<DeclaredBinary>,
+    local_dependencies: Vec<LocalDependency>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LocalDependency {
+    RelativeToManifest(String),
+    InheritedFromWorkspace(String),
 }
 
 impl MemberManifest {
+    pub fn directories_depended_on(
+        &self,
+        manifest_directory: &str,
+        inherited_paths: &BTreeMap<String, String>,
+    ) -> Result<Vec<String>> {
+        let mut directories = Vec::new();
+        for dependency in &self.local_dependencies {
+            let directory = match dependency {
+                LocalDependency::RelativeToManifest(path) => {
+                    repository_relative(manifest_directory, path)?
+                }
+                LocalDependency::InheritedFromWorkspace(name) => match inherited_paths.get(name) {
+                    Some(path) => repository_relative("", path)?,
+                    None => continue,
+                },
+            };
+            directories.push(directory);
+        }
+        Ok(directories)
+    }
+
     pub fn binaries(&self, tree: &MemberTree) -> BTreeSet<BinaryName> {
         let main_file = self.main_file_binary(tree);
         let inferable = main_file
@@ -202,6 +232,8 @@ struct WorkspaceDocument {
 struct WorkspaceSection {
     #[serde(default)]
     members: Vec<String>,
+    #[serde(default)]
+    dependencies: BTreeMap<String, DependencySpecification>,
 }
 
 #[derive(Deserialize)]
@@ -209,6 +241,52 @@ struct MemberDocument {
     package: Option<PackageSection>,
     #[serde(default, rename = "bin")]
     binaries: Vec<BinarySection>,
+    #[serde(flatten)]
+    built_with: BuiltWithSections,
+    #[serde(default)]
+    target: BTreeMap<String, BuiltWithSections>,
+}
+
+#[derive(Deserialize)]
+struct BuiltWithSections {
+    #[serde(default)]
+    dependencies: BTreeMap<String, DependencySpecification>,
+    #[serde(default, rename = "build-dependencies")]
+    build_dependencies: BTreeMap<String, DependencySpecification>,
+}
+
+impl BuiltWithSections {
+    fn local_dependencies(self) -> impl Iterator<Item = LocalDependency> {
+        self.dependencies
+            .into_iter()
+            .chain(self.build_dependencies)
+            .filter_map(|(name, specification)| specification.local_dependency(name))
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum DependencySpecification {
+    Detailed {
+        path: Option<String>,
+        #[serde(default)]
+        workspace: bool,
+    },
+    Version(serde::de::IgnoredAny),
+}
+
+impl DependencySpecification {
+    fn local_dependency(self, name: String) -> Option<LocalDependency> {
+        match self {
+            Self::Detailed {
+                path: Some(path), ..
+            } => Some(LocalDependency::RelativeToManifest(path)),
+            Self::Detailed {
+                workspace: true, ..
+            } => Some(LocalDependency::InheritedFromWorkspace(name)),
+            Self::Version(_) | Self::Detailed { .. } => None,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -239,6 +317,26 @@ pub fn member_paths(manifest: &str) -> Result<Vec<String>> {
     Ok(workspace.members)
 }
 
+pub fn inherited_dependency_paths(manifest: &str) -> Result<BTreeMap<String, String>> {
+    let document: WorkspaceDocument =
+        toml::from_str(manifest).map_err(|error| anyhow!("{error}"))?;
+
+    let Some(workspace) = document.workspace else {
+        bail!("its Cargo.toml declares no [workspace]");
+    };
+
+    Ok(workspace
+        .dependencies
+        .into_iter()
+        .filter_map(|(name, specification)| match specification {
+            DependencySpecification::Detailed {
+                path: Some(path), ..
+            } => Some((name, path)),
+            DependencySpecification::Version(_) | DependencySpecification::Detailed { .. } => None,
+        })
+        .collect())
+}
+
 pub fn read_member_manifest(manifest: &str) -> Result<MemberManifest> {
     let document: MemberDocument = toml::from_str(manifest).map_err(|error| anyhow!("{error}"))?;
 
@@ -256,7 +354,40 @@ pub fn read_member_manifest(manifest: &str) -> Result<MemberManifest> {
                 path: section.path,
             })
             .collect(),
+        local_dependencies: document
+            .built_with
+            .local_dependencies()
+            .chain(
+                document
+                    .target
+                    .into_values()
+                    .flat_map(BuiltWithSections::local_dependencies),
+            )
+            .collect(),
     })
+}
+
+fn repository_relative(base: &str, relative: &str) -> Result<String> {
+    let relative = relative.replace('\\', "/");
+    if relative.starts_with('/') || relative.contains(':') {
+        bail!("the dependency path \"{relative}\" is not relative to the repository");
+    }
+
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in base.split('/').chain(relative.split('/')) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if segments.pop().is_none() {
+                    bail!(
+                        "the dependency path \"{relative}\" from \"{base}\" leaves the repository"
+                    );
+                }
+            }
+            _ => segments.push(segment),
+        }
+    }
+    Ok(segments.join("/"))
 }
 
 #[cfg(test)]
@@ -313,6 +444,28 @@ mod tests {
         assert_eq!(
             read_member_manifest(manifest).unwrap().name,
             CrateName::from("session-mining")
+        );
+    }
+
+    #[test]
+    fn a_dependency_path_leaving_the_repository_is_refused() {
+        let manifest = r#"
+            [package]
+            name = "session-mining"
+
+            [dependencies]
+            elsewhere = { path = "../../../elsewhere" }
+        "#;
+
+        let error = read_member_manifest(manifest)
+            .unwrap()
+            .directories_depended_on("tools/session-mining", &BTreeMap::new())
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            error.contains("leaves the repository"),
+            "expected the message to say it leaves the repository, got: {error}"
         );
     }
 
@@ -461,6 +614,7 @@ mod tests {
             crate_subtree: ObjectHash::from("aaa"),
             workspace_manifest: ObjectHash::from("bbb"),
             lockfile: ObjectHash::from("ccc"),
+            dependency_subtrees: BTreeMap::new(),
         };
 
         assert_eq!(fingerprint.difference_from(&fingerprint), None);
@@ -472,6 +626,7 @@ mod tests {
             crate_subtree: ObjectHash::from("aaa"),
             workspace_manifest: ObjectHash::from("bbb"),
             lockfile: ObjectHash::from("ccc"),
+            dependency_subtrees: BTreeMap::new(),
         };
         let desired = Fingerprint {
             lockfile: ObjectHash::from("ddd"),
@@ -489,6 +644,7 @@ mod tests {
             crate_subtree: ObjectHash::from("aaa"),
             workspace_manifest: ObjectHash::from("bbb"),
             lockfile: ObjectHash::from("ccc"),
+            dependency_subtrees: BTreeMap::new(),
         }
     }
 

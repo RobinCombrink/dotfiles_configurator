@@ -33,7 +33,7 @@ use {
         version::Version,
     },
     fake_machine::FakeMachine,
-    std::collections::BTreeSet,
+    std::collections::{BTreeMap, BTreeSet},
 };
 
 fn desired_state(resources: Vec<Resource>) -> DesiredState {
@@ -174,6 +174,7 @@ fn workspace_holding(crate_names: &[&str]) -> WorkspaceReading {
                             crate_subtree: ObjectHash::from(*crate_name),
                             workspace_manifest: ObjectHash::from("the workspace manifest"),
                             lockfile: ObjectHash::from("the lockfile"),
+                            dependency_subtrees: BTreeMap::new(),
                         },
                         installed: InstalledState::NotInstalled,
                         absent_binaries: BTreeSet::new(),

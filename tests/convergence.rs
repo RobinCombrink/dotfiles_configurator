@@ -1290,6 +1290,7 @@ fn content_named(content: &str) -> Fingerprint {
         crate_subtree: ObjectHash::from(content),
         workspace_manifest: ObjectHash::from("the workspace manifest"),
         lockfile: ObjectHash::from("the lockfile"),
+        dependency_subtrees: BTreeMap::new(),
     }
 }
 

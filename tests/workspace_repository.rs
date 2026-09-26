@@ -229,6 +229,99 @@ fn a_commit_changing_the_lockfile_drifts_a_crate_it_never_touched() {
     assert!(!alpha(&reading));
 }
 
+fn workspace_where_alpha_declares(dependency_sections: &str) -> TemporaryRepository {
+    let repository = workspace_holding_a_binary_and_a_library();
+    repository.write(
+        "tools/alpha/Cargo.toml",
+        &format!("[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n\n{dependency_sections}"),
+    );
+    repository.commit("alpha declares its dependencies");
+    repository.push();
+    repository
+}
+
+fn alpha_once_beta_changes(repository: &TemporaryRepository) -> bool {
+    let installed_from = repository.head_revision();
+    repository.write(
+        "tools/beta/src/lib.rs",
+        "pub fn beta() { println!(\"changed\") }\n",
+    );
+    repository.commit("change beta");
+    repository.push();
+
+    let reading = workspace::read(
+        repository.path(),
+        &installed("alpha", &installed_from),
+        installed_binaries(&["alpha"]).path(),
+    )
+    .unwrap()
+    .unwrap();
+
+    alpha(&reading)
+}
+
+#[test]
+fn a_commit_changing_a_workspace_crate_it_depends_on_by_path_drifts_it() {
+    let repository =
+        workspace_where_alpha_declares("[dependencies]\nbeta = { path = \"../beta\" }\n");
+
+    assert!(!alpha_once_beta_changes(&repository));
+}
+
+#[test]
+fn a_commit_changing_a_crate_its_dependency_depends_on_drifts_it() {
+    let repository =
+        workspace_where_alpha_declares("[dependencies]\ngamma = { path = \"../gamma\" }\n");
+    repository.write(
+        "tools/gamma/Cargo.toml",
+        "[package]\nname = \"gamma\"\nversion = \"0.1.0\"\n\n[dependencies]\nbeta = { path = \"../beta\" }\n",
+    );
+    repository.write("tools/gamma/src/lib.rs", "pub fn gamma() {}\n");
+    repository.commit("gamma sits between alpha and beta");
+    repository.push();
+
+    assert!(!alpha_once_beta_changes(&repository));
+}
+
+#[test]
+fn a_commit_changing_a_crate_inherited_from_the_workspace_dependencies_drifts_it() {
+    let repository =
+        workspace_where_alpha_declares("[dependencies]\nbeta = { workspace = true }\n");
+    repository.write(
+        "Cargo.toml",
+        "[workspace]\nresolver = \"2\"\nmembers = [\"tools/alpha\", \"tools/beta\"]\n\n[workspace.dependencies]\nbeta = { path = \"tools/beta\" }\n",
+    );
+    repository.commit("the workspace declares beta");
+    repository.push();
+
+    assert!(!alpha_once_beta_changes(&repository));
+}
+
+#[test]
+fn a_commit_changing_a_crate_it_depends_on_for_one_platform_drifts_it() {
+    let repository = workspace_where_alpha_declares(
+        "[target.'cfg(windows)'.dependencies]\nbeta = { path = \"../beta\" }\n",
+    );
+
+    assert!(!alpha_once_beta_changes(&repository));
+}
+
+#[test]
+fn a_commit_changing_a_crate_it_depends_on_to_build_drifts_it() {
+    let repository =
+        workspace_where_alpha_declares("[build-dependencies]\nbeta = { path = \"../beta\" }\n");
+
+    assert!(!alpha_once_beta_changes(&repository));
+}
+
+#[test]
+fn a_commit_changing_a_crate_only_its_tests_depend_on_leaves_it_converged() {
+    let repository =
+        workspace_where_alpha_declares("[dev-dependencies]\nbeta = { path = \"../beta\" }\n");
+
+    assert!(alpha_once_beta_changes(&repository));
+}
+
 #[test]
 fn a_member_that_builds_no_binary_is_not_reported_as_a_member() {
     let repository = workspace_holding_a_binary_and_a_library();
