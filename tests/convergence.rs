@@ -44,7 +44,7 @@ use {
     },
     fake_machine::{
         CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED, FakeMachine, LauncherCopy,
-        dotfiles_repository_path, repositories_root_path,
+        dotfiles_repository_path, filesystem_root, repositories_root_path,
     },
     std::{
         cell::Cell,
@@ -924,6 +924,37 @@ fn link_already_into_the_checkout(world: &mut MachineWorld, link_path: String, h
     world
         .links_already_into_the_checkout
         .push((PathBuf::from(link_path), PathBuf::from(held)));
+}
+
+#[given(expr = "the link {string} already resolves to {string} in another checkout")]
+fn link_already_into_another_checkout(world: &mut MachineWorld, link_path: String, held: String) {
+    world
+        .machine
+        .create_link(
+            &world.machine.resolve_against_home(Path::new(&link_path)),
+            &filesystem_root()
+                .join("Repositories")
+                .join("dotfiles")
+                .join(held),
+        )
+        .expect("the fake machine links wherever it is asked");
+}
+
+#[then(
+    expr = "the change set names {string} in the dotfiles repository as where the link should \
+            resolve"
+)]
+fn change_set_names_where_the_link_should_resolve(world: &mut MachineWorld, held: String) {
+    let rendered = world.change_set().to_string();
+    let expected = format!(
+        "instead of {}",
+        dotfiles_repository_path().join(held).display()
+    );
+
+    assert!(
+        rendered.contains(&expected),
+        "expected the change set to name {expected:?}, got:\n{rendered}"
+    );
 }
 
 #[given(expr = "Alice names her configurations relative to the checkout she runs in")]

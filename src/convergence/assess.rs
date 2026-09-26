@@ -773,9 +773,14 @@ fn assess_symlink(
         }
         None => Assessment::Drifted(format!("{} is missing", link_path.display()).into()),
         Some(target) if target == source_path => Assessment::Converged,
-        Some(target) => {
-            Assessment::Drifted(format!("links to {} instead", target.display()).into())
-        }
+        Some(target) => Assessment::Drifted(
+            format!(
+                "links to {} instead of {}",
+                target.display(),
+                source_path.display()
+            )
+            .into(),
+        ),
     }
 }
 

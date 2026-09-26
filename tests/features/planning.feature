@@ -445,3 +445,10 @@ Feature: Planning what a machine needs
     And Alice names her configurations from another checkout beside hers
     When Alice plans her configurations for a personal machine
     Then the link ".gitconfig" is planned as converged
+
+  Scenario: A link into another checkout is reported with where it should resolve instead
+    Given Alice declares the symlink "gitconfig/.gitconfig" at ".gitconfig"
+    And the link ".gitconfig" already resolves to "gitconfig/.gitconfig" in another checkout
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set names "gitconfig/.gitconfig" in the dotfiles repository as where the link should resolve
