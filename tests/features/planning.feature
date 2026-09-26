@@ -304,6 +304,16 @@ Feature: Planning what a machine needs
     Then the change set reports 1 change
     And the change set mentions "tool-use-statistics"
 
+  Scenario: A workspace crate cargo installed from a revision the clone lacks is blocked rather than a change
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from a revision the dotfiles repository does not hold
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set mentions "stop-gate"
+
   Scenario: A crate added to the workspace is planned without the configuration changing
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine

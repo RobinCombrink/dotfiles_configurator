@@ -1303,6 +1303,12 @@ fn installed_from_older_content(world: &mut MachineWorld, crate_name: String) {
     world.member(&crate_name).installed = InstalledState::At(content_named("what it held before"));
 }
 
+#[given(expr = "cargo installed {string} from a revision the dotfiles repository does not hold")]
+fn installed_from_an_unreadable_revision(world: &mut MachineWorld, crate_name: String) {
+    world.member(&crate_name).installed =
+        InstalledState::AtAnUnreadableRevision(Revision::from("2ae2ffff"));
+}
+
 fn content_named(content: &str) -> Fingerprint {
     Fingerprint {
         crate_subtree: ObjectHash::from(content),
