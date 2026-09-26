@@ -267,6 +267,23 @@ pub struct DesiredState {
     pub undeclared: Vec<Identity>,
 }
 
+#[cfg(test)]
+pub(crate) const HOME_DIRECTORY_IN_TESTS: &str = "/home/Alice";
+
+#[cfg(test)]
+impl DesiredState {
+    pub(crate) fn other_than_what_every_change_set_carries(&self) -> Vec<&ResolvedResource> {
+        self.resources
+            .iter()
+            .filter(|resource| {
+                resource
+                    .identity(Path::new(HOME_DIRECTORY_IN_TESTS))
+                    .is_none_or(|identity| !self.undeclared.contains(&identity))
+            })
+            .collect()
+    }
+}
+
 impl DesiredState {
     pub fn also_reporting(
         mut self,
@@ -415,7 +432,7 @@ mod tests {
     };
 
     const REPOSITORIES_ROOT: &str = "/repositories";
-    const HOME_DIRECTORY: &str = "/home/Alice";
+    const HOME_DIRECTORY: &str = HOME_DIRECTORY_IN_TESTS;
 
     fn dotfiles() -> GitHubRepository {
         GitHubRepository {
@@ -495,27 +512,13 @@ mod tests {
         ])
     }
 
-    fn other_than_what_every_change_set_carries(
-        desired_state: &DesiredState,
-    ) -> Vec<&ResolvedResource> {
-        let carried = &desired_state.undeclared;
-        desired_state
-            .resources
-            .iter()
-            .filter(|resource| {
-                resource
-                    .identity(Path::new(HOME_DIRECTORY))
-                    .is_none_or(|identity| !carried.contains(&identity))
-            })
-            .collect()
-    }
-
     #[test]
     fn a_configuration_read_from_a_repository_contributes_that_repository_as_a_clone() {
         let desired_state = a_readable_set(EMPTY).unwrap();
 
         assert_eq!(
-            other_than_what_every_change_set_carries(&desired_state)
+            desired_state
+                .other_than_what_every_change_set_carries()
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>(),
@@ -792,7 +795,8 @@ mod tests {
         )
         .unwrap();
 
-        let binary = other_than_what_every_change_set_carries(&desired_state)
+        let binary = desired_state
+            .other_than_what_every_change_set_carries()
             .into_iter()
             .find(|resource| resource.kind() == ResourceKind::Application)
             .expect("the personal configuration declared a released binary");
@@ -812,7 +816,8 @@ mod tests {
         ])
         .unwrap();
 
-        let symlink = other_than_what_every_change_set_carries(&desired_state)
+        let symlink = desired_state
+            .other_than_what_every_change_set_carries()
             .into_iter()
             .find(|resource| resource.kind() == ResourceKind::Symlink)
             .expect("the work configuration declared a symlink");

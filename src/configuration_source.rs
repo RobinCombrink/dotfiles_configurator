@@ -738,15 +738,9 @@ mod tests {
     fn rendered_other_than_what_every_change_set_carries(
         desired_state: &DesiredState,
     ) -> Vec<String> {
-        let carried = &desired_state.undeclared;
         desired_state
-            .resources
-            .iter()
-            .filter(|resource| {
-                resource
-                    .identity(Path::new("/home/Alice"))
-                    .is_none_or(|identity| !carried.contains(&identity))
-            })
+            .other_than_what_every_change_set_carries()
+            .into_iter()
             .map(ToString::to_string)
             .collect()
     }
