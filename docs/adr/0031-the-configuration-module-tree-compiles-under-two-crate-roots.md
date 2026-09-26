@@ -1,6 +1,8 @@
-# The configuration module tree compiles under two crate roots
+---
+status: superseded by [ADR 0036](0036-a-test-checks-the-committed-schema-and-the-build-never-writes-it.md)
+---
 
-Status: accepted (2026-09-13, comment-home review of the configuration module tree)
+# The configuration module tree compiles under two crate roots
 
 The configuration schema is derived from the same types the tool reads configurations with, so it
 cannot describe a document the tool would refuse. Deriving it means the build script compiles

@@ -46,5 +46,3 @@ the file nor the field has to be guessed.
   going to fail anyway.
 - A single fault is reported as it always was, unwrapped. Only two or more are gathered under a
   count, so the common case gains no ceremony.
-- `serde_path_to_error` is a build dependency as well as an ordinary one, because the build script
-  generates the schema by including the module that parses configurations.
