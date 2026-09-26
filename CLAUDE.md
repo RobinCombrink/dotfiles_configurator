@@ -1,7 +1,5 @@
 # dotfiles_configurator
 
-@~/.claude/stacks/rust.md
-
 ## Local rules
 
 - **`LocalMachine` is constructed by no test**: `LocalMachine::new` calls `dirs::download_dir()`,
