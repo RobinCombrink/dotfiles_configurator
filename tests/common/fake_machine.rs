@@ -6,8 +6,8 @@ use {
     anyhow::{Result, anyhow, bail},
     dotfiles_configurator::{
         configuration::{
-            ApplicationName, ApplicationSource, ClaudeMcpServer, CloneDepth, CrateName, Estates,
-            GitHubAccount, GitHubRepository, Installer, MachineClass, MachineManifest,
+            Answer, ApplicationName, ApplicationSource, ClaudeMcpServer, CloneDepth, CrateName,
+            Estates, GitHubAccount, GitHubRepository, Installer, MachineClass, MachineManifest,
             McpServerName, Migration, PresenceCheck, PythonInterpreter, ReleasedBinary,
             RepositoryClone, Shell, Tool, UvToolName, UvToolVersion, VariableName, VariableValue,
             WingetPackageId,
@@ -936,7 +936,7 @@ impl ReadMachine for FakeMachine {
         Ok(state.cargo_workspaces.get(repository_path).cloned())
     }
 
-    fn check_presence(&self, check: &PresenceCheck) -> Result<bool> {
+    fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>> {
         let declared = {
             let state = self.state.borrow();
             if state.unreadable_presence_checks.contains(check) {
@@ -949,19 +949,19 @@ impl ReadMachine for FakeMachine {
                 .map(|(_, answer)| *answer)
         };
         if let Some(answer) = declared {
-            return Ok(answer);
+            return Ok(answer.then_some(Answer::TheCheckItself));
         }
 
         match check {
-            PresenceCheck::PathExists { path } => {
-                Ok(self.path_exists(&self.resolve_against_home(path)))
-            }
+            PresenceCheck::PathExists { paths } => Ok(paths
+                .first_found(|candidate| self.path_exists(&self.resolve_against_home(candidate)))),
             PresenceCheck::CommandOnPath { command } => Ok(self
                 .state
                 .borrow()
                 .installed_applications
                 .iter()
-                .any(|installed| installed.to_string() == *command)),
+                .any(|installed| installed.to_string() == *command)
+                .then_some(Answer::TheCheckItself)),
             PresenceCheck::CommandOutputContains { .. } => {
                 bail!("no scenario declared what {check} answers on this machine")
             }

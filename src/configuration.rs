@@ -44,7 +44,7 @@ pub use {
         PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, UvToolVersion,
         VariableName, VariableValue, WingetPackageId,
     },
-    presence_check::PresenceCheck,
+    presence_check::{Answer, Candidates, PresenceCheck},
     requirement::{Requirement, Tool},
     resource::{
         Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,

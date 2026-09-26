@@ -28,6 +28,20 @@
             "kind": "repository",
             "owner": "Alice",
             "repository": "notes"
+        },
+        {
+            "kind": "application",
+            "shape": "installer",
+            "name": "Docker Desktop",
+            "source": {
+                "source": "uri",
+                "uri": "https://example.invalid/docker.exe",
+                "installer_file_name": "docker.exe"
+            },
+            "presence_check": {
+                "check": "path_exists",
+                "path": "Programs/Docker"
+            }
         }
     ],
     "notices": [

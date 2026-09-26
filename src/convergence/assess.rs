@@ -366,8 +366,11 @@ fn assess_repository(
 
 fn assess_installer(installer: &Installer, machine: &impl ReadMachine) -> Assessment {
     match machine.check_presence(&installer.presence_check) {
-        Ok(true) => Assessment::Converged,
-        Ok(false) => {
+        Ok(Some(answer)) => match installer.presence_check.answered(&answer) {
+            Some(finding) => Assessment::Found(finding.into()),
+            None => Assessment::Converged,
+        },
+        Ok(None) => {
             Assessment::Drifted(format!("not installed — {}", installer.presence_check).into())
         }
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
@@ -881,8 +884,8 @@ fn assess_command(command: &Command, machine: &impl ReadMachine) -> Assessment {
     };
 
     match machine.check_presence(check) {
-        Ok(true) => Assessment::Converged,
-        Ok(false) => Assessment::Drifted(format!("not yet done — {check}").into()),
+        Ok(Some(_)) => Assessment::Converged,
+        Ok(None) => Assessment::Drifted(format!("not yet done — {check}").into()),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!("presence could not be read: {error}").into(),
         )),

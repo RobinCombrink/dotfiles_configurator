@@ -2,8 +2,8 @@ use {
     crate::{
         TOOL_DIRECTORY,
         configuration::{
-            CrateName, GitHubAccount, GitHubRepository, McpServerName, PresenceCheck, Shell, Tool,
-            VariableName, VariableValue, path_folding,
+            Answer, CrateName, GitHubAccount, GitHubRepository, McpServerName, PresenceCheck,
+            Shell, Tool, VariableName, VariableValue, path_folding,
         },
         machine::{
             environment_reading::SearchPathReading,
@@ -106,7 +106,7 @@ pub trait ReadMachine {
         installed: &BTreeMap<CrateName, Revision>,
     ) -> Result<Option<WorkspaceReading>>;
 
-    fn check_presence(&self, check: &PresenceCheck) -> Result<bool>;
+    fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>>;
 
     fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool>;
 

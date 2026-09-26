@@ -14,7 +14,7 @@ use {
     dotfiles_configurator::{
         configuration::{
             Application, ApplicationName, ApplicationSource, AssetPattern, BUILD_GENERATION,
-            BinaryName, CargoWorkspace, ClaudeMcpServer, CloneDepth, Configuration,
+            BinaryName, Candidates, CargoWorkspace, ClaudeMcpServer, CloneDepth, Configuration,
             ConfigurationName, Context, CrateName, DeclaredNotice, EnvironmentVariable, EstateName,
             EstateOwner, Estates, GitHubAccount, Installer, MachineClass, MachineManifest,
             McpScope, McpServerName, Migration, Notice, OLDEST_READABLE_GENERATION, Package,
@@ -316,14 +316,55 @@ fn declare_application(world: &mut MachineWorld, name: String) {
 
 #[given(expr = "Alice declares the application {string} checked by the path {string}")]
 fn declare_application_checked_by_a_path(world: &mut MachineWorld, name: String, path: String) {
+    declare_application_checked_by_candidates(world, &name, &[path]);
+}
+
+#[given(
+    expr = "Alice declares the application {string} checked by the paths {string} and {string}"
+)]
+fn declare_application_checked_by_two_paths(
+    world: &mut MachineWorld,
+    name: String,
+    first: String,
+    second: String,
+) {
+    declare_application_checked_by_candidates(world, &name, &[first, second]);
+}
+
+fn declare_application_checked_by_candidates(
+    world: &mut MachineWorld,
+    name: &str,
+    paths: &[String],
+) {
     world
         .resources
         .push(Resource::Application(application_checked_by(
-            &name,
+            name,
             PresenceCheck::PathExists {
-                path: PathBuf::from(path),
+                paths: Candidates::try_from(paths.iter().map(PathBuf::from).collect::<Vec<_>>())
+                    .expect("a scenario names at least one candidate"),
             },
         )));
+}
+
+#[then(expr = "the change set names {string} as the candidate that answered for {string}")]
+fn change_set_names_the_answering_candidate(
+    world: &mut MachineWorld,
+    candidate: String,
+    name: String,
+) {
+    let change_set = world.change_set();
+    let finding = change_set
+        .found
+        .iter()
+        .find(|found| found.resource.to_string().contains(&name))
+        .map(|found| found.finding.to_string())
+        .unwrap_or_else(|| panic!("nothing was found for {name}:\n{change_set}"));
+
+    assert!(
+        finding.starts_with(&format!("answered by {candidate}")),
+        "{finding}"
+    );
 }
 
 #[given(expr = "{string} is on Alice's machine")]

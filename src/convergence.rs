@@ -24,8 +24,25 @@ pub use {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Assessment {
     Converged,
+    // ADR 0032
+    Found(Finding),
     Drifted(DriftReason),
     Unassessable(Impediment),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Finding(String);
+
+impl From<String> for Finding {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl Display for Finding {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,10 +123,17 @@ pub struct Blocked {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Found {
+    pub resource: ResolvedResource,
+    pub finding: Finding,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangeSet {
     pub changes: Vec<Change>,
     pub blocked: Vec<Blocked>,
     pub converged: Vec<ResolvedResource>,
+    pub found: Vec<Found>,
     pub notices: Vec<Notice>,
     pub migrations: Vec<Migration>,
 }
@@ -157,9 +181,14 @@ pub async fn plan(
     let mut changes = Vec::new();
     let mut blocked = Vec::new();
     let mut converged = Vec::new();
+    let mut found = Vec::new();
     for (_, _, resource, assessment) in assessed {
         match assessment {
             Assessment::Converged => converged.push(resource),
+            Assessment::Found(finding) => {
+                converged.push(resource.clone());
+                found.push(Found { resource, finding });
+            }
             Assessment::Drifted(reason) => changes.push(Change { resource, reason }),
             Assessment::Unassessable(impediment) => blocked.push(Blocked {
                 resource,
@@ -186,6 +215,7 @@ pub async fn plan(
             changes,
             blocked,
             converged,
+            found,
             notices,
             migrations: desired_state.migrations.clone(),
         },
@@ -207,6 +237,13 @@ impl Display for ChangeSet {
                 formatter,
                 "  blocked {} ({})",
                 blocked.resource, blocked.impediment
+            )?;
+        }
+        for found in &self.found {
+            writeln!(
+                formatter,
+                "  found   {} ({})",
+                found.resource, found.finding
             )?;
         }
         for migration in &self.migrations {

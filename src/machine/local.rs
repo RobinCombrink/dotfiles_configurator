@@ -1,7 +1,7 @@
 use {
     crate::{
         configuration::{
-            ApplicationSource, ArchiveEntry, CloneDepth, CrateName, GitHubAccount,
+            Answer, ApplicationSource, ArchiveEntry, CloneDepth, CrateName, GitHubAccount,
             GitHubRepository, Installer, Migration, PresenceCheck, ReleasedBinary, RepositoryClone,
             Shell, VariableName, VariableValue,
         },
@@ -488,12 +488,13 @@ impl ReadMachine for LocalMachine<'_, '_> {
         workspace::read(repository_path, installed, &self.cargo_binaries_directory)
     }
 
-    fn check_presence(&self, check: &PresenceCheck) -> Result<bool> {
+    fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>> {
         match check {
-            PresenceCheck::PathExists { path } => {
-                Ok(self.path_exists(&self.resolve_against_home(path)))
+            PresenceCheck::PathExists { paths } => Ok(paths
+                .first_found(|candidate| self.path_exists(&self.resolve_against_home(candidate)))),
+            PresenceCheck::CommandOnPath { command } => {
+                Ok(program_is_on_path(command).then_some(Answer::TheCheckItself))
             }
-            PresenceCheck::CommandOnPath { command } => Ok(program_is_on_path(command)),
             PresenceCheck::CommandOutputContains {
                 shell,
                 args,
@@ -501,7 +502,10 @@ impl ReadMachine for LocalMachine<'_, '_> {
             } => {
                 let (program, arguments) = shell_invocation(*shell, args);
                 let output = capture(Path::new(&program), &arguments, self.report)?;
-                Ok(output.standard_output.contains(contains))
+                Ok(output
+                    .standard_output
+                    .contains(contains)
+                    .then_some(Answer::TheCheckItself))
             }
         }
     }

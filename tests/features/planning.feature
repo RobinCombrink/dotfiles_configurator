@@ -44,6 +44,24 @@ Feature: Planning what a machine needs
     Then the change set reports 1 change
     And the change set mentions "Neovim"
 
+  Scenario Outline: An application found at either of its paths is converged naming the one that answered
+    Given Alice declares the application "Docker" checked by the paths "Programs/Docker" and "AppData/Docker"
+    And "<found>" is on Alice's machine
+    When Alice plans
+    Then the change set reports the machine as converged
+    And the change set names "<found>" as the candidate that answered for "Docker"
+
+    Examples:
+      | found           |
+      | Programs/Docker |
+      | AppData/Docker  |
+
+  Scenario: An application at none of its paths is reported as a change naming every one
+    Given Alice declares the application "Docker" checked by the paths "Programs/Docker" and "AppData/Docker"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "none of Programs/Docker, AppData/Docker exists"
+
   Scenario: A released binary the machine does not have is reported as a change
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
     And the latest release of "BurntSushi/ripgrep" is "v15.1.0"

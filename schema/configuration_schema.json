@@ -196,6 +196,14 @@
         }
       ]
     },
+    "Candidates": {
+      "description": "The locations a path check accepts, at least one. The check is satisfied by any of them.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
     "CargoPackage": {
       "type": "object",
       "properties": {
@@ -493,20 +501,20 @@
       "description": "An author-declared test that establishes whether a resource is already in its desired state,\nused where the machine cannot be asked directly.\n\nThe forms are a fixed set rather than arbitrary shell so that plan's guarantee is precise: plan\ncannot change a machine through anything the tool decides, and can change one only through a\ncheck the configuration's author wrote and declared as a check. Two of the three forms cannot\nchange anything by construction; `CommandOutputContains` is the narrow, deliberate escape\nhatch. See ADR 0006.",
       "oneOf": [
         {
-          "description": "A path exists. Relative paths resolve against the home directory.",
+          "description": "Any of the candidate paths exists. Relative paths resolve against the home directory.",
           "type": "object",
           "properties": {
             "check": {
               "type": "string",
               "const": "path_exists"
             },
-            "path": {
-              "type": "string"
+            "paths": {
+              "$ref": "#/$defs/Candidates"
             }
           },
           "required": [
             "check",
-            "path"
+            "paths"
           ]
         },
         {
