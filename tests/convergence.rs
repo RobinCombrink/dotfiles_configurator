@@ -14,12 +14,13 @@ use {
     dotfiles_configurator::{
         configuration::{
             Application, ApplicationName, ApplicationSource, AssetPattern, BUILD_GENERATION,
-            BinaryName, CargoWorkspace, ClaudeMcpServer, Configuration, ConfigurationName, Context,
-            CrateName, DeclaredNotice, EnvironmentVariable, EstateName, EstateOwner, Estates,
-            GitHubAccount, Installer, MachineClass, MachineManifest, McpScope, McpServerName,
-            Migration, Notice, OLDEST_READABLE_GENERATION, Package, PresenceCheck,
-            PythonInterpreter, Registration, Resource, SearchPathDirectory, SearchPathEntry, Shell,
-            Symlink, Tool, UvToolPackage, UvToolVersion, Variable, VariableName, VariableValue,
+            BinaryName, CargoWorkspace, ClaudeMcpServer, CloneDepth, Configuration,
+            ConfigurationName, Context, CrateName, DeclaredNotice, EnvironmentVariable, EstateName,
+            EstateOwner, Estates, GitHubAccount, Installer, MachineClass, MachineManifest,
+            McpScope, McpServerName, Migration, Notice, OLDEST_READABLE_GENERATION, Package,
+            PresenceCheck, PythonInterpreter, Registration, RepositoryClone, Resource,
+            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
+            UvToolVersion, Variable, VariableName, VariableValue,
         },
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -49,6 +50,7 @@ use {
         cell::Cell,
         collections::{BTreeMap, BTreeSet},
         env, fs,
+        num::NonZeroU32,
         path::{Path, PathBuf},
         process,
         sync::atomic::{AtomicUsize, Ordering},
@@ -957,9 +959,46 @@ fn employers_configuration_linking(
 
 #[given(expr = "Alice's employer's configuration declares the repository {string}")]
 fn employers_configuration_declares_a_repository(world: &mut MachineWorld, owner_and_name: String) {
-    world
-        .employers_resources
-        .push(Resource::Repository(named_repository(&owner_and_name)));
+    world.employers_resources.push(Resource::Repository(
+        named_repository(&owner_and_name).into(),
+    ));
+}
+
+fn clone_depth(commits: u32) -> CloneDepth {
+    CloneDepth::from(NonZeroU32::new(commits).expect("a scenario declares a depth above zero"))
+}
+
+#[given(expr = "Alice declares the repository {string}")]
+fn declare_repository(world: &mut MachineWorld, owner_and_name: String) {
+    world.resources.push(Resource::Repository(
+        named_repository(&owner_and_name).into(),
+    ));
+}
+
+#[given(expr = "Alice declares the repository {string} at a depth of {int}")]
+fn declare_repository_at_a_depth(world: &mut MachineWorld, owner_and_name: String, commits: u32) {
+    world.resources.push(Resource::Repository(RepositoryClone {
+        repository: named_repository(&owner_and_name),
+        depth: Some(clone_depth(commits)),
+    }));
+}
+
+#[then(expr = "the clone of {string} holds its whole history")]
+fn clone_holds_its_whole_history(world: &mut MachineWorld, owner_and_name: String) {
+    let clone_directory = clone_directory_of(&owner_and_name);
+
+    assert!(world.machine.path_exists(&clone_directory.join(".git")));
+    assert_eq!(world.machine.shallow_clone_depth(&clone_directory), None);
+}
+
+#[then(expr = "the clone of {string} holds {int} commit(s) of history")]
+fn clone_holds_commits_of_history(world: &mut MachineWorld, owner_and_name: String, commits: u32) {
+    assert_eq!(
+        world
+            .machine
+            .shallow_clone_depth(&clone_directory_of(&owner_and_name)),
+        Some(clone_depth(commits))
+    );
 }
 
 #[given(
@@ -1894,11 +1933,14 @@ fn under_alices_home(world: &MachineWorld, path: &str) -> PathBuf {
     world.machine.home_directory().join(path)
 }
 
-fn inside_the_clone_of(owner_and_name: &str, path: &str) -> PathBuf {
+fn clone_directory_of(owner_and_name: &str) -> PathBuf {
     repositories_root_path()
         .join("Personal")
         .join(named_repository(owner_and_name).repository.as_ref())
-        .join(path)
+}
+
+fn inside_the_clone_of(owner_and_name: &str, path: &str) -> PathBuf {
+    clone_directory_of(owner_and_name).join(path)
 }
 
 fn a_variable_named(name: &str) -> VariableName {

@@ -17,7 +17,7 @@ use {
     std::{
         collections::BTreeMap,
         fmt::Display,
-        num::NonZeroUsize,
+        num::{NonZeroU32, NonZeroUsize},
         path::{Path, PathBuf},
     },
     strum::EnumDiscriminants,
@@ -34,7 +34,7 @@ use {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[strum_discriminants(name(ResourceKind), derive(PartialOrd, Ord, Hash))]
 pub enum Resource {
-    Repository(GitHubRepository),
+    Repository(RepositoryClone),
     Application(Application),
     Package(Package),
     EnvironmentVariable(EnvironmentVariable),
@@ -122,7 +122,7 @@ fn shell_requirement(shell: Shell) -> Option<Requirement> {
 impl Display for Resource {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Resource::Repository(name) => write!(formatter, "repository {name}"),
+            Resource::Repository(clone) => write!(formatter, "repository {clone}"),
             Resource::Application(application) => write!(formatter, "application {application}"),
             Resource::Package(package) => write!(formatter, "package {package}"),
             Resource::EnvironmentVariable(variable) => write!(formatter, "{variable}"),
@@ -179,6 +179,64 @@ impl GitHubRepository {
 impl Display for GitHubRepository {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{}/{}", self.owner, self.repository)
+    }
+}
+
+// ADR 0038
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(
+    description = "A clone of a repository on GitHub, holding its whole history unless it \
+                   declares a depth."
+)]
+pub struct RepositoryClone {
+    #[serde(flatten)]
+    pub repository: GitHubRepository,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "How many commits of history the clone holds, counted back from the tip. \
+                       Absent, the clone holds all of it."
+    )]
+    pub depth: Option<CloneDepth>,
+}
+
+impl From<GitHubRepository> for RepositoryClone {
+    fn from(repository: GitHubRepository) -> Self {
+        Self {
+            repository,
+            depth: None,
+        }
+    }
+}
+
+impl Display for RepositoryClone {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.depth {
+            None => Display::fmt(&self.repository, formatter),
+            Some(depth) => write!(formatter, "{} at depth {depth}", self.repository),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(transparent)]
+#[repr(transparent)]
+pub struct CloneDepth(NonZeroU32);
+
+impl From<NonZeroU32> for CloneDepth {
+    fn from(commits: NonZeroU32) -> Self {
+        Self(commits)
+    }
+}
+
+impl CloneDepth {
+    pub fn commits(self) -> NonZeroU32 {
+        self.0
+    }
+}
+
+impl Display for CloneDepth {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, formatter)
     }
 }
 
@@ -677,6 +735,45 @@ mod tests {
         crate::configuration::estate::{EstateName, EstateOwner},
         std::collections::BTreeSet,
     };
+
+    fn repository_resource(fields: &str) -> Result<Resource, serde_json::Error> {
+        serde_json::from_str(&format!(
+            r#"{{ "kind": "repository", "owner": "flutter", "repository": "flutter"{fields} }}"#
+        ))
+    }
+
+    #[test]
+    fn a_repository_declaring_no_depth_is_cloned_with_its_whole_history() {
+        let Resource::Repository(clone) = repository_resource("").unwrap() else {
+            panic!("expected a repository");
+        };
+
+        assert_eq!(clone.depth, None);
+    }
+
+    #[test]
+    fn a_repository_declaring_a_depth_is_cloned_holding_only_that_much_history() {
+        let Resource::Repository(clone) = repository_resource(r#", "depth": 1"#).unwrap() else {
+            panic!("expected a repository");
+        };
+
+        assert_eq!(
+            clone.depth,
+            Some(CloneDepth::from(NonZeroU32::new(1).unwrap()))
+        );
+    }
+
+    #[test]
+    fn a_repository_declaring_a_depth_of_nothing_is_not_read() {
+        assert!(repository_resource(r#", "depth": 0"#).is_err());
+    }
+
+    #[test]
+    fn a_repository_declaring_no_depth_is_written_back_without_one() {
+        let written = serde_json::to_string(&repository_resource("").unwrap()).unwrap();
+
+        assert!(!written.contains("depth"), "{written}");
+    }
 
     #[test]
     fn an_archive_entry_is_known_by_a_name_carrying_no_platform_executable_suffix() {

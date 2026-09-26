@@ -229,7 +229,7 @@ impl ResolvedConfiguration {
             .origin
             .files_root
             .repository()
-            .map(|repository| self.pair(Resource::Repository(repository)));
+            .map(|repository| self.pair(Resource::Repository(repository.into())));
 
         files_come_from
             .into_iter()

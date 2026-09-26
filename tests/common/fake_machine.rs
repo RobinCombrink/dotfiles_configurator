@@ -6,10 +6,11 @@ use {
     anyhow::{Result, anyhow, bail},
     dotfiles_configurator::{
         configuration::{
-            ApplicationName, ApplicationSource, ClaudeMcpServer, CrateName, Estates, GitHubAccount,
-            GitHubRepository, Installer, MachineClass, MachineManifest, McpServerName, Migration,
-            PresenceCheck, PythonInterpreter, ReleasedBinary, Shell, Tool, UvToolName,
-            UvToolVersion, VariableName, VariableValue, WingetPackageId,
+            ApplicationName, ApplicationSource, ClaudeMcpServer, CloneDepth, CrateName, Estates,
+            GitHubAccount, GitHubRepository, Installer, MachineClass, MachineManifest,
+            McpServerName, Migration, PresenceCheck, PythonInterpreter, ReleasedBinary,
+            RepositoryClone, Shell, Tool, UvToolName, UvToolVersion, VariableName, VariableValue,
+            WingetPackageId,
         },
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
@@ -73,6 +74,7 @@ struct MachineState {
     releases: BTreeMap<GitHubRepository, ReleaseReading>,
     release_reads: Vec<(GitHubRepository, GitHubAccount)>,
     clones: Vec<(GitHubRepository, GitHubAccount)>,
+    shallow_clones: BTreeMap<PathBuf, CloneDepth>,
     version_output_by_binary_path: BTreeMap<PathBuf, String>,
     user_search_path: Vec<PathBuf>,
     machine_search_path: Vec<PathBuf>,
@@ -645,6 +647,14 @@ impl FakeMachine {
         materialise_clone(&mut state, &self.dotfiles_repository_path);
     }
 
+    pub fn shallow_clone_depth(&self, clone_directory: &Path) -> Option<CloneDepth> {
+        self.state
+            .borrow()
+            .shallow_clones
+            .get(clone_directory)
+            .copied()
+    }
+
     pub fn dotfiles_repository_is_cloned(&self) -> bool {
         self.state
             .borrow()
@@ -690,6 +700,7 @@ impl FakeMachine {
             releases,
             release_reads: _,
             clones,
+            shallow_clones,
             version_output_by_binary_path,
             user_search_path,
             machine_search_path,
@@ -705,7 +716,7 @@ impl FakeMachine {
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
              {executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|{releases:?}|\
-             {clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
+             {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
              {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\
              {mcp_servers_claude_refuses_to_add:?}"
         )
@@ -1024,13 +1035,20 @@ impl WriteMachine for FakeMachine {
 
     async fn clone_repository(
         &self,
-        repository: &GitHubRepository,
+        clone: &RepositoryClone,
         clone_directory: &Path,
         account: &GitHubAccount,
     ) -> Result<()> {
         let mut state = self.state.borrow_mut();
-        state.clones.push((repository.clone(), account.clone()));
+        state
+            .clones
+            .push((clone.repository.clone(), account.clone()));
         materialise_clone(&mut state, clone_directory);
+        if let Some(depth) = clone.depth {
+            state
+                .shallow_clones
+                .insert(clone_directory.to_path_buf(), depth);
+        }
         Ok(())
     }
 

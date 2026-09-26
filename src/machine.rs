@@ -166,7 +166,7 @@ pub trait WriteMachine: ReadMachine {
 
     fn clone_repository(
         &self,
-        repository: &crate::configuration::GitHubRepository,
+        clone: &crate::configuration::RepositoryClone,
         clone_directory: &Path,
         account: &GitHubAccount,
     ) -> impl std::future::Future<Output = Result<()>>;

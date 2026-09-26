@@ -265,6 +265,16 @@ Feature: Applying a change set
     When Alice applies
     Then "Employer/tooling" is cloned as "Employer"
 
+  Scenario: A repository declaring no depth is cloned with its whole history
+    Given Alice declares the repository "Alice/notes"
+    When Alice applies
+    Then the clone of "Alice/notes" holds its whole history
+
+  Scenario: A repository declaring a depth is cloned holding only that much history
+    Given Alice declares the repository "flutter/flutter" at a depth of 1
+    When Alice applies
+    Then the clone of "flutter/flutter" holds 1 commit of history
+
   Scenario: An application the work configuration declares is installed as the work account
     Given Alice's employer's configuration declares the application "tooling" released by "Vendor/tooling"
     And the latest release of "Vendor/tooling" is "v1.0.0"

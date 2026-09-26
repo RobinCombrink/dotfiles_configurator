@@ -612,6 +612,31 @@
         "version_word"
       ]
     },
+    "RepositoryClone": {
+      "description": "A clone of a repository on GitHub, holding its whole history unless it declares a depth.",
+      "type": "object",
+      "properties": {
+        "depth": {
+          "description": "How many commits of history the clone holds, counted back from the tip. Absent, the clone holds all of it.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 1
+        },
+        "owner": {
+          "$ref": "#/$defs/RepositoryOwner"
+        },
+        "repository": {
+          "$ref": "#/$defs/RepositoryName"
+        }
+      },
+      "required": [
+        "owner",
+        "repository"
+      ]
+    },
     "RepositoryName": {
       "description": "A repository's own name, which is also the name of the directory it is cloned into.",
       "type": "string"
@@ -631,7 +656,7 @@
               "const": "repository"
             }
           },
-          "$ref": "#/$defs/GitHubRepository",
+          "$ref": "#/$defs/RepositoryClone",
           "required": [
             "kind"
           ]

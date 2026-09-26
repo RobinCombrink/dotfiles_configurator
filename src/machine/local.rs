@@ -1,8 +1,9 @@
 use {
     crate::{
         configuration::{
-            ApplicationSource, ArchiveEntry, CrateName, GitHubAccount, GitHubRepository, Installer,
-            Migration, PresenceCheck, ReleasedBinary, Shell, VariableName, VariableValue,
+            ApplicationSource, ArchiveEntry, CloneDepth, CrateName, GitHubAccount,
+            GitHubRepository, Installer, Migration, PresenceCheck, ReleasedBinary, RepositoryClone,
+            Shell, VariableName, VariableValue,
         },
         configuration_source::WriteSource,
         github::GitHubAccess,
@@ -156,6 +157,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
         token: &'token secrecy::SecretString,
         account: &'token str,
         progress: &'token ProgressBar,
+        depth: FetchDepth,
     ) -> FetchOptions<'token> {
         let mut callbacks = RemoteCallbacks::new();
         callbacks.credentials(move |_url, username_from_url, _allowed| {
@@ -169,8 +171,37 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
 
         let mut fetch_options = FetchOptions::new();
         fetch_options.remote_callbacks(callbacks);
-        fetch_options.depth(1);
+        fetch_options.depth(depth.as_git_depth());
         fetch_options
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FetchDepth {
+    WholeHistory,
+    Commits(CloneDepth),
+}
+
+impl FetchDepth {
+    const GIT_WHOLE_HISTORY: i32 = 0;
+    const GIT_UNSHALLOW: i32 = i32::MAX;
+
+    fn as_git_depth(self) -> i32 {
+        match self {
+            FetchDepth::WholeHistory => Self::GIT_WHOLE_HISTORY,
+            FetchDepth::Commits(depth) => {
+                i32::try_from(depth.commits().get()).unwrap_or(Self::GIT_UNSHALLOW)
+            }
+        }
+    }
+}
+
+impl From<&RepositoryClone> for FetchDepth {
+    fn from(clone: &RepositoryClone) -> Self {
+        match clone.depth {
+            None => FetchDepth::WholeHistory,
+            Some(depth) => FetchDepth::Commits(depth),
+        }
     }
 }
 
@@ -565,10 +596,11 @@ impl WriteMachine for LocalMachine<'_, '_> {
 
     async fn clone_repository(
         &self,
-        repository: &GitHubRepository,
+        clone: &RepositoryClone,
         clone_directory: &Path,
         account: &GitHubAccount,
     ) -> Result<()> {
+        let repository = &clone.repository;
         let authenticated = self.github.account(account)?;
         let owner = repository.owner.as_ref();
         let name = repository.repository.as_ref();
@@ -597,6 +629,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
                 authenticated.token().secret(),
                 account.as_ref(),
                 &progress,
+                FetchDepth::from(clone),
             ))
             .clone(url.as_str(), &directory_path)
             .map(|_| ())

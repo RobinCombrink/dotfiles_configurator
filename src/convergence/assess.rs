@@ -281,8 +281,8 @@ pub fn assess(
     }
 
     match resource.declared() {
-        Resource::Repository(repository) => {
-            assess_repository(&resource.clone_directory(repository), machine)
+        Resource::Repository(clone) => {
+            assess_repository(&resource.clone_directory(&clone.repository), machine)
         }
         Resource::Application(Application::Installer(installer)) => {
             assess_installer(installer, machine)

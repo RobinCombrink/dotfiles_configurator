@@ -357,9 +357,9 @@ mod tests {
     #[test]
     fn the_owner_of_a_repository_an_estate_only_clones_is_not_one_of_its_owners() {
         let mut personal = configuration("RobinCombrink", declaring("personal", &[]));
-        personal
-            .resources
-            .push(Resource::Repository(repository("flutter", "flutter")));
+        personal.resources.push(Resource::Repository(
+            repository("flutter", "flutter").into(),
+        ));
 
         let estates = resolved(&[personal]).unwrap();
 

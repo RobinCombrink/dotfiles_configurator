@@ -7,7 +7,8 @@ use {
         path_folding,
         resource::{
             Application, ClaudeMcpServer, EnvironmentVariable, GitHubRepository, Package,
-            Registration, Resource, SearchPathDirectory, SearchPathEntry, Symlink, Variable,
+            Registration, RepositoryClone, Resource, SearchPathDirectory, SearchPathEntry, Symlink,
+            Variable,
         },
     },
     std::{
@@ -85,9 +86,12 @@ impl Resource {
         home_directory: &Path,
     ) -> Option<Identity> {
         match self {
-            Resource::Repository(GitHubRepository { repository, .. }) => Some(
-                Identity::ClonedRepository(repositories_directory.join(repository.as_ref())),
-            ),
+            Resource::Repository(RepositoryClone {
+                repository: GitHubRepository { repository, .. },
+                ..
+            }) => Some(Identity::ClonedRepository(
+                repositories_directory.join(repository.as_ref()),
+            )),
             Resource::Application(Application::Installer(installer)) => {
                 Some(Identity::Application(installer.name.clone()))
             }

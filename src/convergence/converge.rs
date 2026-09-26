@@ -3,7 +3,8 @@ use {
         configuration::{
             Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
             EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, MachineManifest,
-            Package, Registration, ReleasedBinary, Resource, Symlink, UvToolPackage, WingetPackage,
+            Package, Registration, ReleasedBinary, RepositoryClone, Resource, Symlink,
+            UvToolPackage, WingetPackage,
         },
         convergence::{Change, SourceReadings, search_path_directory, symlink_location},
         desired_state::ResolvedResource,
@@ -27,10 +28,10 @@ pub async fn converge(
         Resource::Package(Package::Cargo(package)) => {
             return converge_cargo_package(package, resource, machine, readings);
         }
-        Resource::Repository(repository) => {
+        Resource::Repository(clone) => {
             converge_repository(
-                repository,
-                &resource.clone_directory(repository),
+                clone,
+                &resource.clone_directory(&clone.repository),
                 machine,
                 resource.account(),
             )
@@ -132,13 +133,13 @@ pub async fn install_release(
 }
 
 async fn converge_repository(
-    repository: &GitHubRepository,
+    clone: &RepositoryClone,
     clone_directory: &Path,
     machine: &impl WriteMachine,
     account: &GitHubAccount,
 ) -> Result<()> {
     machine
-        .clone_repository(repository, clone_directory, account)
+        .clone_repository(clone, clone_directory, account)
         .await
 }
 
