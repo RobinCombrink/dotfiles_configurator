@@ -1,5 +1,14 @@
 use std::io;
 
+// ADR 0031
+#[allow(dead_code, unused_imports)]
+#[path = "src/configuration.rs"]
+mod configuration;
+
+#[allow(dead_code, unused_imports)]
+#[path = "src/version.rs"]
+mod version;
+
 fn main() -> io::Result<()> {
     set_windows_icon()
 }

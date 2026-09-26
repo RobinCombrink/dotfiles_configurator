@@ -37,6 +37,15 @@ tempfile = "3.20.0"
 name = "convergence"
 harness = false
 
+[build-dependencies]
+anyhow = "1.0.98"
+schemars = { version = "1.0.4", features = ["url2"] }
+serde = "1.0.219"
+serde_json = "1.0.142"
+serde_path_to_error = "0.1.17"
+strum = { version = "0.28.0", features = ["derive"] }
+url = { version = "2.5.4", features = ["serde"] }
+
 [target.'cfg(target_family = "windows")'.build-dependencies]
 winresource = "0.1.23"
 
