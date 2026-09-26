@@ -638,16 +638,56 @@ impl FakeMachine {
 
     pub fn fingerprint(&self) -> String {
         let state = self.state.borrow();
+        let MachineState {
+            paths,
+            links,
+            text_files,
+            tools,
+            installed_applications,
+            winget_packages,
+            winget_packages_matched_only_by_identifier,
+            uv_tools,
+            uv_newest_versions,
+            uv_tool_interpreters,
+            uv_running_launchers,
+            uv_tools_failing_to_upgrade,
+            failing_applications,
+            silent_applications,
+            install_attempts,
+            installed_as,
+            commands_run,
+            repository_contents,
+            reads: _,
+            reads_answered_with: _,
+            presence_check_answers: _,
+            unreadable_presence_checks,
+            unreadable_releases,
+            cargo_workspaces,
+            workspace_reads: _,
+            executing_binaries,
+            superseded_images,
+            cargo_installs,
+            releases,
+            release_reads: _,
+            clones,
+            version_output_by_binary_path,
+            user_search_path,
+            machine_search_path,
+            environment_variables,
+            claude_mcp_servers,
+            mcp_servers_claude_refuses_to_add,
+        } = &*state;
         format!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
-            state.paths,
-            state.links,
-            state.installed_applications,
-            state.winget_packages,
-            state.uv_tools,
-            state.commands_run,
-            state.user_search_path,
-            state.environment_variables
+            "{paths:?}|{links:?}|{text_files:?}|{tools:?}|{installed_applications:?}|\
+             {winget_packages:?}|{winget_packages_matched_only_by_identifier:?}|{uv_tools:?}|\
+             {uv_newest_versions:?}|{uv_tool_interpreters:?}|{uv_running_launchers:?}|\
+             {uv_tools_failing_to_upgrade:?}|{failing_applications:?}|{silent_applications:?}|\
+             {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
+             {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
+             {executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|{releases:?}|\
+             {clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
+             {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\
+             {mcp_servers_claude_refuses_to_add:?}"
         )
     }
 }
