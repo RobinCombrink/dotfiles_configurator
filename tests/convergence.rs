@@ -67,7 +67,7 @@ struct MachineWorld {
     notices: Vec<DeclaredNotice>,
     configurations_come_from_a_repository: bool,
     configurations_are_inside_a_checkout: bool,
-    configurations_are_named_relative_to_the_checkout: bool,
+    configurations_are_named: SourceNaming,
     files_the_checkout_holds: Vec<PathBuf>,
     links_already_into_the_checkout: Vec<(PathBuf, PathBuf)>,
     checkout: Option<PathBuf>,
@@ -89,6 +89,13 @@ struct MachineWorld {
     report: Option<RunReport>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceNaming {
+    InFull,
+    RelativeToTheCheckout,
+    FromACheckoutBesideIt,
+}
+
 impl MachineWorld {
     fn new() -> Self {
         Self {
@@ -99,7 +106,7 @@ impl MachineWorld {
             notices: Vec::new(),
             configurations_come_from_a_repository: false,
             configurations_are_inside_a_checkout: true,
-            configurations_are_named_relative_to_the_checkout: false,
+            configurations_are_named: SourceNaming::InFull,
             files_the_checkout_holds: Vec::new(),
             links_already_into_the_checkout: Vec::new(),
             checkout: None,
@@ -919,7 +926,12 @@ fn link_already_into_the_checkout(world: &mut MachineWorld, link_path: String, h
 
 #[given(expr = "Alice names her configurations relative to the checkout she runs in")]
 fn configurations_named_relative_to_the_checkout(world: &mut MachineWorld) {
-    world.configurations_are_named_relative_to_the_checkout = true;
+    world.configurations_are_named = SourceNaming::RelativeToTheCheckout;
+}
+
+#[given(expr = "Alice names her configurations from another checkout beside hers")]
+fn configurations_named_from_a_checkout_beside_it(world: &mut MachineWorld) {
+    world.configurations_are_named = SourceNaming::FromACheckoutBesideIt;
 }
 
 #[given(expr = "Alice keeps her configurations outside any checkout")]
@@ -1468,9 +1480,10 @@ async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
             )
             .expect("the fake machine links wherever it is asked");
     }
-    let first_source = match world.configurations_are_named_relative_to_the_checkout {
-        true => named_relative_to(&checkout, &directory),
-        false => named_in_full(directory),
+    let first_source = match world.configurations_are_named {
+        SourceNaming::InFull => named_in_full(directory),
+        SourceNaming::RelativeToTheCheckout => named_relative_to(&checkout, &directory),
+        SourceNaming::FromACheckoutBesideIt => named_from_a_checkout_beside(&checkout),
     };
     world.checkout = Some(checkout);
 
@@ -1512,6 +1525,30 @@ fn named_relative_to(working_directory: &Path, directory: &Path) -> Configuratio
             .expect("a temporary directory is absolute"),
     )
     .expect("a relative local source names a directory under the working directory")
+}
+
+fn named_from_a_checkout_beside(checkout: &Path) -> ConfigurationSource {
+    let beside = checkout.with_file_name(format!(
+        "{}_beside",
+        checkout
+            .file_name()
+            .expect("a checkout is a named directory")
+            .to_string_lossy()
+    ));
+    fs::create_dir_all(beside.join(".git")).unwrap();
+    let through_the_parent = Path::new("..")
+        .join(
+            checkout
+                .file_name()
+                .expect("a checkout is a named directory"),
+        )
+        .join("config");
+
+    ConfigurationSource::named(
+        &format!("local:{}", through_the_parent.display()),
+        &AbsoluteDirectory::of(beside).expect("a temporary directory is absolute"),
+    )
+    .expect("a local source names a directory relative to the working directory")
 }
 
 fn write_configurations(

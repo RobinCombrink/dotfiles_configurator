@@ -12,7 +12,7 @@ use {
     std::{
         fmt::{Display, Formatter},
         fs,
-        path::{Path, PathBuf},
+        path::{Component, Path, PathBuf},
     },
 };
 
@@ -36,7 +36,7 @@ pub struct AbsoluteDirectory(PathBuf);
 impl AbsoluteDirectory {
     pub fn of(path: PathBuf) -> Option<Self> {
         match path.is_absolute() {
-            true => Some(Self(path)),
+            true => Some(Self(lexically_normalised(&path))),
             false => None,
         }
     }
@@ -51,6 +51,22 @@ impl AbsoluteDirectory {
             .find(|ancestor| ancestor.join(".git").exists())
             .map(|checkout| Self(checkout.to_path_buf()))
     }
+}
+
+fn lexically_normalised(path: &Path) -> PathBuf {
+    let mut normalised = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalised.pop();
+            }
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalised.push(component)
+            }
+        }
+    }
+    normalised
 }
 
 impl AsRef<Path> for AbsoluteDirectory {
@@ -506,6 +522,53 @@ mod tests {
     }
 
     #[test]
+    fn a_local_source_named_up_through_a_checkout_inside_another_resolves_to_the_outer_one() {
+        let outer = temporary_checkout("named_up_through_a_checkout");
+        let inner = outer.join("tools").join("inner");
+        fs::create_dir_all(inner.join(".git")).unwrap();
+        fs::create_dir_all(outer.join("tools").join("config")).unwrap();
+
+        let location = ConfigurationSource::named("local:../config", &absolute(inner))
+            .unwrap()
+            .files_come_from()
+            .unwrap();
+
+        assert_eq!(location, SourceLocation::Checkout(absolute(outer)));
+    }
+
+    #[test]
+    fn a_local_source_is_read_from_the_directory_its_parent_and_current_steps_lead_to() {
+        let source = ConfigurationSource::named(
+            "local:./../beside/./config",
+            &absolute(where_alice_runs().join("checkout")),
+        )
+        .unwrap();
+
+        assert_eq!(
+            directory_read(source),
+            where_alice_runs().join("beside").join("config")
+        );
+    }
+
+    #[test]
+    fn a_local_source_stepping_above_the_root_stays_at_the_root() {
+        let root = where_alice_runs()
+            .ancestors()
+            .last()
+            .expect("an absolute path has a root")
+            .to_path_buf();
+        let steps_above_the_root = where_alice_runs().components().count() + 1;
+
+        let source = ConfigurationSource::named(
+            &format!("local:{}config", "../".repeat(steps_above_the_root)),
+            &absolute(where_alice_runs()),
+        )
+        .unwrap();
+
+        assert_eq!(directory_read(source), root.join("config"));
+    }
+
+    #[test]
     fn a_github_source_resolves_its_files_root_to_the_clone_of_that_repository() {
         let location = ConfigurationSource::GitHubRepository {
             repository: GitHubRepository {
@@ -748,9 +811,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_directory_that_does_not_exist_is_reported_by_path() {
+        let missing = Path::new("no").join("such").join("directory");
         let error = load_desired_state(
             &[ConfigurationSource::LocalDirectory(absolute(
-                env::temp_dir().join("no/such/directory"),
+                env::temp_dir().join(&missing),
             ))],
             MachineClass::Personal,
             Path::new("/repositories"),
@@ -759,7 +823,10 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(error.to_string().contains("no/such/directory"), "{error}");
+        assert!(
+            error.to_string().contains(&missing.display().to_string()),
+            "{error}"
+        );
     }
 
     #[tokio::test]

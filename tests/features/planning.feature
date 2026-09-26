@@ -421,3 +421,13 @@ Feature: Planning what a machine needs
     And Alice names her configurations relative to the checkout she runs in
     When Alice plans her configurations for a personal machine
     Then the link ".gitconfig" is planned as converged
+
+  Scenario: A link already into the checkout a source names from a checkout beside it is planned as converged
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    And Alice's checkout holds "gitconfig/.gitconfig"
+    And Alice's checkout holds "npm/.npmrc"
+    And the link ".gitconfig" already resolves to "gitconfig/.gitconfig" in Alice's checkout
+    And Alice names her configurations from another checkout beside hers
+    When Alice plans her configurations for a personal machine
+    Then the link ".gitconfig" is planned as converged
