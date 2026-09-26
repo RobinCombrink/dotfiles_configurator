@@ -94,9 +94,11 @@ fn version_named(spelled: &str) -> Result<Version, String> {
 
 #[derive(Subcommand, Debug)]
 enum Task {
-    /// Report the change set that would close every drift, without touching the machine.
+    #[command(
+        about = "Report the change set that would close every drift, without touching the machine"
+    )]
     Plan(ConfigurationArguments),
-    /// Show the change set, ask once, then enact it until a pass changes nothing.
+    #[command(about = "Show the change set, ask once, then enact it until a pass changes nothing")]
     Apply(ApplyArguments),
 }
 
