@@ -31,6 +31,9 @@ compiles under one crate root. The rule that nothing under `src/configuration/` 
   tracked files.
 - **`expect-test`.** The same comparison with its own update switch, but its last commit and
   release were 2024-12-21.
+- **`insta`.** It writes each snapshot as a `.snap` file named after the test, under its own
+  snapshot directory and behind a YAML metadata header, so its file cannot be the plain JSON
+  schema published at `schema/configuration_schema.json`.
 
 ## Consequences
 
