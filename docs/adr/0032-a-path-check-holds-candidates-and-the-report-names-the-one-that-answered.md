@@ -44,21 +44,14 @@ field accepting either a string or a list would put two ways into the field.
 ## Consequences
 
 - **The generation moves**, per ADR 0028: a document can name the new field.
-- **A document at the previous generation naming a path check is malformed under this build rather
-  than migrated.** The struct frozen at that generation reuses the live resource types (ADR 0026),
-  so nothing can read the old spelling, and the closure for malformed is a person editing the
-  repository. Every document is rewritten in the change that renames the field, which is the
-  coordinated edit ADR 0026's population makes available.
-- **The fixture pair cannot be made to catch this.** A fixture holding the old spelling would fail
-  to deserialise and would have to be falsified to pass, asserting that the previous generation
-  wrote what it did not. The pair rolls forward and gains the resource kinds this change leaves
-  alone, so the next rename of a resource field fails loudly at the moment someone is about to
-  falsify a fixture.
-- **A resource-level field change is guarded by nothing.** ADR 0026 records the frozen struct as
-  frozen by convention and names the fixture pair as what makes a change to it fail loudly; that
-  pair covers the document head and whichever resource kinds it happens to hold, which
-  `tests/migration.rs` and the fixtures beside it show. Head changes migrate; resource changes are
-  safe only under a coordinated edit.
+- **A document at the previous generation naming a path check is migrated, not refused.** The
+  reader frozen at that generation keeps the singular `path` and rewrites each one into a
+  one-candidate `paths`, so a document written before the rename reads under this build without a
+  person editing it.
+- **The fixture pair carries the rename.** The previous generation's fixture holds `path` and the
+  current one `paths`, so the rewrite is exercised against what the previous generation actually
+  wrote. The pair holds every resource kind, so the next rename of a resource field fails loudly
+  rather than slipping past a pair that happened not to hold it.
 - **A check with no candidates cannot be written**, the set being non-empty by construction.
 - **The plurality is on the path form alone.** A command on the path and a command's output are
   single answers and stay that way.
