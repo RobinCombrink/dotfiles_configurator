@@ -42,6 +42,46 @@
                 "check": "path_exists",
                 "path": "Programs/Docker"
             }
+        },
+        {
+            "kind": "environment_variable",
+            "shape": "variable",
+            "name": "EDITOR",
+            "value": "nvim"
+        },
+        {
+            "kind": "environment_variable",
+            "shape": "search_path_entry",
+            "directory": {
+                "in": "repository",
+                "repository": {
+                    "owner": "flutter",
+                    "repository": "flutter"
+                },
+                "path": "bin"
+            }
+        },
+        {
+            "kind": "registration",
+            "registry": "claude_mcp_server",
+            "name": "serena",
+            "scope": "user",
+            "command": "uvx",
+            "args": [
+                "serena"
+            ],
+            "environment": {}
+        },
+        {
+            "kind": "command",
+            "shell": "bash",
+            "args": [
+                "wsl --install"
+            ],
+            "presence_check": {
+                "check": "command_on_path",
+                "command": "wsl"
+            }
         }
     ],
     "notices": [
