@@ -40,8 +40,6 @@ pub enum PresenceCheck {
     },
 }
 
-/// A check is only ever rendered to explain why something is *not* in its desired state, so it
-/// reads as the thing that was not true rather than as the condition that was tested.
 impl Display for PresenceCheck {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -59,5 +57,19 @@ impl Display for PresenceCheck {
                 )
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_check_reads_as_what_was_not_true_rather_than_as_the_condition_it_tests() {
+        let check = PresenceCheck::CommandOnPath {
+            command: "git".to_owned(),
+        };
+
+        assert_eq!(check.to_string(), "git is not on the path");
     }
 }
