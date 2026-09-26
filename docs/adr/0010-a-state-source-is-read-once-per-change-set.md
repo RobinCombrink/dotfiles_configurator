@@ -57,6 +57,15 @@ who did not ask for it.
   table to the data, not to the console, whenever its output is redirected — at an 80-column
   console the redirected output was still 196 characters wide with nothing cut short — and
   redirected is the only way this program runs it.
+- **A winget identifier the whole listing does not show is asked about alone before it is called
+  missing.** The listing is not complete: winget can match an installation to its package when
+  asked about that one identifier while its whole listing leaves it unmatched. Measured
+  2026-09-26 with winget v1.29.380: the listing showed Android Studio only as `ARP\Machine\X64\Android
+  Studio`, and `winget list --id Google.AndroidStudio --exact` found it, so every apply tried to
+  install it and winget refused an upgrade it will not perform. The extra read is paid only for an
+  identifier the listing misses, so a converged machine still launches winget once. A miss is read
+  from winget's own "no installed package" answer; any other failure blocks the package rather
+  than calling it absent.
 - **The Claude MCP registration stays a per-resource read.** `claude mcp list` is not a cheaper
   form of asking about each server: measured 2026-08-02, it health-checks every server it reports,
   connecting to each one. It costs more than the reads it would replace and reaches the network

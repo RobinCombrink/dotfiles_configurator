@@ -22,6 +22,9 @@ pub enum ReadInvocation {
     /// Every package winget reports as installed, as a table whose columns are located from its
     /// header row.
     WingetInstalledPackages,
+    WingetPackage {
+        id: WingetPackageId,
+    },
     /// Every crate Cargo has installed, one `name vX.Y.Z[ (source)]:` line each.
     CargoInstalledCrates,
     /// The details Claude Code holds for one MCP server. Exits non-zero when there is no such
@@ -37,7 +40,9 @@ pub enum ReadInvocation {
 impl ReadInvocation {
     pub fn tool(&self) -> Tool {
         match self {
-            ReadInvocation::WingetInstalledPackages => Tool::Winget,
+            ReadInvocation::WingetInstalledPackages | ReadInvocation::WingetPackage { .. } => {
+                Tool::Winget
+            }
             ReadInvocation::CargoInstalledCrates => Tool::Cargo,
             ReadInvocation::ClaudeMcpServer { .. } => Tool::Claude,
             ReadInvocation::UvInstalledTools | ReadInvocation::UvOutdatedTools => Tool::Uv,
@@ -51,6 +56,17 @@ impl ReadInvocation {
             // output was still 196 characters wide with nothing truncated.
             ReadInvocation::WingetInstalledPackages => vec![
                 "list".to_owned(),
+                "--accept-source-agreements".to_owned(),
+                "--disable-interactivity".to_owned(),
+            ],
+            // 2026-09-26: the whole listing showed Android Studio only as `ARP\Machine\X64\Android
+            // Studio`, while this form matched it to `Google.AndroidStudio`. winget v1.29.380 on
+            // Windows 11.
+            ReadInvocation::WingetPackage { id } => vec![
+                "list".to_owned(),
+                "--id".to_owned(),
+                id.to_string(),
+                "--exact".to_owned(),
                 "--accept-source-agreements".to_owned(),
                 "--disable-interactivity".to_owned(),
             ],

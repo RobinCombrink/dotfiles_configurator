@@ -302,7 +302,9 @@ pub fn assess(
         Resource::Application(Application::ReleasedBinary(binary)) => {
             assess_released_binary(binary, machine, readings)
         }
-        Resource::Package(Package::Winget(package)) => assess_winget_package(package, readings),
+        Resource::Package(Package::Winget(package)) => {
+            assess_winget_package(package, machine, readings)
+        }
         Resource::Package(Package::UvTool(package)) => assess_uv_tool(package, readings),
         Resource::Package(Package::Cargo(package)) => {
             assess_cargo_package(package, resource, machine, readings)
@@ -434,13 +436,58 @@ fn installed_version(
         .map_err(UnreadableReason::from)
 }
 
-fn assess_winget_package(package: &WingetPackage, readings: &SourceReadings) -> Assessment {
+fn assess_winget_package(
+    package: &WingetPackage,
+    machine: &impl ReadMachine,
+    readings: &SourceReadings,
+) -> Assessment {
     let listing = match readings.winget_packages.read() {
         Ok(listing) => listing,
         Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
     match winget_lists_package(listing, package.id.to_string().as_str()) {
+        Ok(true) => Assessment::Converged,
+        Ok(false) => assess_winget_package_by_identifier(package, machine),
+        Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(reason)),
+    }
+}
+
+// 2026-09-26: `winget list --id <id> --exact` exits 0x8A150014 and prints this on its standard
+// output when nothing installed matches. winget v1.29.380 on Windows 11.
+const WINGET_FINDS_NO_PACKAGE: &str = "No installed package found matching input criteria.";
+
+fn assess_winget_package_by_identifier(
+    package: &WingetPackage,
+    machine: &impl ReadMachine,
+) -> Assessment {
+    let invocation = ReadInvocation::WingetPackage {
+        id: package.id.clone(),
+    };
+    let output = match machine.read(&invocation) {
+        Ok(output) => output,
+        Err(error) => {
+            return Assessment::Unassessable(Impediment::ActualStateUnreadable(
+                format!("winget could not be asked about {}: {error}", package.id).into(),
+            ));
+        }
+    };
+
+    if !output.succeeded {
+        return match output.standard_output.trim() == WINGET_FINDS_NO_PACKAGE {
+            true => Assessment::Drifted("winget reports it as not installed".into()),
+            false => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+                format!(
+                    "winget could not be asked about {}: {}",
+                    package.id,
+                    output.standard_error.trim()
+                )
+                .into(),
+            )),
+        };
+    }
+
+    match winget_lists_package(&output.standard_output, package.id.to_string().as_str()) {
         Ok(true) => Assessment::Converged,
         Ok(false) => Assessment::Drifted("winget reports it as not installed".into()),
         Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(reason)),

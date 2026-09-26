@@ -453,6 +453,28 @@ fn winget_holds_package(world: &mut MachineWorld, id: String) {
     world.machine.install_winget_package(&id.into());
 }
 
+#[given(
+    expr = "winget holds {string} on Alice's machine, found only when asked for it by identifier"
+)]
+fn winget_holds_package_matched_only_by_identifier(world: &mut MachineWorld, id: String) {
+    world
+        .machine
+        .install_winget_package_matched_only_by_identifier(&id.into());
+}
+
+#[given(expr = "winget cannot be asked about {string} by identifier on Alice's machine")]
+fn winget_cannot_be_asked_by_identifier(world: &mut MachineWorld, id: String) {
+    world.machine.answer_reading_with(
+        ReadInvocation::WingetPackage { id: id.into() },
+        CommandOutput {
+            succeeded: false,
+            standard_output: String::new(),
+            standard_error: "Failed when opening source(s); try the 'source reset' command"
+                .to_owned(),
+        },
+    );
+}
+
 fn declare_uv_tool(world: &mut MachineWorld, name: String, python: Option<PythonInterpreter>) {
     world
         .resources

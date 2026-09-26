@@ -117,6 +117,20 @@ Feature: Planning what a machine needs
     Then the change set reports 1 change
     And the change set mentions "Git.Git"
 
+  Scenario: A package winget finds only when asked for it by identifier is reported as converged
+    Given Alice declares the winget package "Google.AndroidStudio"
+    And winget holds "Google.AndroidStudio" on Alice's machine, found only when asked for it by identifier
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A package winget cannot be asked about by identifier is blocked rather than read as absent
+    Given Alice declares the winget package "Microsoft.PowerShell"
+    And winget cannot be asked about "Microsoft.PowerShell" by identifier on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+
   Scenario: A package whose manager is absent is reported as blocked rather than as drift
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget is absent from Alice's machine

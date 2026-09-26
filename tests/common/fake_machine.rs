@@ -52,6 +52,7 @@ struct MachineState {
     tools: BTreeSet<Tool>,
     installed_applications: BTreeSet<ApplicationName>,
     winget_packages: BTreeSet<WingetPackageId>,
+    winget_packages_matched_only_by_identifier: BTreeSet<WingetPackageId>,
     uv_tools: BTreeMap<UvToolName, UvToolVersion>,
     uv_newest_versions: BTreeMap<UvToolName, UvToolVersion>,
     uv_tool_interpreters: BTreeMap<UvToolName, Option<PythonInterpreter>>,
@@ -546,6 +547,13 @@ impl FakeMachine {
         self.state.borrow_mut().winget_packages.insert(id.clone());
     }
 
+    pub fn install_winget_package_matched_only_by_identifier(&self, id: &WingetPackageId) {
+        self.state
+            .borrow_mut()
+            .winget_packages_matched_only_by_identifier
+            .insert(id.clone());
+    }
+
     pub fn install_uv_tool(&self, name: &UvToolName, version: &UvToolVersion) {
         self.state
             .borrow_mut()
@@ -707,6 +715,8 @@ fn uv_outdated_tool_listing(state: &MachineState) -> String {
         .collect()
 }
 
+const WINGET_FINDS_NO_PACKAGE: &str = "No installed package found matching input criteria.\n";
+
 fn winget_listing(packages: &BTreeSet<WingetPackageId>) -> String {
     /// Every row carries the same name, so the name column is only ever as wide as this.
     const PACKAGE_NAME: &str = "A package";
@@ -813,6 +823,17 @@ impl ReadMachine for FakeMachine {
         let (succeeded, standard_output) = match invocation {
             ReadInvocation::WingetInstalledPackages => {
                 (true, winget_listing(&self.state.borrow().winget_packages))
+            }
+            ReadInvocation::WingetPackage { id } => {
+                let state = self.state.borrow();
+                match state.winget_packages.contains(id)
+                    || state
+                        .winget_packages_matched_only_by_identifier
+                        .contains(id)
+                {
+                    true => (true, winget_listing(&BTreeSet::from([id.clone()]))),
+                    false => (false, WINGET_FINDS_NO_PACKAGE.to_owned()),
+                }
             }
             ReadInvocation::CargoInstalledCrates => (true, String::new()),
             ReadInvocation::UvInstalledTools => (true, uv_tool_listing(&self.state.borrow())),
