@@ -647,6 +647,14 @@ impl FakeMachine {
         materialise_clone(&mut state, &self.dotfiles_repository_path);
     }
 
+    pub fn hold_shallow_clone(&self, clone_directory: &Path, depth: CloneDepth) {
+        let mut state = self.state.borrow_mut();
+        materialise_clone(&mut state, clone_directory);
+        state
+            .shallow_clones
+            .insert(clone_directory.to_path_buf(), depth);
+    }
+
     pub fn shallow_clone_depth(&self, clone_directory: &Path) -> Option<CloneDepth> {
         self.state
             .borrow()
@@ -960,6 +968,14 @@ impl ReadMachine for FakeMachine {
         }
     }
 
+    fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool> {
+        Ok(self
+            .state
+            .borrow()
+            .shallow_clones
+            .contains_key(clone_directory))
+    }
+
     async fn latest_release(
         &self,
         repository: &GitHubRepository,
@@ -1049,6 +1065,19 @@ impl WriteMachine for FakeMachine {
                 .shallow_clones
                 .insert(clone_directory.to_path_buf(), depth);
         }
+        Ok(())
+    }
+
+    async fn deepen_clone(
+        &self,
+        _repository: &GitHubRepository,
+        clone_directory: &Path,
+        _account: &GitHubAccount,
+    ) -> Result<()> {
+        self.state
+            .borrow_mut()
+            .shallow_clones
+            .remove(clone_directory);
         Ok(())
     }
 

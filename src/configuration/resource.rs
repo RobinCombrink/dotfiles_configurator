@@ -194,9 +194,16 @@ pub struct RepositoryClone {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "How many commits of history the clone holds, counted back from the tip. \
-                       Absent, the clone holds all of it."
+                       Absent, the clone holds all of it, and a clone already made shallow is \
+                       deepened."
     )]
     pub depth: Option<CloneDepth>,
+}
+
+impl RepositoryClone {
+    pub fn holds_whole_history(&self) -> bool {
+        self.depth.is_none()
+    }
 }
 
 impl From<GitHubRepository> for RepositoryClone {

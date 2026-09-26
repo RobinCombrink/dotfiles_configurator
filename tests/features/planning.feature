@@ -24,6 +24,20 @@ Feature: Planning what a machine needs
     Then the change set reports 0 changes
     And the change set reports the machine as converged
 
+  Scenario: A shallow clone of a repository declaring no depth is reported as a change
+    Given Alice declares the repository "Alice/notes"
+    And "Alice/notes" is already cloned on Alice's machine at a depth of 1
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "shallow"
+
+  Scenario: A shallow clone of a repository declaring a depth is reported as converged
+    Given Alice declares the repository "flutter/flutter" at a depth of 1
+    And "flutter/flutter" is already cloned on Alice's machine at a depth of 1
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
   Scenario: An application checked by a path the machine lacks is reported as a change
     Given Alice declares the application "Neovim" checked by the path ".local/share/nvim"
     When Alice plans

@@ -138,6 +138,12 @@ async fn converge_repository(
     machine: &impl WriteMachine,
     account: &GitHubAccount,
 ) -> Result<()> {
+    if machine.path_exists(&clone_directory.join(".git")) {
+        return machine
+            .deepen_clone(&clone.repository, clone_directory, account)
+            .await;
+    }
+
     machine
         .clone_repository(clone, clone_directory, account)
         .await

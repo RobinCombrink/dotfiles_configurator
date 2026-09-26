@@ -275,6 +275,12 @@ Feature: Applying a change set
     When Alice applies
     Then the clone of "flutter/flutter" holds 1 commit of history
 
+  Scenario: A clone already made shallow is deepened to its whole history
+    Given Alice declares the repository "Alice/notes"
+    And "Alice/notes" is already cloned on Alice's machine at a depth of 1
+    When Alice applies
+    Then the clone of "Alice/notes" holds its whole history
+
   Scenario: An application the work configuration declares is installed as the work account
     Given Alice's employer's configuration declares the application "tooling" released by "Vendor/tooling"
     And the latest release of "Vendor/tooling" is "v1.0.0"

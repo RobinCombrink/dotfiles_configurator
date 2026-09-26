@@ -617,7 +617,7 @@
       "type": "object",
       "properties": {
         "depth": {
-          "description": "How many commits of history the clone holds, counted back from the tip. Absent, the clone holds all of it.",
+          "description": "How many commits of history the clone holds, counted back from the tip. Absent, the clone holds all of it, and a clone already made shallow is deepened.",
           "type": [
             "integer",
             "null"

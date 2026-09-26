@@ -180,6 +180,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
 enum FetchDepth {
     WholeHistory,
     Commits(CloneDepth),
+    DeepenedToWholeHistory,
 }
 
 impl FetchDepth {
@@ -192,6 +193,7 @@ impl FetchDepth {
             FetchDepth::Commits(depth) => {
                 i32::try_from(depth.commits().get()).unwrap_or(Self::GIT_UNSHALLOW)
             }
+            FetchDepth::DeepenedToWholeHistory => Self::GIT_UNSHALLOW,
         }
     }
 }
@@ -504,6 +506,13 @@ impl ReadMachine for LocalMachine<'_, '_> {
         }
     }
 
+    fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool> {
+        let clone = git2::Repository::open(clone_directory).with_context(|| {
+            format!("Could not open the clone at {}", clone_directory.display())
+        })?;
+        Ok(clone.is_shallow())
+    }
+
     async fn latest_release(
         &self,
         repository: &GitHubRepository,
@@ -641,6 +650,45 @@ impl WriteMachine for LocalMachine<'_, '_> {
 
         progress.finish_with_message(format!("cloned {repository}"));
         cloned
+    }
+
+    async fn deepen_clone(
+        &self,
+        repository: &GitHubRepository,
+        clone_directory: &Path,
+        account: &GitHubAccount,
+    ) -> Result<()> {
+        let authenticated = self.github.account(account)?;
+        let clone = git2::Repository::open(clone_directory).with_context(|| {
+            format!("Could not open the clone at {}", clone_directory.display())
+        })?;
+        let mut origin = clone
+            .find_remote("origin")
+            .with_context(|| format!("The clone at {} has no origin", clone_directory.display()))?;
+
+        let progress = self
+            .report
+            .progress_bar(None, format!("deepening {repository}"));
+        let deepened = origin
+            .fetch(
+                &[] as &[&str],
+                Some(&mut self.fetch_options(
+                    authenticated.token().secret(),
+                    account.as_ref(),
+                    &progress,
+                    FetchDepth::DeepenedToWholeHistory,
+                )),
+                None,
+            )
+            .with_context(|| {
+                format!(
+                    "Could not fetch the whole history of {repository} into {}",
+                    clone_directory.display()
+                )
+            });
+
+        progress.finish_with_message(format!("deepened {repository}"));
+        deepened
     }
 
     async fn install_application(

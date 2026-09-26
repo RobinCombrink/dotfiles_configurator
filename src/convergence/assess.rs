@@ -3,8 +3,8 @@ use {
         configuration::{
             Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
             CrateName, EnvironmentVariable, GitHubAccount, GitHubRepository, Installer,
-            MachineManifest, Package, Registration, ReleasedBinary, Requirement, Resource,
-            SearchPathEntry, Symlink, UvToolName, UvToolPackage, UvToolVersion, Variable,
+            MachineManifest, Package, Registration, ReleasedBinary, RepositoryClone, Requirement,
+            Resource, SearchPathEntry, Symlink, UvToolName, UvToolPackage, UvToolVersion, Variable,
             WingetPackage,
         },
         convergence::{
@@ -282,7 +282,7 @@ pub fn assess(
 
     match resource.declared() {
         Resource::Repository(clone) => {
-            assess_repository(&resource.clone_directory(&clone.repository), machine)
+            assess_repository(clone, &resource.clone_directory(&clone.repository), machine)
         }
         Resource::Application(Application::Installer(installer)) => {
             assess_installer(installer, machine)
@@ -337,12 +337,30 @@ fn requirement_is_met(
     }
 }
 
-fn assess_repository(clone_directory: &Path, machine: &impl ReadMachine) -> Assessment {
-    match machine.path_exists(&clone_directory.join(".git")) {
-        true => Assessment::Converged,
-        false => {
-            Assessment::Drifted(format!("{} holds no clone", clone_directory.display()).into())
-        }
+fn assess_repository(
+    clone: &RepositoryClone,
+    clone_directory: &Path,
+    machine: &impl ReadMachine,
+) -> Assessment {
+    if !machine.path_exists(&clone_directory.join(".git")) {
+        return Assessment::Drifted(format!("{} holds no clone", clone_directory.display()).into());
+    }
+    if !clone.holds_whole_history() {
+        return Assessment::Converged;
+    }
+
+    match machine.clone_is_shallow(clone_directory) {
+        Ok(false) => Assessment::Converged,
+        Ok(true) => Assessment::Drifted(
+            format!(
+                "{} holds a shallow clone rather than the whole history",
+                clone_directory.display()
+            )
+            .into(),
+        ),
+        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            format!("the history of the clone could not be read: {error}").into(),
+        )),
     }
 }
 

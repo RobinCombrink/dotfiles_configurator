@@ -983,6 +983,13 @@ fn declare_repository_at_a_depth(world: &mut MachineWorld, owner_and_name: Strin
     }));
 }
 
+#[given(expr = "{string} is already cloned on Alice's machine at a depth of {int}")]
+fn already_cloned_at_a_depth(world: &mut MachineWorld, owner_and_name: String, commits: u32) {
+    world
+        .machine
+        .hold_shallow_clone(&clone_directory_of(&owner_and_name), clone_depth(commits));
+}
+
 #[then(expr = "the clone of {string} holds its whole history")]
 fn clone_holds_its_whole_history(world: &mut MachineWorld, owner_and_name: String) {
     let clone_directory = clone_directory_of(&owner_and_name);

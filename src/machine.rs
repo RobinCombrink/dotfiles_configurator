@@ -108,6 +108,8 @@ pub trait ReadMachine {
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<bool>;
 
+    fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool>;
+
     /// The latest release a repository has published, or `None` where it has published none at
     /// all. A repository that could not be asked is an error rather than an empty answer.
     ///
@@ -167,6 +169,14 @@ pub trait WriteMachine: ReadMachine {
     fn clone_repository(
         &self,
         clone: &crate::configuration::RepositoryClone,
+        clone_directory: &Path,
+        account: &GitHubAccount,
+    ) -> impl std::future::Future<Output = Result<()>>;
+
+    // ADR 0038
+    fn deepen_clone(
+        &self,
+        repository: &GitHubRepository,
         clone_directory: &Path,
         account: &GitHubAccount,
     ) -> impl std::future::Future<Output = Result<()>>;
