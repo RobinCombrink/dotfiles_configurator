@@ -87,15 +87,24 @@ pub enum LauncherCopy {
     Differs,
 }
 
-const UV_TOOLS_DIRECTORY: &str = "/home/alice/.local/share/uv/tools";
-const UV_BIN_DIRECTORY: &str = "/home/alice/.local/bin";
+fn uv_tools_directory() -> PathBuf {
+    home_directory_path()
+        .join(".local")
+        .join("share")
+        .join("uv")
+        .join("tools")
+}
+
+fn uv_bin_directory() -> PathBuf {
+    home_directory_path().join(".local").join("bin")
+}
 
 fn uv_launcher_path(name: &UvToolName) -> PathBuf {
-    Path::new(UV_BIN_DIRECTORY).join(format!("{name}.exe"))
+    uv_bin_directory().join(format!("{name}.exe"))
 }
 
 fn uv_environment_launcher_path(name: &UvToolName) -> PathBuf {
-    Path::new(UV_TOOLS_DIRECTORY)
+    uv_tools_directory()
         .join(name.as_ref())
         .join("Scripts")
         .join(format!("{name}.exe"))
@@ -109,19 +118,29 @@ enum Displacement {
 
 pub const CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED: &str = "9.9.9";
 
-pub const HOME_DIRECTORY: &str = "/home/alice";
-pub const REPOSITORIES_ROOT: &str = "/repositories";
+pub fn filesystem_root() -> PathBuf {
+    match cfg!(windows) {
+        true => PathBuf::from(r"C:\"),
+        false => PathBuf::from("/"),
+    }
+}
+
+pub fn home_directory_path() -> PathBuf {
+    filesystem_root().join("home").join("alice")
+}
+
+pub fn repositories_root_path() -> PathBuf {
+    filesystem_root().join("repositories")
+}
 
 pub fn dotfiles_repository_path() -> PathBuf {
-    Path::new(REPOSITORIES_ROOT)
-        .join("Personal")
-        .join("dotfiles")
+    repositories_root_path().join("Personal").join("dotfiles")
 }
 
 impl Default for FakeMachine {
     fn default() -> Self {
-        let home_directory = PathBuf::from(HOME_DIRECTORY);
-        let repositories_root = PathBuf::from(REPOSITORIES_ROOT);
+        let home_directory = home_directory_path();
+        let repositories_root = repositories_root_path();
         let dotfiles_repository_path = dotfiles_repository_path();
         let machine = Self {
             cargo_binaries_directory: home_directory.join(".cargo").join("bin"),

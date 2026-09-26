@@ -43,7 +43,7 @@ use {
     },
     fake_machine::{
         CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED, FakeMachine, LauncherCopy,
-        REPOSITORIES_ROOT, dotfiles_repository_path,
+        dotfiles_repository_path, repositories_root_path,
     },
     std::{
         cell::Cell,
@@ -1486,7 +1486,7 @@ async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
     match load_desired_state(
         &sources,
         machine,
-        Path::new(REPOSITORIES_ROOT),
+        &repositories_root_path(),
         &GitHubAccess::new(),
     )
     .await
@@ -1858,7 +1858,7 @@ fn under_alices_home(world: &MachineWorld, path: &str) -> PathBuf {
 }
 
 fn inside_the_clone_of(owner_and_name: &str, path: &str) -> PathBuf {
-    Path::new(REPOSITORIES_ROOT)
+    repositories_root_path()
         .join("Personal")
         .join(named_repository(owner_and_name).repository.as_ref())
         .join(path)
@@ -1946,7 +1946,7 @@ fn the_machine_holds_no_manifest(world: &mut MachineWorld) {
 #[then(expr = "Alice's machine holds a manifest naming the repositories directory {string}")]
 fn the_manifest_names_the_repositories_directory(world: &mut MachineWorld, leaf: String) {
     let expected = String::try_from(&MachineManifest {
-        repositories_directory_path: Path::new(REPOSITORIES_ROOT).join(leaf),
+        repositories_directory_path: repositories_root_path().join(leaf),
         estates: Estates::new(),
     })
     .expect("a manifest that serialises");

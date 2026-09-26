@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use {
-    crate::fake_machine::{HOME_DIRECTORY, REPOSITORIES_ROOT, dotfiles_repository_path},
+    crate::fake_machine::{dotfiles_repository_path, home_directory_path, repositories_root_path},
     dotfiles_configurator::{
         configuration::{
             ArchiveEntry, AssetPattern, BUILD_GENERATION, CargoWorkspace, Configuration,
@@ -14,7 +14,7 @@ use {
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         reporting::{RunKind, RunReport},
     },
-    std::{num::NonZeroUsize, path::Path},
+    std::num::NonZeroUsize,
     tempfile::TempDir,
 };
 
@@ -40,7 +40,7 @@ impl Reporting {
 
 pub fn manifest_for(machine: MachineClass) -> MachineManifest {
     MachineManifest {
-        repositories_directory_path: Path::new(REPOSITORIES_ROOT).join(machine.repositories_leaf()),
+        repositories_directory_path: repositories_root_path().join(machine.repositories_leaf()),
         estates: Estates::new(),
     }
 }
@@ -135,17 +135,17 @@ pub fn read_as_two_accounts(
                 ConfigurationName::from("everywhere.dotconfig.json"),
                 everywhere,
                 SourceLocation::Checkout(dotfiles_repository_path()),
-                Path::new(REPOSITORIES_ROOT),
+                &repositories_root_path(),
             ),
             ResolvedConfiguration::read(
                 ConfigurationName::from("work.dotconfig.json"),
                 work,
                 SourceLocation::Repository(employers_repository()),
-                Path::new(REPOSITORIES_ROOT),
+                &repositories_root_path(),
             ),
         ],
         manifest_for(MachineClass::Work),
-        Path::new(HOME_DIRECTORY),
+        &home_directory_path(),
     )
     .expect("a set holding one configuration for every machine and one for this class")
 }
@@ -181,17 +181,17 @@ fn read_from(
                 ConfigurationName::from("everywhere.dotconfig.json"),
                 everywhere,
                 location.clone(),
-                Path::new(REPOSITORIES_ROOT),
+                &repositories_root_path(),
             ),
             ResolvedConfiguration::read(
                 ConfigurationName::from("personal.dotconfig.json"),
                 personal,
                 location,
-                Path::new(REPOSITORIES_ROOT),
+                &repositories_root_path(),
             ),
         ],
         manifest_for(MachineClass::Personal),
-        Path::new(HOME_DIRECTORY),
+        &home_directory_path(),
     )
     .expect("a set holding one configuration for every machine and one for this class")
 }
