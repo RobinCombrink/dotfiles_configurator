@@ -295,13 +295,9 @@ fn drain(source: impl Read, report: &RunReport) -> String {
     }
 }
 
-/// Some Windows programs — `wsl.exe` among them — emit UTF-16LE the moment their output is
-/// redirected. That decodes as *valid* UTF-8 with a NUL between every character, so a match
-/// against it silently never succeeds.
-///
-/// Dropping the NULs is what was agreed rather than an encoding library, and doing it to every
-/// program's output costs nothing on the ones that have none. Deciding it per program would be a
-/// flag that has to be set correctly for each, and a declared check can name any program at all.
+// 2026-07-31: some Windows programs, `wsl.exe` among them, emit UTF-16LE the moment their output
+// is redirected, which decodes as valid UTF-8 with a NUL between every character.
+// ADR 0036
 fn decode_output(bytes: &[u8]) -> String {
     let decoded = String::from_utf8_lossy(bytes);
     match decoded.contains('\0') {
