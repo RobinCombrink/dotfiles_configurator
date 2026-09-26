@@ -94,8 +94,8 @@ fn rewrite_all(migrations: &[Migration]) {
 }
 
 #[tokio::test]
-async fn a_generation_6_document_is_rewritten_as_the_generation_7_document_beside_it() {
-    let documents = a_readable_set(fixture("generation_6.dotconfig.json"));
+async fn a_generation_7_document_is_rewritten_as_the_generation_8_document_beside_it() {
+    let documents = a_readable_set(fixture("generation_7.dotconfig.json"));
     let checkout = a_checkout_holding("rewritten_document", &documents);
 
     let desired_state = load(&checkout).await;
@@ -103,13 +103,13 @@ async fn a_generation_6_document_is_rewritten_as_the_generation_7_document_besid
 
     assert_eq!(
         personal_document(&checkout),
-        fixture("generation_7.dotconfig.json")
+        fixture("generation_8.dotconfig.json")
     );
 }
 
 #[tokio::test]
-async fn a_generation_6_document_reports_one_migration_naming_the_generation_it_came_from() {
-    let documents = a_readable_set(fixture("generation_6.dotconfig.json"));
+async fn a_generation_7_document_reports_one_migration_naming_the_generation_it_came_from() {
+    let documents = a_readable_set(fixture("generation_7.dotconfig.json"));
     let checkout = a_checkout_holding("reported_migration", &documents);
 
     let desired_state = load(&checkout).await;
@@ -127,7 +127,7 @@ async fn a_generation_6_document_reports_one_migration_naming_the_generation_it_
 
 #[tokio::test]
 async fn planning_reports_a_pending_migration_and_leaves_the_document_as_it_was() {
-    let documents = a_readable_set(fixture("generation_6.dotconfig.json"));
+    let documents = a_readable_set(fixture("generation_7.dotconfig.json"));
     let checkout = a_checkout_holding("plan_rewrites_nothing", &documents);
     let before = personal_document(&checkout);
 
@@ -146,7 +146,7 @@ async fn planning_reports_a_pending_migration_and_leaves_the_document_as_it_was(
 
 #[tokio::test]
 async fn a_document_already_at_this_generation_leaves_nothing_to_migrate() {
-    let documents = a_readable_set(fixture("generation_7.dotconfig.json"));
+    let documents = a_readable_set(fixture("generation_8.dotconfig.json"));
     let checkout = a_checkout_holding("nothing_to_migrate", &documents);
 
     let desired_state = load(&checkout).await;
@@ -156,7 +156,7 @@ async fn a_document_already_at_this_generation_leaves_nothing_to_migrate() {
 
 #[tokio::test]
 async fn a_document_rewritten_once_is_read_as_the_same_desired_state_and_migrated_no_further() {
-    let documents = a_readable_set(fixture("generation_6.dotconfig.json"));
+    let documents = a_readable_set(fixture("generation_7.dotconfig.json"));
     let checkout = a_checkout_holding("read_back_migrated", &documents);
 
     let before_the_rewrite = load(&checkout).await;

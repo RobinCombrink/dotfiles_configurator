@@ -2,6 +2,7 @@ use {
     super::{
         Configuration,
         context::Context,
+        estate::EstateDeclaration,
         generation::{BUILD_GENERATION, Generation},
         names::GitHubAccount,
         resource::Resource,
@@ -24,6 +25,8 @@ pub struct OutgoingConfiguration {
     applies_to: Context,
     github_account: GitHubAccount,
     #[serde(default)]
+    estate: Option<EstateDeclaration>,
+    #[serde(default)]
     workspaces: Vec<CargoWorkspace>,
     #[serde(default)]
     resources: Vec<Resource>,
@@ -37,7 +40,7 @@ impl From<OutgoingConfiguration> for Configuration {
             version: BUILD_GENERATION,
             applies_to: outgoing.applies_to,
             github_account: outgoing.github_account,
-            estate: None,
+            estate: outgoing.estate,
             workspaces: outgoing.workspaces,
             resources: outgoing.resources,
             notices: outgoing.notices,

@@ -1,7 +1,10 @@
 {
-    "version": "6",
+    "version": "8",
     "applies_to": "personal",
     "github_account": "Alice",
+    "estate": {
+        "name": "personal"
+    },
     "workspaces": [
         {
             "repository": {
@@ -20,6 +23,11 @@
             "kind": "package",
             "manager": "winget",
             "id": "Microsoft.PowerShell"
+        },
+        {
+            "kind": "repository",
+            "owner": "Alice",
+            "repository": "notes"
         }
     ],
     "notices": [
