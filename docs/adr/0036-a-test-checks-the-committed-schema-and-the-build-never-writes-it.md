@@ -10,18 +10,16 @@ still derived from the types the tool reads configurations with. What changes is
 a test renders `schema_for!(Configuration)` and fails when the committed file differs, and the
 same test writes the file when `UPDATE_SCHEMA` is `1`. The build script no longer touches it.
 
-This supersedes [ADR 0031](0031-the-configuration-module-tree-compiles-under-two-crate-roots.md),
-which had the build script write the schema into the source tree on every build. Nothing then
-compared the committed copy with the types: a commit that changed the types without staging the
+The build script used to write the schema into the source tree on every build. Nothing compared
+the committed copy with the types: a commit that changed the types without staging the
 regenerated file left CI rebuilding, rewriting the tracked file, and passing. Every build also
-mutated a tracked file. The objection 0031 raised against a test — that nothing regenerates the
-schema as part of a build, so it goes stale until a later run notices — is answered by the test
-failing: a stale schema fails the ordinary test run, locally and in CI, rather than going
-unnoticed.
+mutated a tracked file. The objection to a test — that nothing regenerates the schema as part of a
+build, so it goes stale until a later run notices — is answered by the test failing: a stale
+schema fails the ordinary test run, locally and in CI, rather than going unnoticed.
 
-With the build script no longer compiling `src/configuration.rs`, the configuration module tree
-compiles under one crate root. The rule that nothing under `src/configuration/` reaches
-`crate::machine` stays as the direction ADR 0006 already pushes, but no compiler checks it.
+The build script still compiles `src/configuration.rs`, per
+[ADR 0031](0031-the-configuration-module-tree-compiles-under-two-crate-roots.md), so that a second
+crate root keeps the configuration tree from reaching `crate::machine`. It writes nothing.
 
 ## Considered options
 
@@ -39,7 +37,5 @@ compiles under one crate root. The rule that nothing under `src/configuration/` 
 
 - **Regenerating the schema is a deliberate act.** A type change fails the schema test until the
   file is regenerated and committed with it.
-- **The build script sets the Windows icon and nothing else**, and has no build dependencies
-  beyond the Windows-only resource compiler.
-- **A configuration module importing from `crate::machine` compiles.** Keeping the tree
-  machine-free is a review concern until something checks it again.
+- **The build script's only output is the Windows icon.** Compiling the configuration tree
+  produces nothing, so a build leaves the working tree as it found it.

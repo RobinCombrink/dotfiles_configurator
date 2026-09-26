@@ -1,13 +1,15 @@
 ---
-status: superseded by [ADR 0036](0036-a-test-checks-the-committed-schema-and-the-build-never-writes-it.md)
+status: accepted
 ---
 
 # The configuration module tree compiles under two crate roots
 
-The configuration schema is derived from the same types the tool reads configurations with, so it
-cannot describe a document the tool would refuse. Deriving it means the build script compiles
-`src/configuration.rs` itself, through `#[path]`, into a compilation unit of its own — one whose
-crate root knows `configuration` and `version` and nothing else.
+A configuration describes what a machine ought to be and never reads one, so nothing under
+`src/configuration/` may name `crate::machine`. The compiler holds that rule: the build script
+compiles `src/configuration.rs` itself, through `#[path]`, into a compilation unit of its own — one
+whose crate root knows `configuration` and `version` and nothing else. The build script uses
+nothing from that unit and writes nothing; the unit exists so that a second root checks the
+direction.
 
 That unit and the crate proper are two roots over one file, and the file has to compile identically
 under both. Two constraints follow, and neither root states either of them.
@@ -20,9 +22,8 @@ the build script to the build script. Every child is therefore named outright, a
 
 Nothing under `src/configuration/` may name anything outside `configuration` and `version`.
 `crate::machine` exists in the crate and not in the build script's unit, so an import reaching for
-it compiles under one root and not the other. That is the direction the dependency should run
-anyway: a configuration describes what a machine ought to be and never reads one, which is why
-`version` is the only other module the build script has to load.
+it compiles under one root and not the other. `version` is the only other module the build script
+loads, because the configuration types name `Version`.
 
 A violation fails the build script rather than the crate — an import that cannot resolve as
 `E0432`, a module named without its path as a file that does not exist — and it fails on every
@@ -32,15 +33,14 @@ read as redundant, because under that root alone they are.
 
 ## Considered options
 
-- **Hand-write the schema.** It drifts from the types the moment either moves, and nothing stops it
-  describing a document the tool would refuse — which is the one property deriving it buys.
-- **Move the configuration types into a crate of their own, depended on by both the build script
-  and this one.** The shape that removes the constraint rather than recording it, at the cost of a
-  second crate and a published boundary serving a single consumer. Worth revisiting if anything
-  under `src/configuration/` ever genuinely needs to name the machine.
-- **Generate the schema from a test or a binary rather than a build script.** Nothing then
-  regenerates it as part of a build, so the committed schema goes stale between an edit and
-  whichever later run notices.
+- **Move the configuration types into a crate of their own, depended on by this one.** The shape
+  that makes the direction a crate boundary rather than a second root, at the cost of a second
+  crate and a published boundary serving a single consumer. Worth revisiting if anything under
+  `src/configuration/` ever genuinely needs to name the machine.
+- **A test that searches the configuration sources for `crate::machine`.** It checks spellings
+  rather than resolution, so a re-export or a `super::` path reaches the machine unseen, and it
+  holds the rule a rung lower than the compiler does.
+- **Leave the direction to review.** Nothing checks it.
 - **`include!` the file instead of loading it as a module.** The same two roots over one file, with
   diagnostics that name the including line rather than the offending module.
 
@@ -55,8 +55,8 @@ read as redundant, because under that root alone they are.
 - **`version` is load-bearing in the build script.** It is there because the configuration types
   name `Version`, so removing that import is what would let the second `#[path]` module go, and
   adding an import to a third module is what would make a third necessary.
-- **The build script compiles a second copy of the configuration types on every build.** They are
-  small, and the alternative is a crate boundary.
+- **The build script compiles a second copy of the configuration types on every build**, and
+  carries as build dependencies every crate those types use. They are small, and the alternative
+  is a crate boundary.
 - **`#[allow(dead_code, unused_imports)]` is permanent on both modules the build script loads.**
-  Only `Configuration` is reachable from `schemars::schema_for!`, so everything the crate itself
-  uses reads as dead from that root.
+  The build script names nothing in them, so everything reads as dead from that root.
