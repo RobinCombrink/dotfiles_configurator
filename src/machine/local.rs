@@ -294,8 +294,6 @@ fn drain(source: impl Read, report: &RunReport) -> String {
     }
 }
 
-// 2026-07-31: some Windows programs, `wsl.exe` among them, emit UTF-16LE the moment their output
-// is redirected, which decodes as valid UTF-8 with a NUL between every character.
 // ADR 0036
 fn decode_output(bytes: &[u8]) -> String {
     let decoded = String::from_utf8_lossy(bytes);
