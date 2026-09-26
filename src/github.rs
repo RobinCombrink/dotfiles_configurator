@@ -79,7 +79,6 @@ fn remedy_for(refusal: &cli::Refusal) -> Option<String> {
     }
 }
 
-/// Reads the decoded contents of a file held in a GitHub repository.
 pub async fn get_file_contents(
     repository: &GitHubRepository,
     file_path: &str,

@@ -17,7 +17,6 @@ use {
     },
 };
 
-/// One resource whose convergence failed, together with what went wrong.
 #[derive(Debug)]
 pub struct Failure {
     pub resource: ResolvedResource,

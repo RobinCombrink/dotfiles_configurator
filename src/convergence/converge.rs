@@ -17,8 +17,6 @@ use {
     std::path::Path,
 };
 
-/// Closes the drift on one resource. Only ever called for a resource a state reader has just
-/// reported as drifted.
 pub async fn converge(
     resource: &ResolvedResource,
     machine: &impl WriteMachine,

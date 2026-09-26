@@ -13,13 +13,10 @@ use {
 // ADR 0010
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ReadInvocation {
-    /// Every package winget reports as installed, as a table whose columns are located from its
-    /// header row.
     WingetInstalledPackages,
     WingetPackage {
         id: WingetPackageId,
     },
-    /// Every crate Cargo has installed, one `name vX.Y.Z[ (source)]:` line each.
     CargoInstalledCrates,
     /// The details Claude Code holds for one MCP server. Exits non-zero when there is no such
     /// server. Read per resource because `claude mcp list` health-checks every server it
@@ -88,7 +85,6 @@ impl ReadInvocation {
     }
 }
 
-/// The closed set of invocations this crate defines for changing state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteInvocation {
     InstallWingetPackage {

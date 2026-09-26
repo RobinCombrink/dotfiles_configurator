@@ -43,7 +43,6 @@ pub mod workspace;
 
 const NOTHING_PUBLISHED: u16 = 404;
 
-/// The machine this process is running on.
 pub struct LocalMachine<'report, 'access> {
     home_directory: PathBuf,
     download_directory: PathBuf,

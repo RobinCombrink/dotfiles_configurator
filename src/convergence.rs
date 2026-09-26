@@ -47,7 +47,6 @@ impl Display for Impediment {
     }
 }
 
-/// Why a resource is not in its desired state, phrased for the person reading a change set.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DriftReason(String);
 
@@ -97,14 +96,12 @@ pub(crate) fn symlink_location(
     )
 }
 
-/// One resource that has drifted, together with why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
     pub resource: ResolvedResource,
     pub reason: DriftReason,
 }
 
-/// One resource that could not be read, together with what stopped it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blocked {
     pub resource: ResolvedResource,
@@ -122,7 +119,6 @@ pub struct ChangeSet {
 }
 
 impl ChangeSet {
-    /// A machine with no drift and nothing left unreadable.
     pub fn is_converged(&self) -> bool {
         self.changes.is_empty() && self.blocked.is_empty()
     }

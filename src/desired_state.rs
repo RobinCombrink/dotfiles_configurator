@@ -92,8 +92,6 @@ impl<T> Resolved<T> {
             .join(repository.repository.as_ref())
     }
 
-    /// Pairs a resource resolved out of this one's source with the same origin, which is the only
-    /// origin it could have come from.
     pub fn alongside<U>(&self, value: U) -> Resolved<U> {
         Resolved {
             value,
@@ -270,7 +268,6 @@ pub struct DesiredState {
 }
 
 impl DesiredState {
-    /// The documents an apply rewrites, and what it can only announce about the ones it cannot.
     pub fn also_reporting(
         mut self,
         migrations: Vec<Migration>,
@@ -498,8 +495,6 @@ mod tests {
         ])
     }
 
-    /// Every change set carries the configurator's own currency and the directory it installs
-    /// binaries into, which most of these are not about.
     fn other_than_what_every_change_set_carries(
         desired_state: &DesiredState,
     ) -> Vec<&ResolvedResource> {

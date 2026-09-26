@@ -33,7 +33,6 @@ use {
 #[cfg(test)]
 use dotfiles_configurator::configuration::GitHubRepository;
 
-/// Where configurations are read from when none is named.
 const DEFAULT_SOURCE: &str = "github:RobinCombrink/dotfiles/config";
 
 fn source_named_in_the_working_directory(value: &str) -> Result<ConfigurationSource, String> {

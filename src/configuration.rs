@@ -173,8 +173,6 @@ impl Display for Notice {
     }
 }
 
-/// A configuration as this build reads it, and the generation it was written as where that is not
-/// the one this build reads.
 #[derive(Debug)]
 pub struct Reading {
     pub configuration: Configuration,

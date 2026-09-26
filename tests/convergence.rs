@@ -71,12 +71,9 @@ struct MachineWorld {
     files_the_checkout_holds: Vec<PathBuf>,
     links_already_into_the_checkout: Vec<(PathBuf, PathBuf)>,
     checkout: Option<PathBuf>,
-    /// Configurations as they are written down, for the scenarios about loading them.
     documents: Vec<String>,
-    /// A second source, held by a repository Alice does not own.
     employers_documents: Vec<String>,
     employers_resources: Vec<Resource>,
-    /// Files kept beside the configurations that are not configurations themselves.
     stray_file_names: Vec<String>,
     change_set: Option<ChangeSet>,
     second_change_set: Option<ChangeSet>,
@@ -266,8 +263,6 @@ impl Confirm for Answering {
     }
 }
 
-/// An application whose presence is read as "a program of that name is on the path", which is
-/// what most of the live declarations use.
 fn application(name: &str) -> Application {
     application_checked_by(
         name,
@@ -882,8 +877,6 @@ fn configuration_for_every_machine_a_generation_back_linking(
         .push(outgoing_document(&symlink(&link_path, &source_path)));
 }
 
-/// A document of the generation below this build, in the shape that generation had rather than
-/// this one's.
 fn outgoing_document(resources: &str) -> String {
     format!(
         r#"{{

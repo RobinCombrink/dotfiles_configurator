@@ -59,12 +59,10 @@ struct MachineState {
     uv_running_launchers: BTreeMap<PathBuf, LauncherCopy>,
     uv_tools_failing_to_upgrade: BTreeSet<UvToolName>,
     failing_applications: BTreeSet<ApplicationName>,
-    /// Installers that exit zero without putting anything on the machine.
     silent_applications: BTreeSet<ApplicationName>,
     install_attempts: Vec<ApplicationName>,
     installed_as: BTreeMap<ApplicationName, GitHubAccount>,
     commands_run: Vec<Vec<String>>,
-    /// What the dotfiles repository holds, which only appears on the machine once it is cloned.
     repository_contents: BTreeSet<PathBuf>,
     reads: Vec<ReadInvocation>,
     reads_answered_with: Vec<(ReadInvocation, CommandOutput)>,
@@ -608,12 +606,10 @@ impl FakeMachine {
             .count()
     }
 
-    /// A real file a person put there, which convergence must leave alone.
     pub fn add_own_file(&self, path: PathBuf) {
         self.state.borrow_mut().paths.insert(path);
     }
 
-    /// Intact means still a real file rather than something a link now stands in for.
     pub fn own_file_is_intact(&self, path: &Path) -> bool {
         let state = self.state.borrow();
         state.paths.contains(path) && !state.links.contains_key(path)
@@ -664,8 +660,6 @@ impl FakeMachine {
     }
 }
 
-/// Cloning puts the repository's directory, the marker that makes it a clone, and everything it
-/// holds onto the machine at once.
 fn materialise_clone(state: &mut MachineState, clone_directory: &Path) {
     state.paths.insert(clone_directory.to_path_buf());
     state.paths.insert(clone_directory.join(".git"));

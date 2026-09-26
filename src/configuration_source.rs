@@ -20,7 +20,6 @@ pub trait WriteSource {
     fn rewrite(&self, migration: &Migration) -> Result<()>;
 }
 
-/// Where a configuration is read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigurationSource {
     LocalDirectory(AbsoluteDirectory),

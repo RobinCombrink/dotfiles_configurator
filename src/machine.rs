@@ -79,7 +79,6 @@ pub trait ReadMachine {
 
     fn path_exists(&self, path: &Path) -> bool;
 
-    /// The target of the link at `path`, or `None` when nothing is there or it is not a link.
     fn link_target(&self, path: &Path) -> Option<PathBuf>;
 
     fn canonical_path(&self, path: &Path) -> Option<PathBuf>;
@@ -208,7 +207,6 @@ pub trait WriteMachine: ReadMachine {
     // ADR 0017
     fn set_environment_variable(&self, name: &VariableName, value: &VariableValue) -> Result<()>;
 
-    /// Runs one of the invocations this crate defines for changing state.
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;
 
     fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement>;
@@ -238,6 +236,5 @@ pub trait WriteMachine: ReadMachine {
 
     fn sweep_superseded_images(&self);
 
-    /// Runs a command the configuration declared, which is the escape hatch's whole point.
     fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput>;
 }
