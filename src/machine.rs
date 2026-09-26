@@ -71,9 +71,7 @@ pub enum Replacement {
     },
 }
 
-/// The capabilities that can only read a machine. Plan holds exactly these, which is what makes
-/// "plan had no side effects" a property the compiler checks rather than a convention. See ADR
-/// 0006.
+// ADR 0006
 pub trait ReadMachine {
     fn home_directory(&self) -> &Path;
 

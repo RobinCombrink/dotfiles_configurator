@@ -133,13 +133,8 @@ impl ChangeSet {
     }
 }
 
-/// Compares every declared resource against the machine and orders the result. Ordering is by
-/// kind first — which ADR 0004 makes a safety property — then by the order resources were
-/// declared, so the same configuration against the same machine always prints the same change set
-/// and two runs can be diffed.
-///
-/// Every source that can answer about a whole set of resources is read before any resource is
-/// assessed, so one is read once per change set rather than once per resource. See ADR 0010.
+// ADR 0004
+// ADR 0010
 pub async fn plan(
     desired_state: &DesiredState,
     machine: &impl crate::machine::ReadMachine,

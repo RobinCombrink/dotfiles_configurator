@@ -263,10 +263,7 @@ async fn load(
     .await
 }
 
-/// A configuration stating a generation above this build cannot be read, and a resource declaring
-/// where a newer build comes from would be inside it — so the origin is carried instead. Apply
-/// obtains a newer build once and reads again; a newest release that still does not meet the floor
-/// ends the run saying so rather than trying again. See ADR 0019.
+// ADR 0019
 async fn load_after_updating_if_it_must(
     arguments: &ApplyArguments,
     machine: &LocalMachine<'_, '_>,

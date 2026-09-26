@@ -284,8 +284,7 @@ fn home_directory() -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("Could not find the home directory to resolve symlinks against"))
 }
 
-/// A source is cloned into the tree its configurations' context names, so one yielding two
-/// contexts that name different trees would have to be cloned into both. See ADR 0025.
+// ADR 0025
 fn refuse_two_trees_for_one_source(
     source: &ConfigurationSource,
     loaded: &[LoadedConfiguration],

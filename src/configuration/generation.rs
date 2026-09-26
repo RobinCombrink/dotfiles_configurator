@@ -6,8 +6,7 @@ use {
 
 pub const BUILD_GENERATION: Generation = Generation(7);
 
-/// The oldest shape this build can read, derived from its own generation rather than declared, so
-/// that the two cannot drift apart. See ADR 0026.
+// ADR 0026
 pub const OLDEST_READABLE_GENERATION: Generation = Generation(BUILD_GENERATION.0 - 1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

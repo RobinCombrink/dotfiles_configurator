@@ -9,14 +9,8 @@ use {
     std::path::{Path, PathBuf},
 };
 
-/// The closed set of invocations this crate defines for reading state.
-///
-/// Typing what may be run, rather than only who may run it, is what keeps plan's guarantee real:
-/// a single general "run a process" capability would have handed plan the ability to run an
-/// installer. See ADR 0006.
-///
-/// A variant naming no resource is read once for a whole change set; one naming a resource is
-/// read per resource. See ADR 0010.
+// ADR 0006
+// ADR 0010
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ReadInvocation {
     /// Every package winget reports as installed, as a table whose columns are located from its
@@ -122,9 +116,7 @@ pub enum ResolvedCargoSource {
     },
 }
 
-/// The closed set of invocations that write where the machine may be executing what they replace,
-/// which is what keeps a destination unreachable without displacing: no variant of the set above
-/// can name one. See ADR 0022.
+// ADR 0022
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DisplacingInvocation {
     InstallCargoCrate {

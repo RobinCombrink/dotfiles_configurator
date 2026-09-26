@@ -26,13 +26,7 @@ use {
     },
 };
 
-/// Every source that answers about a whole set of resources at once, read once for one change
-/// set. The cost of a change set therefore scales with the number of sources it touches rather
-/// than the number of resources declared against them. See ADR 0010.
-///
-/// A source whose tool is absent, or which nothing declared needs, is not read at all — so a
-/// configuration declaring no cargo package never launches cargo. Neither absence is reachable
-/// from an assessment, because a resource's requirements are read before its source is consulted.
+// ADR 0010
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceReadings {
     winget_packages: SourceReading<String>,
