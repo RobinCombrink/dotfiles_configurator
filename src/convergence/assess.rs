@@ -896,8 +896,7 @@ mod tests {
     use super::*;
     use crate::configuration::{McpScope, McpServerName};
 
-    /// Taken verbatim from `cargo install --list`, so the parser is exercised against the shape
-    /// cargo actually emits rather than one assumed for it.
+    // 2026-07-31: taken verbatim from `cargo install --list`.
     const LISTING: &str = concat!(
         "ci-checks v0.1.0 (C:\\Repositories\\Personal\\dotfiles\\tools\\ci-checks):\n",
         "    ci-checks.exe\n",
@@ -947,8 +946,7 @@ mod tests {
         assert_eq!(installed_crate_source(LISTING, "committed.exe"), None);
     }
 
-    /// Taken verbatim from `winget list`, narrowed to three packages, so the parser is exercised
-    /// against the shape winget actually emits rather than one assumed for it.
+    // 2026-08-02: taken verbatim from `winget list`, narrowed to three packages.
     const PACKAGES: &str = concat!(
         "Name                 Id                        Version    Available  Source\n",
         "-----------------------------------------------------------------------------\n",
