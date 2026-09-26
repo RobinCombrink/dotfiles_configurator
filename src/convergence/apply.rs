@@ -397,7 +397,7 @@ async fn attempt_one(
 
     let outcome = {
         let _doing = report.doing(format!("converging {}", change.resource));
-        converge(&change.resource, machine, readings).await
+        converge(change, machine, readings).await
     };
 
     match outcome {

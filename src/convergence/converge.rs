@@ -5,7 +5,7 @@ use {
             EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, MachineManifest,
             Package, Registration, ReleasedBinary, Resource, Symlink, UvToolPackage, WingetPackage,
         },
-        convergence::{SourceReadings, search_path_directory, symlink_location},
+        convergence::{Change, SourceReadings, search_path_directory, symlink_location},
         desired_state::ResolvedResource,
         machine::{
             DisplacingInvocation, Placement, Replacement, ReplacingInvocation, ResolvedCargoSource,
@@ -18,10 +18,11 @@ use {
 };
 
 pub async fn converge(
-    resource: &ResolvedResource,
+    drifted: &Change,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
 ) -> Result<Placement> {
+    let resource = &drifted.resource;
     let closed = match resource.declared() {
         Resource::Package(Package::Cargo(package)) => {
             return converge_cargo_package(package, resource, machine, readings);
