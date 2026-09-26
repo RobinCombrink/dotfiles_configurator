@@ -35,8 +35,9 @@ fn the_committed_schema_is_the_one_the_configuration_types_render() {
     let committed = fs::read_to_string(&path).expect("the committed schema is readable");
     assert!(
         committed == rendered,
-        "{} differs from what the configuration types render; regenerate it with \
-         `{UPDATE_SCHEMA}=1 cargo test --test schema` and commit the result",
+        "{} differs from what the configuration types render; regenerate it by setting the \
+         environment variable {UPDATE_SCHEMA} to 1 and running `cargo test --test schema`, then \
+         commit the result",
         path.display()
     );
 }
