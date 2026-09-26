@@ -29,8 +29,6 @@ pub use invocation::{
     ResolvedCargoSource, WriteInvocation,
 };
 
-/// What a process reported back. Kept whole rather than reduced to a bool, because parsing a
-/// tool's output belongs to the kind that understands it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandOutput {
     pub succeeded: bool,
@@ -100,8 +98,6 @@ pub trait ReadMachine {
     /// ```
     fn text_file_at(&self, path: &Path) -> Result<Option<String>>;
 
-    /// Runs one of the invocations this crate defines for reading state. The set is closed, so
-    /// plan cannot be handed the ability to run an installer.
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput>;
 
     fn read_cargo_workspace(
@@ -144,7 +140,6 @@ pub trait ReadMachine {
     // ADR 0017
     fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>>;
 
-    /// Resolves a path declared relative to the home directory. Absolute paths are left alone.
     fn resolve_against_home(&self, path: &Path) -> PathBuf {
         path_folding::home_relative_path(self.home_directory(), path)
     }
@@ -164,8 +159,6 @@ pub trait ReadMachine {
     fn displacement_directories(&self) -> Vec<PathBuf>;
 }
 
-/// The capabilities that can change a machine. Apply holds these as well as the reading ones;
-/// plan holds none of them.
 pub trait WriteMachine: ReadMachine {
     fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<()>;
 

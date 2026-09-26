@@ -14,16 +14,9 @@ use {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ReadInvocation {
     WingetInstalledPackages,
-    WingetPackage {
-        id: WingetPackageId,
-    },
+    WingetPackage { id: WingetPackageId },
     CargoInstalledCrates,
-    /// The details Claude Code holds for one MCP server. Exits non-zero when there is no such
-    /// server. Read per resource because `claude mcp list` health-checks every server it
-    /// reports, which costs more than asking about each one and reaches the network.
-    ClaudeMcpServer {
-        name: McpServerName,
-    },
+    ClaudeMcpServer { name: McpServerName },
     UvInstalledTools,
     UvOutdatedTools,
 }

@@ -4,8 +4,6 @@ use {
     std::fmt::Display,
 };
 
-/// Declares a domain identifier: a transparent wrapper that is a string only at the wire
-/// boundary, so one kind of name cannot be passed where another is meant.
 macro_rules! name {
     ($(#[$documentation:meta])* $name:ident) => {
         #[derive(

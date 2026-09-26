@@ -250,8 +250,6 @@ fn installed_revisions(listing: &str) -> BTreeMap<CrateName, Revision> {
         .collect()
 }
 
-/// A listing a tool could not produce is one failure, not one per resource that needed it, so the
-/// reason is held and reported against each of them.
 fn read_listing(
     is_needed: bool,
     invocation: ReadInvocation,
@@ -273,10 +271,6 @@ fn read_listing(
     }
 }
 
-/// Reads the actual state of one resource and compares it against what was declared.
-///
-/// Requirements are read from the machine first: a resource whose requirements are absent is
-/// neither converged nor failed, it is unassessable and says so.
 pub fn assess(
     resource: &ResolvedResource,
     machine: &impl ReadMachine,
@@ -516,8 +510,6 @@ fn winget_lists_package(listing: &str, id: &str) -> Result<bool, UnreadableReaso
     Ok(lists_it)
 }
 
-/// Where the `Id` column starts and ends, counted in characters rather than bytes so that a
-/// package whose name is not ASCII does not shift every column to its right.
 fn winget_id_column(listing: &str) -> Option<(usize, usize)> {
     listing.lines().find_map(|line| {
         let characters_before = |byte: usize| line[..byte].chars().count();
@@ -665,12 +657,7 @@ fn assess_declared_cargo_package(
 enum InstalledFrom {
     Registry,
     Path(String),
-    /// The commit is what the install actually resolved to, which is the fact drift is read
-    /// against; `cargo install --list` abbreviates it.
-    Git {
-        url: String,
-        commit: String,
-    },
+    Git { url: String, commit: String },
 }
 
 impl std::fmt::Display for InstalledFrom {
@@ -683,10 +670,6 @@ impl std::fmt::Display for InstalledFrom {
     }
 }
 
-/// `cargo install --list` names each crate on a line of its own, indenting the binaries it
-/// installed underneath. A registry install is bare — `committed v1.1.11:` — while anything else
-/// carries its source in parentheses: `ci-checks v0.1.0 (C:\path\to\crate):` for a path, and
-/// `stop-gate v0.1.0 (https://host/owner/repo?rev=<asked>#<resolved>):` for a git revision.
 fn installed_crate_line(line: &str) -> Option<(&str, InstalledFrom)> {
     let (name, remainder) = line.trim_end().split_once(' ')?;
 
@@ -833,8 +816,6 @@ fn claude_refusal(standard_error: &str) -> Assessment {
     }
 }
 
-/// `claude mcp get <name>` reports the server as indented `Label: value` lines, with each
-/// environment entry on a line of its own beneath `Environment:`.
 fn first_difference(server: &ClaudeMcpServer, reported: &str) -> Option<String> {
     let field = |label: &str| {
         reported.lines().find_map(|line| {

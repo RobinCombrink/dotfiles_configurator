@@ -791,9 +791,6 @@ impl WriteSource for LocalMachine<'_, '_> {
     }
 }
 
-/// Renders a declared command for the shell that runs it. Every shell is given the command as a
-/// single string through its own "run this" flag, which is what makes quoting the shell's problem
-/// rather than something each call site re-derives.
 fn shell_invocation(shell: Shell, args: &[String]) -> (String, Vec<String>) {
     let command = args.join(" ");
     match shell {

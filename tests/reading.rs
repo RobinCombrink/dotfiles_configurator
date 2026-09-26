@@ -1,7 +1,3 @@
-//! What a change set costs the sources it reads. Planning is otherwise covered by the scenarios
-//! in `features/planning.feature`; a read count is not something a person using the tool observes,
-//! so it is held here rather than in Gherkin.
-
 #![allow(clippy::disallowed_macros)]
 
 #[path = "common/declarations.rs"]

@@ -94,8 +94,6 @@ const EXPECTED_SOURCE: &str = "expected `local:<directory>` or `github:<owner>/<
 
 const CONFIGURATION_SUFFIX: &str = ".dotconfig.json";
 
-/// A configuration as it was read, and what reading it a generation back left pending. A local
-/// document is rewritten by an apply; one this program only reads is announced instead.
 #[derive(Debug)]
 struct LoadedConfiguration {
     name: ConfigurationName,

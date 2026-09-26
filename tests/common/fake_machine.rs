@@ -1,7 +1,3 @@
-//! A machine held in memory, substituted for the real one wherever a test needs to say what is
-//! true of a machine. Substituting a machine is ordinary use of the capability traits rather than
-//! a mode of the program, which is what ADR 0006 traded the `--debug` directory relocation for.
-
 // Each integration test file is its own crate and pulls this module in whole, so a helper only
 // one of them needs reads as dead in the others.
 #![allow(dead_code)]
@@ -111,8 +107,6 @@ enum Displacement {
     Refused,
 }
 
-/// The version the machine is already running and the newest one published, which are the same
-/// so that the configurator's own currency is converged in every scenario that is not about it.
 pub const CONFIGURATOR_VERSION: &str = "9.9.9";
 
 pub const HOME_DIRECTORY: &str = "/home/alice";
@@ -642,8 +636,6 @@ impl FakeMachine {
         self.state.borrow().links.get(link_path).cloned()
     }
 
-    /// Everything a scenario could observe as "the machine changed", collapsed into one value so
-    /// a scenario can assert that planning changed nothing at all.
     pub fn fingerprint(&self) -> String {
         let state = self.state.borrow();
         format!(
@@ -712,7 +704,6 @@ fn uv_outdated_tool_listing(state: &MachineState) -> String {
 const WINGET_FINDS_NO_PACKAGE: &str = "No installed package found matching input criteria.\n";
 
 fn winget_listing(packages: &BTreeSet<WingetPackageId>) -> String {
-    /// Every row carries the same name, so the name column is only ever as wide as this.
     const PACKAGE_NAME: &str = "A package";
     const VERSION: &str = "1.0.0";
 
@@ -740,8 +731,6 @@ fn winget_listing(packages: &BTreeSet<WingetPackageId>) -> String {
 }
 
 impl FakeMachine {
-    /// How many times a source was interrogated, which is what makes "read once per change set" a
-    /// property a test can hold the program to rather than one it takes on trust.
     pub fn times_read(&self, invocation: &ReadInvocation) -> usize {
         self.state
             .borrow()
@@ -1054,8 +1043,6 @@ impl WriteMachine for FakeMachine {
         Ok(Placement::Placed)
     }
 
-    /// Membership is the postcondition on a real machine, so the substitute has to answer the same
-    /// way: a directory the path already carries is not added a second time.
     fn put_on_search_path(&self, directory: &Path) -> Result<()> {
         let mut state = self.state.borrow_mut();
         let carried = SearchPathReading::of(state.user_search_path.iter().cloned());

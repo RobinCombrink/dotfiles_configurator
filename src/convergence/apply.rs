@@ -29,28 +29,19 @@ pub struct Held {
     pub path: PathBuf,
 }
 
-/// What an apply did, and what it could not do. Failures are collected rather than raised so that
-/// one broken resource does not hide the state of every resource after it.
 #[derive(Debug)]
 pub struct ApplyOutcome {
     pub converged: Vec<ResolvedResource>,
     pub failed: Vec<Failure>,
     pub held: Vec<Held>,
     pub blocked: Vec<Blocked>,
-    /// Resources that were converged without error and still read as drifted afterwards — an
-    /// installer that exits zero without installing anything looks exactly like this.
     pub unverified: Vec<Change>,
     pub notices: Vec<Notice>,
-    /// The documents this run rewrote a generation forward, which is neither a change nor a
-    /// notice: it altered a configuration rather than the machine.
     pub migrated: Vec<Migration>,
     pub passes: usize,
 }
 
 impl ApplyOutcome {
-    /// A machine is converged only when nothing failed, nothing is left unreadable, and every
-    /// change that could be read back reads as done. A run that ends otherwise should not imply
-    /// the machine is converged.
     pub fn is_converged(&self) -> bool {
         self.failed.is_empty()
             && self.held.is_empty()

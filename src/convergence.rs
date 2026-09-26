@@ -21,9 +21,6 @@ pub use {
     source_reading::{ReadSource, SourceReading, UnreadableReason},
 };
 
-/// What a resource kind answers when asked to compare its desired state against the machine.
-/// There is deliberately no state type shared between kinds — a universal one would be the
-/// lowest-common-denominator stringly type the newtype rule exists to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Assessment {
     Converged,
@@ -114,7 +111,6 @@ pub struct ChangeSet {
     pub blocked: Vec<Blocked>,
     pub converged: Vec<ResolvedResource>,
     pub notices: Vec<Notice>,
-    /// The documents an apply would rewrite, which a plan reports and performs none of.
     pub migrations: Vec<Migration>,
 }
 

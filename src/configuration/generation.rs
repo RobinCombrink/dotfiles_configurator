@@ -28,7 +28,6 @@ impl Generation {
         Self(self.0.saturating_add_signed(steps))
     }
 
-    /// Whether this build has outgrown the shape a document states. See ADR 0026.
     pub fn is_outgrown_by(self, oldest_readable: Generation) -> bool {
         self < oldest_readable
     }
