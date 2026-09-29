@@ -76,10 +76,11 @@ kind, and the registry covers the ordinary way to install someone else's crate.
   branch, an unparseable manifest, a member named by a glob, no lockfile, or a lockfile naming a
   dependency it holds no entry for or holding no entry for a member: each leaves which crates
   exist, or what they are built from, unknown, and a source that decides which resources exist
-  cannot fail softly the way a source that describes one resource can. A closure hashed around
-  an entry it could not reach would read as a plausible fingerprint rather than as an error. Reporting drift instead would apply a change set built
-  from a membership nobody established. ADR 0009 already refuses to apply any configuration it
-  could not read; this is that rule reaching the resolved half of the configuration.
+  cannot fail softly the way a source that describes one resource can. Reporting drift instead
+  would apply a change set built from a membership nobody established, and a closure hashed
+  around an entry it could not reach would read as a plausible fingerprint rather than as an
+  error. ADR 0009 already refuses to apply any configuration it could not read; this is that rule
+  reaching the resolved half of the configuration.
 - **A workspace whose repository is not cloned contributes no members, and says nothing about
   them.** They cannot be named, so they cannot be reported. The clone is itself a declared
   repository resource and appears in the change set as a change, so a first run on a bare machine
