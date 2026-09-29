@@ -1471,7 +1471,7 @@ fn content_named(content: &str) -> Fingerprint {
     Fingerprint {
         crate_subtree: ObjectHash::from(content),
         workspace_manifest: ObjectHash::from("the workspace manifest"),
-        lockfile: ObjectHash::from("the lockfile"),
+        lock_closure: ObjectHash::from("the lock closure"),
         dependency_subtrees: BTreeMap::new(),
     }
 }

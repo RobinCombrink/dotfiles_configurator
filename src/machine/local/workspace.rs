@@ -3,12 +3,12 @@ use {
         configuration::{BinaryName, CrateName},
         machine::workspace_reading::{
             Fingerprint, InferableBinary, InstalledState, MemberManifest, MemberReading,
-            MemberTree, ObjectHash, Revision, WorkspaceReading, inherited_dependency_paths,
-            member_paths, read_member_manifest,
+            MemberTree, ObjectHash, Revision, WorkspaceLock, WorkspaceReading,
+            inherited_dependency_paths, member_paths, read_member_manifest,
         },
     },
     anyhow::{Context, Result, anyhow},
-    git2::{BranchType, ObjectType, Repository, Tree},
+    git2::{BranchType, ObjectType, Oid, Repository, Tree},
     std::{
         collections::{BTreeMap, BTreeSet},
         path::Path,
@@ -116,9 +116,8 @@ fn members_at(
 
     let workspace_manifest = entry_hash(&tree, "Cargo.toml")
         .ok_or_else(|| anyhow!("it holds no Cargo.toml at {revision}"))?;
-    let lockfile = entry_hash(&tree, "Cargo.lock")
-        .ok_or_else(|| anyhow!("it holds no Cargo.lock at {revision}"))?;
     let manifest = blob_text(repository, &tree, "Cargo.toml")?;
+    let lock = WorkspaceLock::read(&blob_text(repository, &tree, "Cargo.lock")?)?;
     let inherited_paths = inherited_dependency_paths(&manifest)?;
 
     let mut members = BTreeMap::new();
@@ -141,13 +140,14 @@ fn members_at(
         if !binaries.is_empty() {
             let dependency_subtrees =
                 dependency_subtrees(repository, &tree, &path, &member, &inherited_paths)?;
+            let lock_closure = content_hash(&lock.closure_of(&member.name)?)?;
             members.insert(
                 member.name,
                 MemberAtRevision {
                     fingerprint: Fingerprint {
                         crate_subtree,
                         workspace_manifest: workspace_manifest.clone(),
-                        lockfile: lockfile.clone(),
+                        lock_closure,
                         dependency_subtrees,
                     },
                     binaries,
@@ -228,6 +228,11 @@ fn entry_hash(tree: &Tree, path: &str) -> Option<ObjectHash> {
     tree.get_path(Path::new(path))
         .ok()
         .map(|entry| ObjectHash::from(entry.id().to_string()))
+}
+
+fn content_hash(content: &str) -> Result<ObjectHash> {
+    let object = Oid::hash_object(ObjectType::Blob, content.as_bytes())?;
+    Ok(ObjectHash::from(object.to_string()))
 }
 
 fn blob_text(repository: &Repository, tree: &Tree, path: &str) -> Result<String> {

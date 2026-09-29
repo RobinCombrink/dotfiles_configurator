@@ -169,7 +169,7 @@ fn workspace_holding(crate_names: &[&str]) -> WorkspaceReading {
                         desired: Fingerprint {
                             crate_subtree: ObjectHash::from(*crate_name),
                             workspace_manifest: ObjectHash::from("the workspace manifest"),
-                            lockfile: ObjectHash::from("the lockfile"),
+                            lock_closure: ObjectHash::from("the lock closure"),
                             dependency_subtrees: BTreeMap::new(),
                         },
                         installed: InstalledState::NotInstalled,

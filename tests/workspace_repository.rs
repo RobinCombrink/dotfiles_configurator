@@ -111,13 +111,45 @@ impl TemporaryRepository {
     }
 }
 
+fn member_entry(name: &str, dependencies: &[&str]) -> String {
+    format!(
+        "[[package]]\nname = \"{name}\"\nversion = \"0.1.0\"\ndependencies = [{}]\n",
+        quoted(dependencies)
+    )
+}
+
+fn registry_entry(name: &str, version: &str, dependencies: &[&str]) -> String {
+    format!(
+        "[[package]]\nname = \"{name}\"\nversion = \"{version}\"\n\
+         source = \"registry+https://github.com/rust-lang/crates.io-index\"\n\
+         checksum = \"{}\"\ndependencies = [{}]\n",
+        "ab".repeat(32),
+        quoted(dependencies)
+    )
+}
+
+fn quoted(names: &[&str]) -> String {
+    names
+        .iter()
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn lock_of(entries: &[String]) -> String {
+    format!("version = 4\n\n{}", entries.join("\n"))
+}
+
 fn workspace_holding_a_binary_and_a_library() -> TemporaryRepository {
     let repository = TemporaryRepository::create();
     repository.write(
         "Cargo.toml",
         "[workspace]\nresolver = \"2\"\nmembers = [\"tools/alpha\", \"tools/beta\"]\n",
     );
-    repository.write("Cargo.lock", "version = 4\n");
+    repository.write(
+        "Cargo.lock",
+        &lock_of(&[member_entry("alpha", &[]), member_entry("beta", &[])]),
+    );
     repository.write(
         "tools/alpha/Cargo.toml",
         "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n",
@@ -207,15 +239,28 @@ fn a_commit_touching_nothing_the_crate_is_built_from_leaves_it_converged() {
     assert!(alpha(&reading));
 }
 
+fn alpha_through_left_pad_on_pad_core(pad_core_version: &str) -> String {
+    lock_of(&[
+        member_entry("alpha", &["left-pad"]),
+        member_entry("beta", &[]),
+        registry_entry("left-pad", "1.3.0", &["pad-core"]),
+        registry_entry("pad-core", pad_core_version, &[]),
+    ])
+}
+
 #[test]
-fn a_commit_changing_the_lockfile_drifts_a_crate_it_never_touched() {
+fn a_new_version_of_a_dependency_its_dependency_uses_drifts_it() {
     let repository = workspace_holding_a_binary_and_a_library();
-    let installed_from = repository.head_revision();
     repository.write(
-        "Cargo.lock",
-        "version = 4\n\n[[package]]\nname = \"serde\"\n",
+        "tools/alpha/Cargo.toml",
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n\n[dependencies]\nleft-pad = \"1\"\n",
     );
-    repository.commit("bump a dependency");
+    repository.write("Cargo.lock", &alpha_through_left_pad_on_pad_core("1.0.0"));
+    repository.commit("alpha pads");
+    repository.push();
+    let installed_from = repository.head_revision();
+    repository.write("Cargo.lock", &alpha_through_left_pad_on_pad_core("1.0.1"));
+    repository.commit("bump pad-core");
     repository.push();
 
     let reading = workspace::read(
@@ -227,6 +272,99 @@ fn a_commit_changing_the_lockfile_drifts_a_crate_it_never_touched() {
     .unwrap();
 
     assert!(!alpha(&reading));
+}
+
+fn workspace_of_two_tools() -> TemporaryRepository {
+    let repository = TemporaryRepository::create();
+    repository.write(
+        "Cargo.toml",
+        "[workspace]\nresolver = \"2\"\nmembers = [\"tools/alpha\", \"tools/delta\"]\n",
+    );
+    repository.write(
+        "tools/alpha/Cargo.toml",
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n",
+    );
+    repository.write("tools/alpha/src/main.rs", "fn main() {}\n");
+    repository.write(
+        "tools/delta/Cargo.toml",
+        "[package]\nname = \"delta\"\nversion = \"0.1.0\"\n",
+    );
+    repository.write("tools/delta/src/main.rs", "fn main() {}\n");
+    repository.write(
+        "Cargo.lock",
+        &lock_of(&[member_entry("alpha", &[]), member_entry("delta", &[])]),
+    );
+    repository.commit("two tools");
+    repository.push();
+    repository
+}
+
+#[test]
+fn a_dependency_added_to_one_tool_leaves_another_tool_converged() {
+    let repository = workspace_of_two_tools();
+    let installed_from = repository.head_revision();
+    repository.write(
+        "tools/delta/Cargo.toml",
+        "[package]\nname = \"delta\"\nversion = \"0.1.0\"\n\n[dependencies]\nleft-pad = \"1\"\n",
+    );
+    repository.write(
+        "Cargo.lock",
+        &lock_of(&[
+            member_entry("alpha", &[]),
+            member_entry("delta", &["left-pad"]),
+            registry_entry("left-pad", "1.3.0", &[]),
+        ]),
+    );
+    repository.commit("delta pads");
+    repository.push();
+
+    let reading = workspace::read(
+        repository.path(),
+        &installed("alpha", &installed_from),
+        installed_binaries(&["alpha", "delta"]).path(),
+    )
+    .unwrap()
+    .unwrap();
+
+    assert!(alpha(&reading));
+}
+
+fn refusal_of(lock: &str) -> String {
+    let repository = workspace_holding_a_binary_and_a_library();
+    repository.write("Cargo.lock", lock);
+    repository.commit("a lock cargo did not write");
+    repository.push();
+
+    let error = workspace::read(
+        repository.path(),
+        &BTreeMap::new(),
+        installed_binaries(&["alpha"]).path(),
+    )
+    .unwrap_err();
+    format!("{error:#}")
+}
+
+#[test]
+fn a_lock_naming_a_dependency_it_holds_no_entry_for_refuses_the_workspace() {
+    let error = refusal_of(&lock_of(&[
+        member_entry("alpha", &["ghost 1.0.0"]),
+        member_entry("beta", &[]),
+    ]));
+
+    assert!(
+        error.contains("Cargo.lock") && error.contains("ghost"),
+        "expected the message to name the lock and the dependency, got: {error}"
+    );
+}
+
+#[test]
+fn a_lock_holding_no_entry_for_a_member_refuses_the_workspace() {
+    let error = refusal_of(&lock_of(&[member_entry("beta", &[])]));
+
+    assert!(
+        error.contains("Cargo.lock") && error.contains("alpha"),
+        "expected the message to name the lock and the member, got: {error}"
+    );
 }
 
 fn workspace_where_alpha_declares(dependency_sections: &str) -> TemporaryRepository {
@@ -465,7 +603,7 @@ fn a_member_declaring_several_binaries_names_only_the_ones_that_are_gone() {
         "Cargo.toml",
         "[workspace]\nresolver = \"2\"\nmembers = [\"tools/mining\"]\n",
     );
-    repository.write("Cargo.lock", "version = 4\n");
+    repository.write("Cargo.lock", &lock_of(&[member_entry("mining", &[])]));
     repository.write(
         "tools/mining/Cargo.toml",
         "[package]\nname = \"mining\"\nversion = \"0.1.0\"\n\n\
