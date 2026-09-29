@@ -49,9 +49,9 @@ pub use {
     resource::{
         Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,
         ClaudeMcpServer, CloneDepth, Command, EnvironmentVariable, GitHubRepository, Installer,
-        MachineManifest, McpScope, Package, Registration, ReleasedBinary, RepositoryClone,
-        Resource, ResourceKind, SearchPathDirectory, SearchPathEntry, Shell, Symlink,
-        UvToolPackage, Variable, VersionWord, WingetPackage,
+        MachineManifest, McpScope, Package, RecordedRun, RecordedSource, Registration,
+        ReleasedBinary, RepositoryClone, Resource, ResourceKind, SearchPathDirectory,
+        SearchPathEntry, Shell, Symlink, UvToolPackage, Variable, VersionWord, WingetPackage,
     },
     unreadable::Unreadable,
     workspace::CargoWorkspace,

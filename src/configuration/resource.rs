@@ -1,6 +1,7 @@
 use {
     crate::{
         configuration::{
+            context::MachineClass,
             estate::Estates,
             names::{
                 ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName,
@@ -657,10 +658,34 @@ pub struct ClaudeMcpServer {
     pub environment: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct MachineManifest {
     pub repositories_directory_path: PathBuf,
     pub estates: Estates,
+    #[serde(flatten)]
+    pub recorded_run: RecordedRun,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecordedRun {
+    pub class: MachineClass,
+    pub configuration_sources: Vec<RecordedSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct RecordedSource(String);
+
+impl RecordedSource {
+    pub fn as_written(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for RecordedSource {
+    fn from(written: String) -> Self {
+        Self(written)
+    }
 }
 
 const MANIFEST_DIRECTORY: &str = ".dotconfig";
@@ -795,13 +820,45 @@ mod tests {
         let document = String::try_from(&MachineManifest {
             repositories_directory_path: PathBuf::from("/repositories/Personal"),
             estates: Estates::new(),
+            recorded_run: RecordedRun {
+                class: MachineClass::Personal,
+                configuration_sources: Vec::new(),
+            },
         })
         .expect("a manifest that serialises");
 
         assert_eq!(
             document,
             "{\n  \"machine\": {\n    \"repositories_directory_path\": \"/repositories/Personal\",\n    \
-             \"estates\": {}\n  }\n}"
+             \"estates\": {},\n    \"class\": \"personal\",\n    \"configuration_sources\": []\n  }\n}"
+        );
+    }
+
+    #[test]
+    fn the_manifest_records_the_class_and_the_sources_of_the_run_that_wrote_it_as_written() {
+        let document = String::try_from(&MachineManifest {
+            repositories_directory_path: PathBuf::from("/repositories/Work"),
+            estates: Estates::new(),
+            recorded_run: RecordedRun {
+                class: MachineClass::Work,
+                configuration_sources: vec![
+                    RecordedSource::from("github:Alice/dotfiles/config".to_owned()),
+                    RecordedSource::from("local:/repositories/Work/dotfiles/config".to_owned()),
+                ],
+            },
+        })
+        .expect("a manifest that serialises");
+
+        let machine = &serde_json::from_str::<serde_json::Value>(&document).unwrap()["machine"];
+        assert_eq!(
+            (&machine["class"], &machine["configuration_sources"]),
+            (
+                &serde_json::json!("work"),
+                &serde_json::json!([
+                    "github:Alice/dotfiles/config",
+                    "local:/repositories/Work/dotfiles/config"
+                ])
+            )
         );
     }
 
@@ -824,6 +881,10 @@ mod tests {
         let document = String::try_from(&MachineManifest {
             repositories_directory_path: PathBuf::from("/repositories/Work"),
             estates,
+            recorded_run: RecordedRun {
+                class: MachineClass::Work,
+                configuration_sources: Vec::new(),
+            },
         })
         .expect("a manifest that serialises");
 

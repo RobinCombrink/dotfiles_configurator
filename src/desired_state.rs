@@ -499,6 +499,10 @@ mod tests {
                 repositories_directory_path: Path::new(REPOSITORIES_ROOT)
                     .join(MachineClass::Personal.repositories_leaf()),
                 estates: crate::configuration::Estates::new(),
+                recorded_run: crate::configuration::RecordedRun {
+                    class: MachineClass::Personal,
+                    configuration_sources: Vec::new(),
+                },
             },
             Path::new(HOME_DIRECTORY),
         )

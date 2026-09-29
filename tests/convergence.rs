@@ -18,9 +18,9 @@ use {
             ConfigurationName, Context, CrateName, DeclaredNotice, EnvironmentVariable, EstateName,
             EstateOwner, Estates, GitHubAccount, Installer, MachineClass, MachineManifest,
             McpScope, McpServerName, Migration, Notice, OLDEST_READABLE_GENERATION, Package,
-            PresenceCheck, PythonInterpreter, Registration, RepositoryClone, Resource,
-            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
-            UvToolVersion, Variable, VariableName, VariableValue,
+            PresenceCheck, PythonInterpreter, RecordedRun, RecordedSource, Registration,
+            RepositoryClone, Resource, SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool,
+            UvToolPackage, UvToolVersion, Variable, VariableName, VariableValue,
         },
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -87,6 +87,7 @@ struct MachineWorld {
     fingerprint_before: Option<String>,
     loading_error: Option<String>,
     loaded: Option<DesiredState>,
+    named_sources: Vec<ConfigurationSource>,
     log_directory: TempDir,
     report: Option<RunReport>,
 }
@@ -126,6 +127,7 @@ impl MachineWorld {
             fingerprint_before: None,
             loading_error: None,
             loaded: None,
+            named_sources: Vec::new(),
             log_directory: tempfile::tempdir().expect("a directory to write run logs into"),
             report: None,
         }
@@ -1301,19 +1303,40 @@ fn personal_acting_as_declaring_an_estate_with_an_owner(
 }
 
 impl MachineWorld {
-    fn loaded_estates(&self) -> Estates {
+    fn loaded_manifest(&self) -> MachineManifest {
         let loaded = self.loaded.as_ref().expect("a desired state was loaded");
         loaded
             .resources
             .iter()
             .find_map(|resource| match resource.declared() {
                 Resource::Registration(Registration::MachineManifest(manifest)) => {
-                    Some(manifest.estates.clone())
+                    Some(manifest.clone())
                 }
                 _ => None,
             })
             .expect("every desired state carries the machine manifest")
     }
+
+    fn loaded_estates(&self) -> Estates {
+        self.loaded_manifest().estates
+    }
+}
+
+#[then(expr = "the machine's manifest records a personal machine reading the sources Alice named")]
+fn manifest_records_the_run(world: &mut MachineWorld) {
+    let named: Vec<RecordedSource> = world
+        .named_sources
+        .iter()
+        .map(ConfigurationSource::recorded)
+        .collect();
+
+    assert_eq!(
+        world.loaded_manifest().recorded_run,
+        RecordedRun {
+            class: MachineClass::Personal,
+            configuration_sources: named,
+        }
+    );
 }
 
 #[then(expr = "the machine's manifest places {string} in the estate {string}")]
@@ -1614,6 +1637,7 @@ async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
         )));
     }
 
+    world.named_sources = sources.clone();
     match load_desired_state(
         &sources,
         machine,
@@ -2103,13 +2127,16 @@ fn the_machine_holds_no_manifest(world: &mut MachineWorld) {
 
 #[then(expr = "Alice's machine holds a manifest naming the repositories directory {string}")]
 fn the_manifest_names_the_repositories_directory(world: &mut MachineWorld, leaf: String) {
-    let expected = String::try_from(&MachineManifest {
-        repositories_directory_path: repositories_root_path().join(leaf),
-        estates: Estates::new(),
-    })
-    .expect("a manifest that serialises");
+    let held = world
+        .machine
+        .machine_manifest()
+        .expect("the machine holds a manifest");
+    let read: serde_json::Value = serde_json::from_str(&held).expect("a manifest that parses");
 
-    assert_eq!(world.machine.machine_manifest(), Some(expected));
+    assert_eq!(
+        read["machine"]["repositories_directory_path"],
+        serde_json::json!(repositories_root_path().join(leaf))
+    );
 }
 
 #[then(expr = "the directory this program installs binaries into is on Alice's own search path")]

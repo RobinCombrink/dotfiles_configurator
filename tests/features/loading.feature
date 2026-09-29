@@ -191,6 +191,12 @@ Feature: Loading a configuration
     When Alice loads her configurations for a personal machine
     Then the machine's manifest names no estate
 
+  Scenario: The manifest records the class of machine and the sources the run was given
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest records a personal machine reading the sources Alice named
+
   Scenario: Two configurations declaring one estate are refused
     Given Alice has a configuration for every machine declaring the estate "personal"
     And Alice has a configuration for personal machines declaring the estate "personal" with the owner "Bob"

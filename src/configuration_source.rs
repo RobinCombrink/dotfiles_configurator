@@ -2,8 +2,9 @@ use {
     crate::{
         configuration::{
             Configuration, ConfigurationName, Context, EstateConflict, GitHubAccount,
-            GitHubRepository, MachineClass, MachineManifest, Migration, Notice, RepositoryName,
-            RepositoryOwner, Unreadable, parse_configuration, resolve_estates,
+            GitHubRepository, MachineClass, MachineManifest, Migration, Notice, RecordedRun,
+            RecordedSource, RepositoryName, RepositoryOwner, Unreadable, parse_configuration,
+            resolve_estates,
         },
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
@@ -209,6 +210,10 @@ pub async fn load_desired_state(
     let machine_manifest = MachineManifest {
         repositories_directory_path: repositories_root.join(machine.repositories_leaf()),
         estates,
+        recorded_run: RecordedRun {
+            class: machine,
+            configuration_sources: sources.iter().map(ConfigurationSource::recorded).collect(),
+        },
     };
 
     let home_directory = home_directory().map_err(LoadFailure::Irreconcilable)?;
@@ -384,6 +389,12 @@ impl Display for ConfigurationSource {
                 directory,
             } => write!(formatter, "github:{repository}/{directory}"),
         }
+    }
+}
+
+impl ConfigurationSource {
+    pub fn recorded(&self) -> RecordedSource {
+        RecordedSource::from(self.to_string())
     }
 }
 

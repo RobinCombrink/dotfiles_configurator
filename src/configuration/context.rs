@@ -61,7 +61,8 @@ impl Display for Context {
 }
 
 // ADR 0025
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, EnumIter)]
+#[serde(rename_all = "snake_case")]
 pub enum MachineClass {
     Personal,
     Work,

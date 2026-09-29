@@ -7,7 +7,7 @@ use {
     dotfiles_configurator::{
         configuration::{
             Answer, ApplicationName, ApplicationSource, ClaudeMcpServer, CloneDepth, CrateName,
-            Estates, GitHubAccount, GitHubRepository, Installer, MachineClass, MachineManifest,
+            GitHubAccount, GitHubRepository, Installer, MachineClass, MachineManifest,
             McpServerName, Migration, PresenceCheck, PythonInterpreter, ReleasedBinary,
             RepositoryClone, Shell, Tool, UvToolName, UvToolVersion, VariableName, VariableValue,
             WingetPackageId,
@@ -517,11 +517,8 @@ impl FakeMachine {
     }
 
     pub fn hold_machine_manifest(&self, machine: MachineClass) {
-        let manifest = MachineManifest {
-            repositories_directory_path: self.repositories_root.join(machine.repositories_leaf()),
-            estates: Estates::new(),
-        };
-        let document = String::try_from(&manifest).expect("a manifest that serialises");
+        let document = String::try_from(&crate::declarations::manifest_for(machine))
+            .expect("a manifest that serialises");
 
         self.write_text_file(
             &MachineManifest::path_within(self.home_directory()),
