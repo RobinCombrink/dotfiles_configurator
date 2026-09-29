@@ -53,15 +53,31 @@ kind, and the registry covers the ordinary way to install someone else's crate.
   yet, the crates are blocked until it is, and readiness already expresses this.
 - Adding a crate to the workspace declares it; removing one withdraws it. Withdrawal ends the
   tool's interest without uninstalling anything, per ADR 0005.
-- The fingerprint covers the crate's own subtree together with the workspace manifest, the
-  lockfile, and the subtree of every crate it reaches by a path dependency — normal, build and
-  target-specific, directly or through another, including one inherited from
+- The fingerprint covers the crate's own subtree, the workspace manifest, the crate's closure in
+  the lockfile, and the subtree of every crate it reaches by a path dependency — normal, build
+  and target-specific, directly or through another, including one inherited from
   `[workspace.dependencies]` — because a dependency change alters the built binary without
-  touching the crate. A dev-dependency is left out: `cargo install` never builds one.
+  touching the crate. A dev-dependency's subtree is left out: `cargo install` never builds one.
+- **A crate's lock closure is every lockfile entry reached from its own through dependency
+  edges**, each entry read as its name, version, source, checksum and resolved dependencies, so a
+  transitive dependency counts by construction and a lockfile change reaching only other crates
+  leaves this one converged. The lockfile records edges for every platform and for
+  dev-dependencies without telling them apart, so the closure takes them all: over-reaching
+  rebuilds a crate a narrower reading would have spared, and never misses one it needed. Measured
+  over dotfiles' 85 lockfile-changing commits from 2026-08-29 to 2026-09-29, hashing the whole
+  lockfile would have rebuilt 2,263 crates and the closure rebuilds 268.
+- **The workspace manifest is fingerprinted without `members` and `exclude`**, which say what
+  the workspace holds rather than how any crate in it is built; profiles, `[patch]`,
+  `[workspace.package]` and `[workspace.dependencies]` stay in whole. It is read as TOML and
+  written back with its keys sorted, so the order a manifest is written in never moves the
+  fingerprint. None of dotfiles' 21 root-manifest commits in the same month changed more than
+  membership.
 - **A workspace that cannot be read refuses the whole run.** Cloned but with no tracked remote
-  branch, an unparseable manifest, a member named by a glob, or no lockfile: each leaves which
-  crates exist unknown, and a source that decides which resources exist cannot fail softly the way
-  a source that describes one resource can. Reporting drift instead would apply a change set built
+  branch, an unparseable manifest, a member named by a glob, no lockfile, or a lockfile naming a
+  dependency it holds no entry for or holding no entry for a member: each leaves which crates
+  exist, or what they are built from, unknown, and a source that decides which resources exist
+  cannot fail softly the way a source that describes one resource can. A closure hashed around
+  an entry it could not reach would read as a plausible fingerprint rather than as an error. Reporting drift instead would apply a change set built
   from a membership nobody established. ADR 0009 already refuses to apply any configuration it
   could not read; this is that rule reaching the resolved half of the configuration.
 - **A workspace whose repository is not cloned contributes no members, and says nothing about
