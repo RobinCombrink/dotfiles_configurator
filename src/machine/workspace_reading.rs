@@ -401,6 +401,15 @@ impl WorkspaceLock {
     }
 }
 
+pub fn manifest_without_membership(manifest: &str) -> Result<String> {
+    let mut document: toml::Table = toml::from_str(manifest).map_err(|error| anyhow!("{error}"))?;
+    if let Some(toml::Value::Table(workspace)) = document.get_mut("workspace") {
+        workspace.remove("members");
+        workspace.remove("exclude");
+    }
+    toml::to_string(&document).map_err(|error| anyhow!("{error}"))
+}
+
 pub fn read_member_manifest(manifest: &str) -> Result<MemberManifest> {
     let document: MemberDocument = toml::from_str(manifest).map_err(|error| anyhow!("{error}"))?;
 
@@ -495,6 +504,51 @@ mod tests {
         "#;
 
         assert!(member_paths(manifest).is_err());
+    }
+
+    #[test]
+    fn a_workspace_manifest_differing_only_in_its_excluded_paths_reads_the_same() {
+        let excluding_nothing = r#"
+            [workspace]
+            members = ["tools/stop-gate"]
+        "#;
+        let excluding_a_path = r#"
+            [workspace]
+            members = ["tools/stop-gate"]
+            exclude = ["tools/scratch"]
+        "#;
+
+        assert_eq!(
+            manifest_without_membership(excluding_nothing).unwrap(),
+            manifest_without_membership(excluding_a_path).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_workspace_manifest_reads_the_same_whatever_order_its_keys_are_written_in() {
+        let one_order = r#"
+            [profile.release]
+            lto = true
+            strip = true
+
+            [workspace]
+            resolver = "2"
+            members = ["tools/stop-gate"]
+        "#;
+        let another_order = r#"
+            [workspace]
+            members = ["tools/stop-gate"]
+            resolver = "2"
+
+            [profile.release]
+            strip = true
+            lto = true
+        "#;
+
+        assert_eq!(
+            manifest_without_membership(one_order).unwrap(),
+            manifest_without_membership(another_order).unwrap()
+        );
     }
 
     #[test]

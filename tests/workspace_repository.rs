@@ -336,6 +336,67 @@ fn a_dependency_added_to_one_tool_leaves_another_tool_converged() {
     assert!(alpha(&reading));
 }
 
+fn tools_converged_once_the_workspace_manifest_reads(
+    manifest: &str,
+    locked_members: &[&str],
+) -> Vec<bool> {
+    let repository = workspace_of_two_tools();
+    let installed_from = repository.head_revision();
+    repository.write("Cargo.toml", manifest);
+    repository.write(
+        "tools/epsilon/Cargo.toml",
+        "[package]\nname = \"epsilon\"\nversion = \"0.1.0\"\n",
+    );
+    repository.write("tools/epsilon/src/main.rs", "fn main() {}\n");
+    let entries: Vec<String> = locked_members
+        .iter()
+        .map(|name| member_entry(name, &[]))
+        .collect();
+    repository.write("Cargo.lock", &lock_of(&entries));
+    repository.commit("the workspace manifest changes");
+    repository.push();
+
+    let installed = BTreeMap::from([
+        (CrateName::from("alpha"), installed_from.clone()),
+        (CrateName::from("delta"), installed_from),
+    ]);
+    let reading = workspace::read(
+        repository.path(),
+        &installed,
+        installed_binaries(&["alpha", "delta"]).path(),
+    )
+    .unwrap()
+    .unwrap();
+
+    ["alpha", "delta"]
+        .iter()
+        .map(|name| {
+            let member = &reading.members[&CrateName::from(*name)];
+            member.installed == InstalledState::At(member.desired.clone())
+        })
+        .collect()
+}
+
+#[test]
+fn a_member_added_to_the_workspace_leaves_every_existing_tool_converged() {
+    let converged = tools_converged_once_the_workspace_manifest_reads(
+        "[workspace]\nresolver = \"2\"\nmembers = [\"tools/alpha\", \"tools/delta\", \"tools/epsilon\"]\n",
+        &["alpha", "delta", "epsilon"],
+    );
+
+    assert_eq!(converged, vec![true, true]);
+}
+
+#[test]
+fn a_release_profile_change_drifts_every_tool() {
+    let converged = tools_converged_once_the_workspace_manifest_reads(
+        "[workspace]\nresolver = \"2\"\nmembers = [\"tools/alpha\", \"tools/delta\"]\n\n[profile.release]\nlto = true\n",
+        &["alpha", "delta"],
+    );
+
+    assert_eq!(converged, vec![false, false]);
+}
+
 fn refusal_of(lock: &str) -> String {
     let repository = workspace_holding_a_binary_and_a_library();
     repository.write("Cargo.lock", lock);

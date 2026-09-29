@@ -4,7 +4,8 @@ use {
         machine::workspace_reading::{
             Fingerprint, InferableBinary, InstalledState, MemberManifest, MemberReading,
             MemberTree, ObjectHash, Revision, WorkspaceLock, WorkspaceReading,
-            inherited_dependency_paths, member_paths, read_member_manifest,
+            inherited_dependency_paths, manifest_without_membership, member_paths,
+            read_member_manifest,
         },
     },
     anyhow::{Context, Result, anyhow},
@@ -114,9 +115,8 @@ fn members_at(
         .with_context(|| format!("{revision} is not in this clone"))?;
     let tree = commit.tree()?;
 
-    let workspace_manifest = entry_hash(&tree, "Cargo.toml")
-        .ok_or_else(|| anyhow!("it holds no Cargo.toml at {revision}"))?;
     let manifest = blob_text(repository, &tree, "Cargo.toml")?;
+    let workspace_manifest = content_hash(&manifest_without_membership(&manifest)?)?;
     let lock = WorkspaceLock::read(&blob_text(repository, &tree, "Cargo.lock")?)?;
     let inherited_paths = inherited_dependency_paths(&manifest)?;
 
