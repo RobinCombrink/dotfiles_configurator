@@ -239,28 +239,35 @@ fn a_commit_touching_nothing_the_crate_is_built_from_leaves_it_converged() {
     assert!(alpha(&reading));
 }
 
-fn alpha_through_left_pad_on_pad_core(pad_core_version: &str) -> String {
+fn alpha_through_left_pad_and_pad_core_on_pad_bytes(pad_bytes_version: &str) -> String {
     lock_of(&[
         member_entry("alpha", &["left-pad"]),
         member_entry("beta", &[]),
         registry_entry("left-pad", "1.3.0", &["pad-core"]),
-        registry_entry("pad-core", pad_core_version, &[]),
+        registry_entry("pad-core", "1.0.0", &["pad-bytes"]),
+        registry_entry("pad-bytes", pad_bytes_version, &[]),
     ])
 }
 
 #[test]
-fn a_new_version_of_a_dependency_its_dependency_uses_drifts_it() {
+fn a_new_version_of_a_dependency_several_levels_beneath_it_drifts_it() {
     let repository = workspace_holding_a_binary_and_a_library();
     repository.write(
         "tools/alpha/Cargo.toml",
         "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n\n[dependencies]\nleft-pad = \"1\"\n",
     );
-    repository.write("Cargo.lock", &alpha_through_left_pad_on_pad_core("1.0.0"));
+    repository.write(
+        "Cargo.lock",
+        &alpha_through_left_pad_and_pad_core_on_pad_bytes("1.0.0"),
+    );
     repository.commit("alpha pads");
     repository.push();
     let installed_from = repository.head_revision();
-    repository.write("Cargo.lock", &alpha_through_left_pad_on_pad_core("1.0.1"));
-    repository.commit("bump pad-core");
+    repository.write(
+        "Cargo.lock",
+        &alpha_through_left_pad_and_pad_core_on_pad_bytes("1.0.1"),
+    );
+    repository.commit("bump pad-bytes");
     repository.push();
 
     let reading = workspace::read(
