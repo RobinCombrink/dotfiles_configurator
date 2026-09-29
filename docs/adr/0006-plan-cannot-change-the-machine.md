@@ -1,7 +1,8 @@
-# Plan cannot change the machine
+---
+status: accepted
+---
 
-Status: accepted (2026-07-31, grilling session on the Phase D domain model); amended 2026-08-06 on
-what the guarantee covers
+# Plan cannot change the machine
 
 Producing a change set and enacting one are given different capabilities. Plan holds capabilities
 that can only read; apply holds those and the ones that write. "Plan had no side effects" is

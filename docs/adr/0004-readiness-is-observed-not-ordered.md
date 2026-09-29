@@ -1,6 +1,8 @@
-# Readiness is observed, not ordered
+---
+status: accepted
+---
 
-Status: accepted (2026-07-31, grilling session on the Phase D domain model)
+# Readiness is observed, not ordered
 
 A resource kind states which tools it needs, and those needs are a property of the kind rather
 than something an author writes down — a package installed by Cargo needs Cargo, and no

@@ -1,6 +1,8 @@
-# One name for the tool and everything it owns
+---
+status: accepted
+---
 
-Status: accepted (2026-08-07, design session on self-provisioning)
+# One name for the tool and everything it owns
 
 The crate, the binary, the release asset and the directory the tool owns on a machine all spell
 `dotfiles_configurator`. An invocation reads `dotfiles_configurator plan --context personal`, and

@@ -1,6 +1,8 @@
-# The machine manifest is written by the run that knows the class
+---
+status: accepted
+---
 
-Status: accepted (2026-08-11, design session on a manifest nothing wrote)
+# The machine manifest is written by the run that knows the class
 
 Tools outside this program read `~/.dotconfig/machine.json` for where this machine keeps its
 repositories. No program wrote that file. Each reader treats its absence as an optional reading

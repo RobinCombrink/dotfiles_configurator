@@ -1,6 +1,8 @@
-# A build reads one generation back and rewrites what it can
+---
+status: accepted
+---
 
-Status: accepted (2026-08-10, grilling session on the settings a configuration owns)
+# A build reads one generation back and rewrites what it can
 
 A generation is the lowest build that can read a configuration, and a build has always been
 described as reading anything at or below its own by migrating older shapes forward. Nothing

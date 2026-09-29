@@ -1,6 +1,8 @@
-# An environment variable is a resource, written through the registry
+---
+status: accepted
+---
 
-Status: accepted (2026-08-07, design session on self-provisioning)
+# An environment variable is a resource, written through the registry
 
 An environment variable is a resource kind, in two shapes. A **variable** has a whole value, and
 its desired state is that value. A **search path entry** is a directory the search path contains,

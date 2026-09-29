@@ -1,6 +1,8 @@
-# An account is this program's word, and crosses to a credential source as a string
+---
+status: accepted
+---
 
-Status: accepted (2026-08-09, design session on the credential crate's surface)
+# An account is this program's word, and crosses to a credential source as a string
 
 A GitHub account is the account a configuration acts as, which makes it part of what a
 configuration says rather than part of how a credential is fetched. It is declared in a

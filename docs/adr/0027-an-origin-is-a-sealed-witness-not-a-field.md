@@ -1,6 +1,8 @@
-# An origin is a sealed witness, not a field
+---
+status: accepted
+---
 
-Status: accepted (2026-08-10, grilling session on the settings a configuration owns)
+# An origin is a sealed witness, not a field
 
 Once a resource carries the settings of the configuration it came from, the thing that must hold is
 that it is only ever processed with *its own*. That is a fact about where a value came from, not

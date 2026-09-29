@@ -1,6 +1,8 @@
-# The configurator updates itself from an origin it carries
+---
+status: accepted
+---
 
-Status: accepted (2026-08-07, design session on self-provisioning). Refines ADR 0008 and ADR 0009.
+# The configurator updates itself from an origin it carries
 
 The program carries where its own releases come from, and its currency is a resolved resource
 present in every change set. Plan reports it, apply converges it, and no configuration declares

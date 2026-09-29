@@ -1,6 +1,8 @@
-# The configurator stays its own repository
+---
+status: accepted
+---
 
-Status: accepted (2026-07-28, grilling session on convergence); recorded here 2026-08-05
+# The configurator stays its own repository
 
 This crate is not a member of the `dotfiles` Cargo workspace and is not going to become one. It
 builds, versions and releases here, and reaches a machine as a release asset.

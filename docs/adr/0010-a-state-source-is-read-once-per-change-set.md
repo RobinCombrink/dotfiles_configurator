@@ -1,6 +1,8 @@
-# A state source is read once per change set
+---
+status: accepted
+---
 
-Status: accepted (2026-08-02)
+# A state source is read once per change set
 
 A source that can answer about a whole set of resources at once is interrogated once while a
 change set is produced, before any resource is assessed. A source that cannot is interrogated per

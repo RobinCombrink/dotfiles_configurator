@@ -1,6 +1,8 @@
-# A search path entry is compared in both the form it is stored and the form it stands for
+---
+status: accepted
+---
 
-Status: accepted (2026-08-10, review of making an environment variable a resource)
+# A search path entry is compared in both the form it is stored and the form it stands for
 
 ADR 0017 requires that actual state be read from the registry and never from this process's
 environment, which is a snapshot taken at launch. Membership cannot be decided on the stored form

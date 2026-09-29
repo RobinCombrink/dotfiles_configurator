@@ -1,6 +1,8 @@
-# The configurator installs itself from its own release
+---
+status: accepted
+---
 
-Status: accepted (2026-08-01, grilling session on automatic convergence)
+# The configurator installs itself from its own release
 
 The configurator is declared like anything else it manages: an application whose source is the
 latest release of its own repository. Its actual state is the version installed, read from the

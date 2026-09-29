@@ -1,6 +1,8 @@
-# A resource's location is derived, never declared
+---
+status: accepted
+---
 
-Status: accepted (2026-08-10, grilling session on the settings a configuration owns)
+# A resource's location is derived, never declared
 
 `MachineSettings` names a repositories directory and a dotfiles repository, and a configuration
 declares both. Every real value of both turns out to be a hand-typed copy of something the run

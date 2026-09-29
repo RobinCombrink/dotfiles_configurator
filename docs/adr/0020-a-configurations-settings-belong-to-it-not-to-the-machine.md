@@ -1,6 +1,8 @@
-# A configuration's settings belong to it, not to the machine
+---
+status: accepted
+---
 
-Status: accepted (2026-08-08, design session on configurations spanning two GitHub accounts)
+# A configuration's settings belong to it, not to the machine
 
 `MachineSettings` names the GitHub account, the dotfiles repository and the repositories
 directory, and none of the three is a fact about the machine. Each is a property of the repository

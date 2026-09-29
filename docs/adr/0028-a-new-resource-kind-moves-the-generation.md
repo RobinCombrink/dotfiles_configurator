@@ -1,6 +1,8 @@
-# A new resource kind moves the generation
+---
+status: accepted
+---
 
-Status: accepted (2026-08-10, design session on making an environment variable a resource)
+# A new resource kind moves the generation
 
 A generation is the lowest build that can read a configuration, stated by the configuration itself.
 A resource kind is additive to the document shape — every document written before it deserialises

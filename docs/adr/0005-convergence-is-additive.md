@@ -1,6 +1,8 @@
-# Convergence is additive
+---
+status: accepted
+---
 
-Status: accepted (2026-07-31, grilling session on the Phase D domain model)
+# Convergence is additive
 
 Convergence makes declared things true. It never makes undeclared things false. Withdrawing a
 declaration ends the tool's interest in that resource; it does not undo it. Removing something

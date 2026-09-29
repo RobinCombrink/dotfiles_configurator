@@ -1,6 +1,8 @@
-# Every unreadable configuration is reported, and none is applied
+---
+status: accepted
+---
 
-Status: accepted (2026-08-02, session on diagnosing a multi-configuration run)
+# Every unreadable configuration is reported, and none is applied
 
 A run reads several configurations — a machine takes the generic one plus the one for its class,
 each from its own repository. When one of them cannot be read, two things follow.

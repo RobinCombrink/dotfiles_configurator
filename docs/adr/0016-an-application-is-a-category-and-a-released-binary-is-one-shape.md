@@ -1,6 +1,8 @@
-# An application is a category, and a released binary is one shape of it
+---
+status: accepted
+---
 
-Status: accepted (2026-08-07, design session on self-provisioning). Refines ADR 0008.
+# An application is a category, and a released binary is one shape of it
 
 An application is a program on the machine, and how it arrives is a variant rather than a set of
 fields. Two shapes exist. An **installer** is downloaded and run, and its actual state is read

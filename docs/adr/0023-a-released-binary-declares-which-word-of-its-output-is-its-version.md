@@ -1,7 +1,8 @@
-# A released binary declares which word of its output is its version
+---
+status: accepted
+---
 
-Status: accepted (2026-08-09, implementation session on the released-binary shape). Refines ADR
-0016.
+# A released binary declares which word of its output is its version
 
 A released binary declares which whitespace-separated word of the output its version arguments
 produce holds the version. The word is required and has no default, and the word selected must

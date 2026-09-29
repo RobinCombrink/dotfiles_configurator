@@ -1,6 +1,8 @@
-# A configuration declares which machines it is for
+---
+status: accepted
+---
 
-Status: accepted (2026-08-07). Supersedes ADR 0012.
+# A configuration declares which machines it is for
 
 A configuration declares the machines it applies to, and an invocation names the machine it is
 running on. A configuration applies when it declares `everywhere`, or declares the machine the

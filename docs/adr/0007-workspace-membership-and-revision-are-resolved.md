@@ -1,7 +1,8 @@
-# Workspace membership and revision are resolved, not declared
+---
+status: accepted
+---
 
-Status: accepted (2026-08-01, grilling session on automatic convergence); amended 2026-08-02 on
-what an unresolvable workspace does to a run
+# Workspace membership and revision are resolved, not declared
 
 A cargo package built from a repository this configuration already has cloned declares the
 workspace it belongs to. Which crates exist, and which revision each installs from, are read from

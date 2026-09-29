@@ -1,6 +1,8 @@
-# A version is the generation its reader must meet
+---
+status: accepted
+---
 
-Status: accepted (2026-08-07, design session on self-provisioning)
+# A version is the generation its reader must meet
 
 A configuration's `version` states the lowest generation of this program that can read it, rather
 than the generation it was written against. A build reads any configuration whose stated

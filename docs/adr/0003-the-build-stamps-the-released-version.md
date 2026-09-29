@@ -1,6 +1,8 @@
-# The build stamps the released version
+---
+status: accepted
+---
 
-Status: accepted (2026-07-29), supersedes ADR 0002, which was never implemented
+# The build stamps the released version
 
 The committed manifest version is a placeholder — `0.0.0-dev`. CI asks `actions-release` for
 the version it is about to cut, stamps that into `Cargo.toml` and `Cargo.lock` immediately

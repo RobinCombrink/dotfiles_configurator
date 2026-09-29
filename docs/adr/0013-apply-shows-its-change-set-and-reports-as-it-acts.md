@@ -1,7 +1,8 @@
-# Apply shows its change set and reports as it acts
+---
+status: accepted
+---
 
-Status: accepted (2026-08-06, grilling session on previewing, convergence triggers and the
-push window)
+# Apply shows its change set and reports as it acts
 
 `apply` prints the change set before it enacts anything, and asks once — at the first change set —
 whether to proceed. `--yes` skips the asking and never the printing. Where there is no terminal and

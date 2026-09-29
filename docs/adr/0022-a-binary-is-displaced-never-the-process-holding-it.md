@@ -1,6 +1,8 @@
-# A binary is displaced, never the process holding it
+---
+status: accepted
+---
 
-Status: accepted (2026-08-09, grilling session on locked binaries and partial installs)
+# A binary is displaced, never the process holding it
 
 Where a file cannot be written because the machine is executing it, the running image is moved
 aside and the new file is written over the freed name. The process holding it is never stopped,

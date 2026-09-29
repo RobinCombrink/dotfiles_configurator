@@ -1,7 +1,8 @@
-# A workspace member's actual state is its binaries on disk
+---
+status: accepted
+---
 
-Status: accepted (2026-08-09, grilling session on locked binaries and partial installs). Refines
-ADR 0007.
+# A workspace member's actual state is its binaries on disk
 
 A workspace member is read by asking which of its declared binaries are present in the directory
 cargo installs into, alongside the fingerprint comparison ADR 0007 established. A member missing

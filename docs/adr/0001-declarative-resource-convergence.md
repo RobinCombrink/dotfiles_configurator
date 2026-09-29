@@ -1,6 +1,8 @@
-# Configuration is a declared desired state, applied as a change set
+---
+status: accepted
+---
 
-Status: accepted (2026-07-28, grilling session following the multi-angle repo review)
+# Configuration is a declared desired state, applied as a change set
 
 Configuration declares the **desired state** of a machine as a set of **resources**. The tool
 reads each resource's **actual state** from the machine, compares the two to produce a
