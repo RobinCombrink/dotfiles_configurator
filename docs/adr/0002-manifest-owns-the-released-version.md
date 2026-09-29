@@ -4,6 +4,10 @@ status: superseded by [ADR 0003](0003-the-build-stamps-the-released-version.md)
 
 # The Cargo manifest owns the released version
 
+[ADR 0003](0003-the-build-stamps-the-released-version.md) supersedes this decision, which was never
+implemented: the write-back plugins are unavailable to callers, and a binary built before the
+release cannot carry the version that release cuts.
+
 `Cargo.toml` is the single home of this crate's version; semantic-release writes it back as
 part of the release, and the tag is derived from it rather than competing with it. This is
 delivered by a caller-local `.releaserc.json` in this repo, which the `actions-release` fleet

@@ -9,7 +9,7 @@ the version it is about to cut, stamps that into `Cargo.toml` and `Cargo.lock` i
 before the release build, and the binary carrying it becomes the release asset. Nothing is
 written back to the repository.
 
-ADR 0002 decided the opposite, and its own reasoning refutes it. It rejected build-time
+[ADR 0002](0002-manifest-owns-the-released-version.md), never implemented, decided the opposite, and its own reasoning refutes it. It rejected build-time
 stamping because stamping "fixes what `--version` prints but not what any Cargo-level consumer
 sees, since those read the manifest" — while recording, four paragraphs later, that this repo
 "ships as a downloaded binary rather than through Cargo". There are no Cargo-level consumers to
