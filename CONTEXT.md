@@ -262,11 +262,17 @@ _Avoid_: clone directory, workspace, projects directory
 
 **Machine manifest**:
 The document this program writes for programs it does not own, naming the repositories directory
-belonging to the class of machine a run names, and the machine's owners grouped by estate. A fact
-about the machine, which is what tells it apart from the repositories directory whose formula it
+belonging to the class of machine a run names, the machine's owners grouped by estate, and the
+recorded run. A fact about the machine, which is what tells it apart from the repositories directory whose formula it
 shares: a work machine has two of those, and only one of them is the machine's. No configuration
 can declare it.
 _Avoid_: machine config, machine state, dotconfig
+
+**Recorded run**:
+The machine class and the configuration sources the run that wrote the machine manifest was given,
+carried in the manifest. A plan naming no machine plans exactly that, and a machine whose manifest
+records none refuses such a plan rather than assuming a class.
+_Avoid_: last run, saved arguments, defaults
 
 **Estate**:
 A named body of work a configuration governs, and the owners whose repositories belong to it: the

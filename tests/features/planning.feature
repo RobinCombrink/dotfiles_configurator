@@ -470,3 +470,30 @@ Feature: Planning what a machine needs
     When Alice plans
     Then the change set reports 1 change
     And the change set names "gitconfig/.gitconfig" in the dotfiles repository as where the link should resolve
+
+  Scenario: A plan naming no machine plans the class and the sources the last apply recorded
+    Given Alice's last apply was for a work machine reading "github:Employer/dotfiles/config"
+    When Alice plans naming neither a machine nor a source
+    Then the plan is for a work machine reading "github:Employer/dotfiles/config"
+
+  Scenario: A plan naming no machine on a machine no apply has recorded is refused naming the manifest
+    Given Alice's machine holds no manifest
+    When Alice plans naming neither a machine nor a source
+    Then planning is refused
+    And the refusal mentions "machine.json"
+
+  Scenario: A plan naming no machine is refused by a manifest recording no run
+    Given Alice's machine holds a manifest written before runs were recorded
+    When Alice plans naming neither a machine nor a source
+    Then planning is refused
+    And the refusal mentions "records no run"
+
+  Scenario: A machine named outright is planned from the default source whatever the last apply recorded
+    Given Alice's last apply was for a work machine reading "github:Employer/dotfiles/config"
+    When Alice plans a personal machine naming no source
+    Then the plan is for a personal machine reading "github:RobinCombrink/dotfiles/config"
+
+  Scenario: A source named beside no machine replaces the recorded sources and keeps the recorded class
+    Given Alice's last apply was for a work machine reading "github:Employer/dotfiles/config"
+    When Alice plans naming only the source "github:Alice/dotfiles/config"
+    Then the plan is for a work machine reading "github:Alice/dotfiles/config"

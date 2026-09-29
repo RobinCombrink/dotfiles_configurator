@@ -78,21 +78,37 @@ impl AsRef<Path> for AbsoluteDirectory {
 
 impl ConfigurationSource {
     pub fn named(value: &str, working_directory: &AbsoluteDirectory) -> Result<Self, String> {
-        let (kind, rest) = value
-            .split_once(':')
-            .ok_or_else(|| format!("{value:?} names no source kind; {EXPECTED_SOURCE}"))?;
-
-        match kind {
-            "local" => working_directory
-                .resolve(Path::new(rest))
-                .map(ConfigurationSource::LocalDirectory)
+        Self::parsed(value, |directory| {
+            working_directory
+                .resolve(Path::new(directory))
                 .ok_or_else(|| {
                     format!(
                         "{value:?} names a directory relative to a drive rather than to {}; \
                          name it in full",
                         working_directory.as_ref().display()
                     )
-                }),
+                })
+        })
+    }
+
+    pub fn of_recorded(recorded: &RecordedSource) -> Result<Self, String> {
+        let value = recorded.as_written();
+        Self::parsed(value, |directory| {
+            AbsoluteDirectory::of(PathBuf::from(directory))
+                .ok_or_else(|| format!("{value:?} was recorded without its directory in full"))
+        })
+    }
+
+    fn parsed(
+        value: &str,
+        local_directory: impl FnOnce(&str) -> Result<AbsoluteDirectory, String>,
+    ) -> Result<Self, String> {
+        let (kind, rest) = value
+            .split_once(':')
+            .ok_or_else(|| format!("{value:?} names no source kind; {EXPECTED_SOURCE}"))?;
+
+        match kind {
+            "local" => local_directory(rest).map(ConfigurationSource::LocalDirectory),
             "github" => {
                 let mut segments = rest.splitn(3, '/');
                 let (Some(owner), Some(repository), Some(directory)) =
@@ -113,6 +129,8 @@ impl ConfigurationSource {
         }
     }
 }
+
+pub const DEFAULT_SOURCE: &str = "github:RobinCombrink/dotfiles/config";
 
 const EXPECTED_SOURCE: &str = "expected `local:<directory>` or `github:<owner>/<repo>/<directory>`";
 

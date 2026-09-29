@@ -8,8 +8,9 @@ mod fake_machine;
 use {
     cucumber::{World, given, then, when},
     declarations::{
-        dotfiles_repository, named_repository, read_as_two_accounts, read_out_of_a_checkout,
-        read_out_of_the_dotfiles_repository, reporting_its_version_in_the_second_word,
+        dotfiles_repository, manifest_for, named_repository, read_as_two_accounts,
+        read_out_of_a_checkout, read_out_of_the_dotfiles_repository,
+        reporting_its_version_in_the_second_word,
     },
     dotfiles_configurator::{
         configuration::{
@@ -39,6 +40,7 @@ use {
                 Fingerprint, InstalledState, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
+        planned_run::PlannedRun,
         reporting::{RunKind, RunReport},
         version::Version,
     },
@@ -53,6 +55,7 @@ use {
         num::NonZeroU32,
         path::{Path, PathBuf},
         process,
+        str::FromStr,
         sync::atomic::{AtomicUsize, Ordering},
     },
     tempfile::TempDir,
@@ -88,6 +91,7 @@ struct MachineWorld {
     loading_error: Option<String>,
     loaded: Option<DesiredState>,
     named_sources: Vec<ConfigurationSource>,
+    planned_run: Option<PlannedRun>,
     log_directory: TempDir,
     report: Option<RunReport>,
 }
@@ -128,6 +132,7 @@ impl MachineWorld {
             loading_error: None,
             loaded: None,
             named_sources: Vec::new(),
+            planned_run: None,
             log_directory: tempfile::tempdir().expect("a directory to write run logs into"),
             report: None,
         }
@@ -2123,6 +2128,98 @@ fn nothing_is_on_the_search_path(world: &mut MachineWorld) {
 #[given(expr = "Alice's machine holds no manifest")]
 fn the_machine_holds_no_manifest(world: &mut MachineWorld) {
     world.machine.forget_the_machine_manifest();
+}
+
+#[given(expr = "Alice's last apply was for a {word} machine reading {string}")]
+fn the_last_apply_was_recorded(world: &mut MachineWorld, class: String, source: String) {
+    let class = MachineClass::from_str(&class).expect("a machine class");
+    let mut manifest = manifest_for(class);
+    manifest.recorded_run.configuration_sources = vec![RecordedSource::from(source)];
+    let document = String::try_from(&manifest).expect("a manifest that serialises");
+
+    world
+        .machine
+        .write_text_file(
+            &MachineManifest::path_within(world.machine.home_directory()),
+            &document,
+        )
+        .expect("a manifest on the fake machine");
+}
+
+#[given(expr = "Alice's machine holds a manifest written before runs were recorded")]
+fn the_machine_holds_a_manifest_recording_no_run(world: &mut MachineWorld) {
+    let document = serde_json::json!({
+        "machine": {
+            "repositories_directory_path": repositories_root_path().join("Personal"),
+            "estates": {}
+        }
+    })
+    .to_string();
+
+    world
+        .machine
+        .write_text_file(
+            &MachineManifest::path_within(world.machine.home_directory()),
+            &document,
+        )
+        .expect("a manifest on the fake machine");
+}
+
+impl MachineWorld {
+    fn resolve_the_plan(
+        &mut self,
+        named_machine: Option<MachineClass>,
+        named_sources: Vec<ConfigurationSource>,
+    ) {
+        match PlannedRun::resolved(named_machine, named_sources, &self.machine) {
+            Ok(planned) => self.planned_run = Some(planned),
+            Err(refusal) => self.loading_error = Some(refusal.to_string()),
+        }
+    }
+}
+
+#[when(expr = "Alice plans naming neither a machine nor a source")]
+fn alice_plans_naming_nothing(world: &mut MachineWorld) {
+    world.resolve_the_plan(None, Vec::new());
+}
+
+#[when(expr = "Alice plans a personal machine naming no source")]
+fn alice_plans_a_personal_machine_naming_no_source(world: &mut MachineWorld) {
+    world.resolve_the_plan(Some(MachineClass::Personal), Vec::new());
+}
+
+#[when(expr = "Alice plans naming only the source {string}")]
+fn alice_plans_naming_only_a_source(world: &mut MachineWorld, source: String) {
+    let named = ConfigurationSource::of_recorded(&RecordedSource::from(source))
+        .expect("a source written in full");
+    world.resolve_the_plan(None, vec![named]);
+}
+
+#[then(expr = "planning is refused")]
+fn planning_is_refused(world: &mut MachineWorld) {
+    assert_eq!(world.planned_run, None);
+    assert!(
+        world.loading_error.is_some(),
+        "planning was not refused, and no plan was resolved either"
+    );
+}
+
+#[then(expr = "the plan is for a {word} machine reading {string}")]
+fn the_plan_is_for(world: &mut MachineWorld, class: String, source: String) {
+    let expected = PlannedRun {
+        machine: MachineClass::from_str(&class).expect("a machine class"),
+        sources: vec![
+            ConfigurationSource::of_recorded(&RecordedSource::from(source))
+                .expect("a source written in full"),
+        ],
+    };
+
+    assert_eq!(
+        world.planned_run,
+        Some(expected),
+        "refused: {:?}",
+        world.loading_error
+    );
 }
 
 #[then(expr = "Alice's machine holds a manifest naming the repositories directory {string}")]

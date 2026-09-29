@@ -682,6 +682,17 @@ impl RecordedSource {
     }
 }
 
+impl RecordedRun {
+    pub fn read_from(manifest: &str) -> Result<Self, serde_json::Error> {
+        #[derive(Deserialize)]
+        struct Document {
+            machine: RecordedRun,
+        }
+
+        serde_json::from_str::<Document>(manifest).map(|document| document.machine)
+    }
+}
+
 impl From<String> for RecordedSource {
     fn from(written: String) -> Self {
         Self(written)

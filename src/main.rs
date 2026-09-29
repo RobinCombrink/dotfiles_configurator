@@ -4,7 +4,7 @@ use {
     dotfiles_configurator::{
         configuration::{GitHubAccount, MachineClass},
         configuration_source::{
-            AbsoluteDirectory, ConfigurationSource, LoadFailure, load_desired_state,
+            AbsoluteDirectory, ConfigurationSource, DEFAULT_SOURCE, LoadFailure, load_desired_state,
         },
         confirmation::{Confirm, Confirmation, Operator},
         convergence::{
@@ -17,6 +17,7 @@ use {
         desired_state::DesiredState,
         github::GitHubAccess,
         machine::{Placement, ReadMachine, local::LocalMachine},
+        planned_run::PlannedRun,
         reporting::{RunKind, RunReport},
         version::Version,
     },
@@ -32,8 +33,6 @@ use {
 
 #[cfg(test)]
 use dotfiles_configurator::configuration::GitHubRepository;
-
-const DEFAULT_SOURCE: &str = "github:RobinCombrink/dotfiles/config";
 
 fn source_named_in_the_working_directory(value: &str) -> Result<ConfigurationSource, String> {
     let working_directory = std::env::current_dir()
@@ -62,6 +61,30 @@ struct ConfigurationArguments {
         value_parser = source_named_in_the_working_directory,
         help = "Where to read configurations from, as `local:<directory>` or \
                 `github:<owner>/<repo>/<directory>`. Repeatable; read in the order given."
+    )]
+    sources: Vec<ConfigurationSource>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+struct PlanArguments {
+    #[arg(
+        short = 'm',
+        long = "machine",
+        value_name = "MACHINE",
+        help = "Which class of machine this is — `personal` or `work`. A configuration applies \
+                when it declares this class, or `everywhere`. Named nowhere, the class the last \
+                apply recorded in the machine manifest is planned."
+    )]
+    machine: Option<MachineClass>,
+    #[arg(
+        short = 's',
+        long = "source",
+        value_name = "SOURCE",
+        value_parser = source_named_in_the_working_directory,
+        help = "Where to read configurations from, as `local:<directory>` or \
+                `github:<owner>/<repo>/<directory>`. Repeatable; read in the order given. Named \
+                nowhere, the sources the last apply recorded are read, or the default source \
+                where a machine is named."
     )]
     sources: Vec<ConfigurationSource>,
 }
@@ -96,7 +119,7 @@ enum Task {
     #[command(
         about = "Report the change set that would close every drift, without touching the machine"
     )]
-    Plan(ConfigurationArguments),
+    Plan(PlanArguments),
     #[command(about = "Show the change set, ask once, then enact it until a pass changes nothing")]
     Apply(ApplyArguments),
 }
@@ -145,8 +168,15 @@ async fn run(task: Task) -> Result<Ending> {
     match task {
         Task::Plan(arguments) => {
             let report = RunReport::open(RunKind::Plan)?;
-            let desired_state = load(&arguments, &github, &repositories_root()?).await?;
             let machine = LocalMachine::new(&report, &github)?;
+            let planned = PlannedRun::resolved(arguments.machine, arguments.sources, &machine)?;
+            let desired_state = load_desired_state(
+                &planned.sources,
+                planned.machine,
+                &repositories_root()?,
+                &github,
+            )
+            .await?;
             let (change_set, _) = plan(&desired_state, &machine, &report).await?;
             println!("{change_set}");
             Ok(Ending::Concluded(Conclusion::of(change_set.is_converged())))
@@ -412,8 +442,19 @@ mod tests {
         )
         .unwrap();
         match parsed.task {
-            Task::Plan(configuration) => configuration,
             Task::Apply(apply) => apply.configuration,
+            Task::Plan(_) => panic!("the arguments named plan rather than apply"),
+        }
+    }
+
+    fn plan_arguments(arguments: &[&str]) -> PlanArguments {
+        let parsed = Arguments::try_parse_from(
+            std::iter::once("dotfiles_configurator").chain(arguments.iter().copied()),
+        )
+        .unwrap();
+        match parsed.task {
+            Task::Plan(plan) => plan,
+            Task::Apply(_) => panic!("the arguments named apply rather than plan"),
         }
     }
 
@@ -447,15 +488,15 @@ mod tests {
     #[test]
     fn naming_a_directory_reads_that_directory_under_the_working_directory_and_nothing_else() {
         assert_eq!(
-            sources_from(&["plan", "--machine", "personal", "--source", "local:config"]),
+            sources_from(&["apply", "--machine", "personal", "--source", "local:config"]),
             vec![under_the_working_directory("config")]
         );
     }
 
     #[test]
-    fn naming_no_source_reads_the_default_one() {
+    fn an_apply_naming_no_source_reads_the_default_one() {
         assert_eq!(
-            sources_from(&["plan", "--machine", "personal"]),
+            sources_from(&["apply", "--machine", "personal"]),
             vec![ConfigurationSource::named(DEFAULT_SOURCE, &working_directory()).unwrap()]
         );
     }
@@ -464,7 +505,7 @@ mod tests {
     fn sources_are_read_in_the_order_they_were_named() {
         assert_eq!(
             sources_from(&[
-                "plan",
+                "apply",
                 "--machine",
                 "personal",
                 "--source",
@@ -514,14 +555,25 @@ mod tests {
     #[test]
     fn the_machine_named_decides_which_configurations_apply() {
         assert_eq!(
-            parse(&["plan", "--machine", "work"]).machine,
+            parse(&["apply", "--machine", "work"]).machine,
             MachineClass::Work
         );
     }
 
     #[test]
-    fn an_invocation_naming_no_machine_is_refused() {
-        assert!(Arguments::try_parse_from(["dotfiles_configurator", "plan"]).is_err());
+    fn an_apply_naming_no_machine_is_refused() {
+        assert!(Arguments::try_parse_from(["dotfiles_configurator", "apply"]).is_err());
+    }
+
+    #[test]
+    fn a_plan_naming_neither_a_machine_nor_a_source_leaves_both_to_the_record() {
+        assert_eq!(
+            plan_arguments(&["plan"]),
+            PlanArguments {
+                machine: None,
+                sources: Vec::new(),
+            }
+        );
     }
 
     #[test]
