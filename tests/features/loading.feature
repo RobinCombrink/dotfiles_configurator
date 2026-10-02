@@ -156,12 +156,14 @@ Feature: Loading a configuration
 
   Scenario: A variable claiming the search path is refused, naming the shape that owns it
     Given Alice has a configuration declaring a variable named "Path"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "search path entry"
 
   Scenario: A cargo package pinned to a requirement rather than one version is refused
     Given Alice has a configuration declaring the cargo package "cargo-mutants" at "^27"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "^27"
