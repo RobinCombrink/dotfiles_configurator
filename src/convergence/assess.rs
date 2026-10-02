@@ -620,7 +620,7 @@ fn assess_cargo_package(
             &resource.clone_directory(repository),
             readings,
         ),
-        CargoSource::Registry | CargoSource::Path { .. } => {
+        CargoSource::Registry { .. } | CargoSource::Path { .. } => {
             assess_declared_cargo_package(package, machine, readings)
         }
     }
@@ -664,7 +664,7 @@ fn assess_declared_cargo_package(
     };
 
     match (&package.source, &actual) {
-        (CargoSource::Registry, InstalledFrom::Registry) => Assessment::Converged,
+        (CargoSource::Registry { .. }, InstalledFrom::Registry) => Assessment::Converged,
         (CargoSource::Path { path }, InstalledFrom::Path(installed_path))
             if paths_are_the_same(path, installed_path, machine) =>
         {

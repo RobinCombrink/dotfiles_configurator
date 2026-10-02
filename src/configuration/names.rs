@@ -116,6 +116,70 @@ name!(
     CrateName
 );
 
+/// The one version of a registry crate a configuration pins, which is never a requirement that
+/// leaves Cargo to pick among several.
+///
+/// ```
+/// # use dotfiles_configurator::configuration::CrateVersion;
+/// assert!(CrateVersion::try_from("27.1.0").is_ok());
+/// assert!(CrateVersion::try_from("^27").is_err());
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct CrateVersion(semver::Version);
+
+impl TryFrom<&str> for CrateVersion {
+    type Error = String;
+
+    fn try_from(stated: &str) -> Result<Self, Self::Error> {
+        semver::Version::parse(stated).map(Self).map_err(|reason| {
+            format!(
+                "\"{stated}\" is not an exact version ({reason}); a crate is pinned to one \
+                 version written as MAJOR.MINOR.PATCH, never to a requirement Cargo would choose \
+                 a version within"
+            )
+        })
+    }
+}
+
+impl Display for CrateVersion {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, formatter)
+    }
+}
+
+impl Serialize for CrateVersion {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for CrateVersion {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let stated = String::deserialize(deserializer)?;
+        Self::try_from(stated.as_str()).map_err(serde::de::Error::custom)
+    }
+}
+
+impl JsonSchema for CrateVersion {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "CrateVersion".into()
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        concat!(module_path!(), "::CrateVersion").into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": r"^\d+\.\d+\.\d+([-+].+)?$",
+            "description": "The exact version Cargo installs the crate at, written as \
+                            MAJOR.MINOR.PATCH. A requirement such as ^27 is refused.",
+        })
+    }
+}
+
 name!(
     #[schemars(
         description = "The name a Python package is published under, which uv also knows the \

@@ -909,6 +909,22 @@ fn configuration_declaring_a_variable_named(world: &mut MachineWorld, name: Stri
     ));
 }
 
+#[given(expr = "Alice has a configuration declaring the cargo package {string} at {string}")]
+fn configuration_declaring_a_pinned_cargo_package(
+    world: &mut MachineWorld,
+    crate_name: String,
+    version: String,
+) {
+    world.documents.push(document(
+        &BUILD_GENERATION.to_string(),
+        "everywhere",
+        &format!(
+            r#"[{{ "kind": "package", "manager": "cargo", "crate_name": "{crate_name}",
+                   "source": {{ "source": "registry", "version": "{version}" }} }}]"#
+        ),
+    ));
+}
+
 #[given(expr = "Alice has a configuration for work machines declaring version {string}")]
 fn work_configuration_with_version(world: &mut MachineWorld, version: String) {
     world.documents.push(document(&version, "work", "[]"));
@@ -1380,7 +1396,9 @@ fn declare_cargo_package(world: &mut MachineWorld, crate_name: String) {
         dotfiles_configurator::configuration::Package::Cargo(
             dotfiles_configurator::configuration::CargoPackage {
                 crate_name: CrateName::from(crate_name.as_str()),
-                source: dotfiles_configurator::configuration::CargoSource::Registry,
+                source: dotfiles_configurator::configuration::CargoSource::Registry {
+                    version: None,
+                },
             },
         ),
     ));

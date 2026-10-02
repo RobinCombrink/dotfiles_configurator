@@ -40,9 +40,9 @@ pub use {
     identity::{Identity, LinkPath},
     migration::Migration,
     names::{
-        ApplicationName, BinaryName, ConfigurationName, CrateName, GitHubAccount, McpServerName,
-        PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, UvToolVersion,
-        VariableName, VariableValue, WingetPackageId,
+        ApplicationName, BinaryName, ConfigurationName, CrateName, CrateVersion, GitHubAccount,
+        McpServerName, PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName,
+        UvToolVersion, VariableName, VariableValue, WingetPackageId,
     },
     presence_check::{Answer, Candidates, PresenceCheck},
     requirement::{Requirement, Tool},

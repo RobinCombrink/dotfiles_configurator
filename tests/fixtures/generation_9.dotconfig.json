@@ -25,6 +25,15 @@
             "id": "Microsoft.PowerShell"
         },
         {
+            "kind": "package",
+            "manager": "cargo",
+            "crate_name": "cargo-mutants",
+            "source": {
+                "source": "registry",
+                "version": "27.1.0"
+            }
+        },
+        {
             "kind": "repository",
             "owner": "Alice",
             "repository": "notes"

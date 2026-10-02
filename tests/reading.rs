@@ -43,7 +43,7 @@ fn winget_package(id: &str) -> Resource {
 fn cargo_package(crate_name: &str) -> Resource {
     Resource::Package(Package::Cargo(CargoPackage {
         crate_name: crate_name.into(),
-        source: CargoSource::Registry,
+        source: CargoSource::Registry { version: None },
     }))
 }
 

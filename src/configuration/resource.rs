@@ -4,7 +4,7 @@ use {
             context::MachineClass,
             estate::Estates,
             names::{
-                ApplicationName, BinaryName, CrateName, GitHubAccount, McpServerName,
+                ApplicationName, BinaryName, CrateName, CrateVersion, GitHubAccount, McpServerName,
                 PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, VariableName,
                 VariableValue, WingetPackageId,
             },
@@ -89,7 +89,7 @@ impl Resource {
                 CargoSource::Workspace { .. } => {
                     vec![Requirement::Tool(Tool::Cargo), Requirement::Tool(Tool::Git)]
                 }
-                CargoSource::Registry | CargoSource::Path { .. } => {
+                CargoSource::Registry { .. } | CargoSource::Path { .. } => {
                     vec![Requirement::Tool(Tool::Cargo)]
                 }
             },
@@ -523,7 +523,14 @@ pub struct CargoPackage {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum CargoSource {
-    Registry,
+    Registry {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(
+            description = "The one version the crate is installed at. Absent, Cargo installs \
+                           whichever version is newest when the crate is first installed."
+        )]
+        version: Option<CrateVersion>,
+    },
     Path {
         path: PathBuf,
     },
@@ -816,6 +823,61 @@ mod tests {
         let written = serde_json::to_string(&repository_resource("").unwrap()).unwrap();
 
         assert!(!written.contains("depth"), "{written}");
+    }
+
+    fn registry_crate(fields: &str) -> Result<Resource, serde_json::Error> {
+        serde_json::from_str(&format!(
+            r#"{{ "kind": "package", "manager": "cargo", "crate_name": "cargo-mutants",
+                  "source": {{ "source": "registry"{fields} }} }}"#
+        ))
+    }
+
+    fn pinned_version(resource: Resource) -> Option<CrateVersion> {
+        let Resource::Package(Package::Cargo(CargoPackage {
+            source: CargoSource::Registry { version },
+            ..
+        })) = resource
+        else {
+            panic!("expected a registry crate");
+        };
+        version
+    }
+
+    #[test]
+    fn a_registry_crate_declaring_no_version_is_installed_unpinned() {
+        assert_eq!(pinned_version(registry_crate("").unwrap()), None);
+    }
+
+    #[test]
+    fn a_registry_crate_declaring_an_exact_version_is_pinned_to_it() {
+        assert_eq!(
+            pinned_version(registry_crate(r#", "version": "27.1.0""#).unwrap()),
+            Some(CrateVersion::try_from("27.1.0").unwrap())
+        );
+    }
+
+    #[test]
+    fn a_registry_crate_pinned_to_a_caret_requirement_is_not_read() {
+        let refusal = registry_crate(r#", "version": "^27""#).unwrap_err();
+
+        assert!(refusal.to_string().contains("^27"), "{refusal}");
+    }
+
+    #[test]
+    fn a_registry_crate_pinned_to_a_tilde_requirement_is_not_read() {
+        assert!(registry_crate(r#", "version": "~1.2""#).is_err());
+    }
+
+    #[test]
+    fn a_registry_crate_pinned_to_a_lower_bound_is_not_read() {
+        assert!(registry_crate(r#", "version": ">=1""#).is_err());
+    }
+
+    #[test]
+    fn a_registry_crate_declaring_no_version_is_written_back_without_one() {
+        let written = serde_json::to_string(&registry_crate("").unwrap()).unwrap();
+
+        assert!(!written.contains("version"), "{written}");
     }
 
     #[test]

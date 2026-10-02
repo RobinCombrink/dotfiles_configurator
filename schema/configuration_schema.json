@@ -227,6 +227,17 @@
             "source": {
               "type": "string",
               "const": "registry"
+            },
+            "version": {
+              "description": "The one version the crate is installed at. Absent, Cargo installs whichever version is newest when the crate is first installed.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/CrateVersion"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -336,6 +347,11 @@
     "CrateName": {
       "description": "The name Cargo knows a crate by.",
       "type": "string"
+    },
+    "CrateVersion": {
+      "description": "The exact version Cargo installs the crate at, written as MAJOR.MINOR.PATCH. A requirement such as ^27 is refused.",
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+([-+].+)?$"
     },
     "DeclaredNotice": {
       "description": "A message for a person about something the tool cannot do. Not a resource — it never\nconverges, is reported by every change set, and is never applied.",

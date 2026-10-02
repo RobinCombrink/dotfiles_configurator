@@ -160,6 +160,12 @@ Feature: Loading a configuration
     Then loading is refused
     And the refusal mentions "search path entry"
 
+  Scenario: A cargo package pinned to a requirement rather than one version is refused
+    Given Alice has a configuration declaring the cargo package "cargo-mutants" at "^27"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "^27"
+
   Scenario: The account a configuration acts as is an owner in the estate it declares
     Given Alice has a configuration for every machine declaring the estate "personal"
     And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
