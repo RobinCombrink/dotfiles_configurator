@@ -10,8 +10,8 @@ use {
     },
     crate::configuration::DeclaredNotice,
     anyhow::{Context as _, Result},
-    serde::{Deserialize, Deserializer},
-    serde_json::{Value, ser::PrettyFormatter},
+    serde::Deserialize,
+    serde_json::ser::PrettyFormatter,
     std::{
         fmt::Display,
         path::{Path, PathBuf},
@@ -28,37 +28,10 @@ pub struct OutgoingConfiguration {
     estate: Option<EstateDeclaration>,
     #[serde(default)]
     workspaces: Vec<CargoWorkspace>,
-    #[serde(default, deserialize_with = "resources_checking_one_path")]
+    #[serde(default)]
     resources: Vec<Resource>,
     #[serde(default)]
     notices: Vec<DeclaredNotice>,
-}
-
-fn resources_checking_one_path<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Vec<Resource>, D::Error> {
-    Vec::<Value>::deserialize(deserializer)?
-        .into_iter()
-        .map(|mut resource| {
-            path_checks_as_candidates(&mut resource);
-            serde_json::from_value(resource).map_err(serde::de::Error::custom)
-        })
-        .collect()
-}
-
-fn path_checks_as_candidates(value: &mut Value) {
-    match value {
-        Value::Object(fields) => {
-            if fields.get("check").and_then(Value::as_str) == Some("path_exists")
-                && let Some(path) = fields.remove("path")
-            {
-                fields.insert("paths".to_owned(), Value::Array(vec![path]));
-            }
-            fields.values_mut().for_each(path_checks_as_candidates);
-        }
-        Value::Array(items) => items.iter_mut().for_each(path_checks_as_candidates),
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-    }
 }
 
 impl From<OutgoingConfiguration> for Configuration {
