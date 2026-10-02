@@ -199,7 +199,9 @@ fn converge_cargo_package(
     readings: &SourceReadings,
 ) -> Result<Placement> {
     let source = match &package.source {
-        CargoSource::Registry { .. } => ResolvedCargoSource::Registry,
+        CargoSource::Registry { version } => ResolvedCargoSource::Registry {
+            version: version.clone(),
+        },
         CargoSource::Path { path } => ResolvedCargoSource::Path { path: path.clone() },
         CargoSource::Workspace { repository } => {
             let clone_directory = resource.clone_directory(repository);

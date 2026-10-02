@@ -1,8 +1,8 @@
 use {
     crate::{
         configuration::{
-            ClaudeMcpServer, CrateName, GitHubAccount, GitHubRepository, McpServerName,
-            PythonInterpreter, Tool, UvToolName, WingetPackageId,
+            ClaudeMcpServer, CrateName, CrateVersion, GitHubAccount, GitHubRepository,
+            McpServerName, PythonInterpreter, Tool, UvToolName, WingetPackageId,
         },
         machine::{CommandOutput, Replacement, workspace_reading::Revision},
     },
@@ -94,7 +94,9 @@ pub enum WriteInvocation {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedCargoSource {
-    Registry,
+    Registry {
+        version: Option<CrateVersion>,
+    },
     Path {
         path: PathBuf,
     },
@@ -125,13 +127,19 @@ impl DisplacingInvocation {
         match self {
             DisplacingInvocation::InstallCargoCrate {
                 crate_name,
-                source: ResolvedCargoSource::Registry,
-            } => vec![
-                "install".to_owned(),
-                "--locked".to_owned(),
-                "--force".to_owned(),
-                crate_name.to_string(),
-            ],
+                source: ResolvedCargoSource::Registry { version },
+            } => {
+                let mut arguments = vec![
+                    "install".to_owned(),
+                    "--locked".to_owned(),
+                    "--force".to_owned(),
+                ];
+                if let Some(version) = version {
+                    arguments.extend(["--version".to_owned(), version.to_string()]);
+                }
+                arguments.push(crate_name.to_string());
+                arguments
+            }
             DisplacingInvocation::InstallCargoCrate {
                 source: ResolvedCargoSource::Path { path },
                 ..
@@ -386,7 +394,10 @@ mod tests {
     }
 
     fn installing_a_crate() -> DisplacingInvocation {
-        installing("claude-session", ResolvedCargoSource::Registry)
+        installing(
+            "claude-session",
+            ResolvedCargoSource::Registry { version: None },
+        )
     }
 
     fn installing(crate_name: &str, source: ResolvedCargoSource) -> DisplacingInvocation {
@@ -515,7 +526,7 @@ mod tests {
 
     #[test]
     fn a_crate_from_the_registry_is_left_to_build_where_cargo_would_put_it() {
-        let invocation = installing("ripgrep", ResolvedCargoSource::Registry);
+        let invocation = installing("ripgrep", ResolvedCargoSource::Registry { version: None });
 
         assert_eq!(invocation.build_directory(&build_cache()), None);
         assert_eq!(
@@ -539,8 +550,31 @@ mod tests {
     #[test]
     fn a_crate_from_the_registry_is_installed_by_name_with_the_lockfile_it_publishes() {
         assert_eq!(
-            installing("ripgrep", ResolvedCargoSource::Registry).arguments(),
+            installing("ripgrep", ResolvedCargoSource::Registry { version: None }).arguments(),
             vec!["install", "--locked", "--force", "ripgrep"]
+        );
+    }
+
+    #[test]
+    fn a_crate_pinned_to_a_version_is_installed_at_exactly_that_version() {
+        let arguments = installing(
+            "cargo-mutants",
+            ResolvedCargoSource::Registry {
+                version: Some(CrateVersion::try_from("27.1.0").unwrap()),
+            },
+        )
+        .arguments();
+
+        assert_eq!(
+            arguments,
+            vec![
+                "install",
+                "--locked",
+                "--force",
+                "--version",
+                "27.1.0",
+                "cargo-mutants"
+            ]
         );
     }
 

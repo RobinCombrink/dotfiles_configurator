@@ -16,12 +16,13 @@ use {
         configuration::{
             Application, ApplicationName, ApplicationSource, AssetPattern, BUILD_GENERATION,
             BinaryName, Candidates, CargoWorkspace, ClaudeMcpServer, CloneDepth, Configuration,
-            ConfigurationName, Context, CrateName, DeclaredNotice, EnvironmentVariable, EstateName,
-            EstateOwner, Estates, GitHubAccount, Installer, MachineClass, MachineManifest,
-            McpScope, McpServerName, Migration, Notice, OLDEST_READABLE_GENERATION, Package,
-            PresenceCheck, PythonInterpreter, RecordedRun, RecordedSource, Registration,
-            RepositoryClone, Resource, SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool,
-            UvToolPackage, UvToolVersion, Variable, VariableName, VariableValue,
+            ConfigurationName, Context, CrateName, CrateVersion, DeclaredNotice,
+            EnvironmentVariable, EstateName, EstateOwner, Estates, GitHubAccount, Installer,
+            MachineClass, MachineManifest, McpScope, McpServerName, Migration, Notice,
+            OLDEST_READABLE_GENERATION, Package, PresenceCheck, PythonInterpreter, RecordedRun,
+            RecordedSource, Registration, RepositoryClone, Resource, SearchPathDirectory,
+            SearchPathEntry, Shell, Symlink, Tool, UvToolPackage, UvToolVersion, Variable,
+            VariableName, VariableValue,
         },
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -1402,6 +1403,30 @@ fn declare_cargo_package(world: &mut MachineWorld, crate_name: String) {
             },
         ),
     ));
+}
+
+#[given(expr = "Alice declares the cargo package {string} at {string}")]
+fn declare_pinned_cargo_package(world: &mut MachineWorld, crate_name: String, version: String) {
+    world.resources.push(Resource::Package(
+        dotfiles_configurator::configuration::Package::Cargo(
+            dotfiles_configurator::configuration::CargoPackage {
+                crate_name: CrateName::from(crate_name.as_str()),
+                source: dotfiles_configurator::configuration::CargoSource::Registry {
+                    version: Some(CrateVersion::try_from(version.as_str()).expect("a version")),
+                },
+            },
+        ),
+    ));
+}
+
+#[then(expr = "cargo holds {string} at {string} on Alice's machine")]
+fn cargo_now_holds_crate(world: &mut MachineWorld, crate_name: String, version: String) {
+    assert_eq!(
+        world
+            .machine
+            .registry_crate_version(&CrateName::from(crate_name.as_str())),
+        Some(CrateVersion::try_from(version.as_str()).expect("a version"))
+    );
 }
 
 #[given(expr = "Alice declares the cargo workspace in the dotfiles repository")]

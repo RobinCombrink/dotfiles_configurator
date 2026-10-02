@@ -7,16 +7,16 @@ use {
     dotfiles_configurator::{
         configuration::{
             Answer, ApplicationName, ApplicationSource, ClaudeMcpServer, CloneDepth, CrateName,
-            GitHubAccount, GitHubRepository, Installer, MachineClass, MachineManifest,
-            McpServerName, Migration, PresenceCheck, PythonInterpreter, ReleasedBinary,
-            RepositoryClone, Shell, Tool, UvToolName, UvToolVersion, VariableName, VariableValue,
-            WingetPackageId,
+            CrateVersion, GitHubAccount, GitHubRepository, Installer, MachineClass,
+            MachineManifest, McpServerName, Migration, PresenceCheck, PythonInterpreter,
+            ReleasedBinary, RepositoryClone, Shell, Tool, UvToolName, UvToolVersion, VariableName,
+            VariableValue, WingetPackageId,
         },
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
-            Replacement, ReplacingInvocation, WriteInvocation, WriteMachine,
+            Replacement, ReplacingInvocation, ResolvedCargoSource, WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
@@ -71,6 +71,7 @@ struct MachineState {
     executing_binaries: BTreeMap<PathBuf, Displacement>,
     superseded_images: BTreeSet<PathBuf>,
     cargo_installs: usize,
+    registry_crates: BTreeMap<CrateName, CrateVersion>,
     releases: BTreeMap<GitHubRepository, ReleaseReading>,
     release_reads: Vec<(GitHubRepository, GitHubAccount)>,
     clones: Vec<(GitHubRepository, GitHubAccount)>,
@@ -335,7 +336,7 @@ impl FakeMachine {
         let mut state = self.state.borrow_mut();
         state.cargo_installs += 1;
 
-        let DisplacingInvocation::InstallCargoCrate { crate_name, .. } = invocation;
+        let DisplacingInvocation::InstallCargoCrate { crate_name, source } = invocation;
 
         if let Some(destination) = state.executing_binaries.keys().next().cloned() {
             return CommandOutput {
@@ -348,6 +349,15 @@ impl FakeMachine {
                     destination.display()
                 ),
             };
+        }
+
+        if let ResolvedCargoSource::Registry {
+            version: Some(version),
+        } = source
+        {
+            state
+                .registry_crates
+                .insert(crate_name.clone(), version.clone());
         }
 
         for reading in state.cargo_workspaces.values_mut() {
@@ -565,6 +575,10 @@ impl FakeMachine {
             .insert(id.clone());
     }
 
+    pub fn registry_crate_version(&self, crate_name: &CrateName) -> Option<CrateVersion> {
+        self.state.borrow().registry_crates.get(crate_name).cloned()
+    }
+
     pub fn install_uv_tool(&self, name: &UvToolName, version: &UvToolVersion) {
         self.state
             .borrow_mut()
@@ -702,6 +716,7 @@ impl FakeMachine {
             executing_binaries,
             superseded_images,
             cargo_installs,
+            registry_crates,
             releases,
             release_reads: _,
             clones,
@@ -720,7 +735,8 @@ impl FakeMachine {
              {uv_tools_failing_to_upgrade:?}|{failing_applications:?}|{silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
-             {executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|{releases:?}|\
+             {executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
+             {registry_crates:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
              {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\
              {mcp_servers_claude_refuses_to_add:?}"
@@ -755,6 +771,16 @@ fn claude_mcp_get_output(server: &ClaudeMcpServer) -> String {
         }
     }
     reported
+}
+
+fn cargo_crate_listing(state: &MachineState) -> String {
+    state
+        .registry_crates
+        .iter()
+        .map(|(crate_name, installed)| {
+            format!("{crate_name} v{installed}:\n    {crate_name}.exe\n")
+        })
+        .collect()
 }
 
 fn uv_tool_listing(state: &MachineState) -> String {
@@ -894,7 +920,9 @@ impl ReadMachine for FakeMachine {
                     false => (false, WINGET_FINDS_NO_PACKAGE.to_owned()),
                 }
             }
-            ReadInvocation::CargoInstalledCrates => (true, String::new()),
+            ReadInvocation::CargoInstalledCrates => {
+                (true, cargo_crate_listing(&self.state.borrow()))
+            }
             ReadInvocation::UvInstalledTools => (true, uv_tool_listing(&self.state.borrow())),
             ReadInvocation::UvOutdatedTools => {
                 (true, uv_outdated_tool_listing(&self.state.borrow()))
