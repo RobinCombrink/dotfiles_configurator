@@ -575,6 +575,13 @@ impl FakeMachine {
             .insert(id.clone());
     }
 
+    pub fn install_registry_crate(&self, crate_name: &CrateName, version: &CrateVersion) {
+        self.state
+            .borrow_mut()
+            .registry_crates
+            .insert(crate_name.clone(), version.clone());
+    }
+
     pub fn registry_crate_version(&self, crate_name: &CrateName) -> Option<CrateVersion> {
         self.state.borrow().registry_crates.get(crate_name).cloned()
     }

@@ -2,10 +2,10 @@ use {
     crate::{
         configuration::{
             Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
-            CrateName, EnvironmentVariable, GitHubAccount, GitHubRepository, Installer,
-            MachineManifest, Package, Registration, ReleasedBinary, RepositoryClone, Requirement,
-            Resource, SearchPathEntry, Symlink, UvToolName, UvToolPackage, UvToolVersion, Variable,
-            WingetPackage,
+            CrateName, CrateVersion, EnvironmentVariable, GitHubAccount, GitHubRepository,
+            Installer, MachineManifest, Package, Registration, ReleasedBinary, RepositoryClone,
+            Requirement, Resource, SearchPathEntry, Symlink, UvToolName, UvToolPackage,
+            UvToolVersion, Variable, WingetPackage,
         },
         convergence::{
             Assessment, Impediment, ReadSource, SourceReading, UnreadableReason,
@@ -245,7 +245,7 @@ fn installed_revisions(listing: &str) -> BTreeMap<CrateName, Revision> {
             InstalledFrom::Git { commit, .. } => {
                 Some((CrateName::from(name), Revision::from(commit)))
             }
-            InstalledFrom::Registry | InstalledFrom::Path(_) => None,
+            InstalledFrom::Registry { .. } | InstalledFrom::Path(_) => None,
         })
         .collect()
 }
@@ -664,7 +664,15 @@ fn assess_declared_cargo_package(
     };
 
     match (&package.source, &actual) {
-        (CargoSource::Registry { .. }, InstalledFrom::Registry) => Assessment::Converged,
+        (CargoSource::Registry { version: None }, InstalledFrom::Registry { .. }) => {
+            Assessment::Converged
+        }
+        (
+            CargoSource::Registry {
+                version: Some(declared),
+            },
+            InstalledFrom::Registry { version: installed },
+        ) => assess_pinned_version(declared, installed),
         (CargoSource::Path { path }, InstalledFrom::Path(installed_path))
             if paths_are_the_same(path, installed_path, machine) =>
         {
@@ -674,9 +682,23 @@ fn assess_declared_cargo_package(
     }
 }
 
+fn assess_pinned_version(declared: &CrateVersion, installed: &str) -> Assessment {
+    let spelled = installed.strip_prefix('v').unwrap_or(installed);
+
+    match CrateVersion::try_from(spelled) {
+        Ok(actual) if actual == *declared => Assessment::Converged,
+        Ok(actual) => Assessment::Drifted(
+            format!("{actual} is installed, and the version declared is {declared}").into(),
+        ),
+        Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            format!("cargo lists it at a version this program cannot read: {reason}").into(),
+        )),
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum InstalledFrom {
-    Registry,
+    Registry { version: String },
     Path(String),
     Git { url: String, commit: String },
 }
@@ -684,7 +706,7 @@ enum InstalledFrom {
 impl std::fmt::Display for InstalledFrom {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InstalledFrom::Registry => formatter.write_str("the registry"),
+            InstalledFrom::Registry { .. } => formatter.write_str("the registry"),
             InstalledFrom::Path(path) => write!(formatter, "{path}"),
             InstalledFrom::Git { url, commit } => write!(formatter, "{url} at {commit}"),
         }
@@ -695,7 +717,12 @@ fn installed_crate_line(line: &str) -> Option<(&str, InstalledFrom)> {
     let (name, remainder) = line.trim_end().split_once(' ')?;
 
     let Some((_, source)) = remainder.split_once('(') else {
-        return Some((name, InstalledFrom::Registry));
+        return Some((
+            name,
+            InstalledFrom::Registry {
+                version: remainder.trim_end_matches(':').to_owned(),
+            },
+        ));
     };
     let source = source.trim_end_matches([')', ':']);
 
@@ -909,11 +936,42 @@ mod tests {
     );
 
     #[test]
-    fn a_crate_installed_from_the_registry_is_reported_as_coming_from_it() {
+    fn a_crate_installed_from_the_registry_is_reported_as_coming_from_it_at_its_version() {
         assert_eq!(
             installed_crate_source(LISTING, "committed"),
-            Some(InstalledFrom::Registry)
+            Some(InstalledFrom::Registry {
+                version: "v1.1.11".to_owned()
+            })
         );
+    }
+
+    fn pinned(version: &str) -> CrateVersion {
+        CrateVersion::try_from(version).unwrap()
+    }
+
+    #[test]
+    fn a_crate_installed_at_the_version_declared_is_converged() {
+        assert_eq!(
+            assess_pinned_version(&pinned("27.1.0"), "v27.1.0"),
+            Assessment::Converged
+        );
+    }
+
+    #[test]
+    fn a_crate_installed_at_another_version_than_declared_is_drifted() {
+        assert_eq!(
+            assess_pinned_version(&pinned("27.1.0"), "v27.0.0"),
+            Assessment::Drifted("27.0.0 is installed, and the version declared is 27.1.0".into())
+        );
+    }
+
+    #[test]
+    fn a_crate_listed_at_a_version_that_cannot_be_read_is_unassessable_rather_than_drifted() {
+        let assessment = assess_pinned_version(&pinned("27.1.0"), "vtwenty-seven");
+
+        let Assessment::Unassessable(_) = assessment else {
+            panic!("expected an unassessable crate, got {assessment:?}");
+        };
     }
 
     #[test]

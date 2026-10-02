@@ -1419,6 +1419,14 @@ fn declare_pinned_cargo_package(world: &mut MachineWorld, crate_name: String, ve
     ));
 }
 
+#[given(expr = "cargo holds {string} at {string} on Alice's machine")]
+fn cargo_holds_crate(world: &mut MachineWorld, crate_name: String, version: String) {
+    world.machine.install_registry_crate(
+        &CrateName::from(crate_name.as_str()),
+        &CrateVersion::try_from(version.as_str()).expect("a version"),
+    );
+}
+
 #[then(expr = "cargo holds {string} at {string} on Alice's machine")]
 fn cargo_now_holds_crate(world: &mut MachineWorld, crate_name: String, version: String) {
     assert_eq!(

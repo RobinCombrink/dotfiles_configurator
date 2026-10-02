@@ -378,6 +378,28 @@ Feature: Planning what a machine needs
     When Alice plans
     Then the change set reports 1 change
 
+  Scenario: A cargo package installed at the version declared is reported as converged
+    Given Alice declares the cargo package "cargo-mutants" at "27.1.0"
+    And cargo holds "cargo-mutants" at "27.1.0" on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A cargo package installed at another version than declared is a change naming both versions
+    Given Alice declares the cargo package "cargo-mutants" at "27.1.0"
+    And cargo holds "cargo-mutants" at "27.0.0" on Alice's machine
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "27.0.0"
+    And the change set mentions "27.1.0"
+
+  Scenario: A cargo package declaring no version is converged at whichever version cargo holds
+    Given Alice declares the cargo package "cargo-mutants"
+    And cargo holds "cargo-mutants" at "27.0.0" on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
   Scenario: A server claude does not hold is reported as a change
     Given Alice declares the claude mcp server "serena"
     When Alice plans
