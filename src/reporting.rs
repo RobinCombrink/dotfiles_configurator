@@ -2,7 +2,7 @@ use {
     crate::TOOL_DIRECTORY,
     anyhow::{Context, Result},
     chrono::Local,
-    entries::Presentation,
+    entries::{Advance, Presentation},
     indicatif::{MultiProgress, ProgressBar, ProgressStyle},
     std::{
         collections::BTreeMap,
@@ -199,10 +199,11 @@ impl RunReport {
         let label = activity.to_string();
         self.note(&label);
 
-        let bar = self
-            .shared
-            .progress
-            .add(ProgressBar::new_spinner().with_message(label.clone()));
+        let spinner = ProgressBar::new_spinner().with_message(label.clone());
+        let bar = match self.shared.presenting().table_is_live() {
+            true => ProgressBar::hidden(),
+            false => self.shared.progress.add(spinner),
+        };
         bar.set_style(
             ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}")
                 .unwrap_or_else(|_| ProgressStyle::default_spinner()),
@@ -270,7 +271,33 @@ impl RunReport {
         }
     }
 
-    pub fn progress_bar(&self, total: Option<u64>, message: String) -> ProgressBar {
+    pub fn advancing(
+        &self,
+        verb: &'static str,
+        subject: impl Display,
+        total: Option<u64>,
+    ) -> Advancing<'_> {
+        let shown_as = match entry_of_this_task() {
+            Some(entry) => {
+                self.note(&format!("{entry}: {verb} {subject}"));
+                ShownAs::Row(entry)
+            }
+            None => ShownAs::Bar(self.progress_bar(total, format!("{verb} {subject}"))),
+        };
+        let advancing = Advancing {
+            report: self,
+            shown_as,
+            verb,
+            measured: Mutex::new(Measured {
+                length: total,
+                position: 0,
+            }),
+        };
+        advancing.redraw();
+        advancing
+    }
+
+    fn progress_bar(&self, total: Option<u64>, message: String) -> ProgressBar {
         let (bar, style) = match total {
             Some(total) => (
                 ProgressBar::new(total),
@@ -361,6 +388,75 @@ impl Shared {
             .unwrap_or_else(PoisonError::into_inner)
             .path
             .clone()
+    }
+}
+
+pub struct Advancing<'report> {
+    report: &'report RunReport,
+    shown_as: ShownAs,
+    verb: &'static str,
+    measured: Mutex<Measured>,
+}
+
+enum ShownAs {
+    Row(Entry),
+    Bar(ProgressBar),
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Measured {
+    length: Option<u64>,
+    position: u64,
+}
+
+impl Advancing<'_> {
+    pub fn inc(&self, delta: u64) {
+        self.measure(|measured| measured.position += delta);
+    }
+
+    pub fn set_length(&self, length: u64) {
+        self.measure(|measured| measured.length = Some(length));
+    }
+
+    pub fn set_position(&self, position: u64) {
+        self.measure(|measured| measured.position = position);
+    }
+
+    pub fn finish(&self, finished: String) {
+        match &self.shown_as {
+            ShownAs::Row(entry) => {
+                self.report.shared.presenting().advanced(entry, None);
+                self.report.note(&format!("{entry}: {finished}"));
+            }
+            ShownAs::Bar(bar) => bar.finish_with_message(finished),
+        }
+    }
+
+    fn measure(&self, change: impl FnOnce(&mut Measured)) {
+        {
+            let mut measured = self.measured.lock().unwrap_or_else(PoisonError::into_inner);
+            change(&mut measured);
+        }
+        self.redraw();
+    }
+
+    fn redraw(&self) {
+        let measured = *self.measured.lock().unwrap_or_else(PoisonError::into_inner);
+        match &self.shown_as {
+            ShownAs::Row(entry) => {
+                let advance = Advance::of(self.verb, measured.position, measured.length);
+                self.report
+                    .shared
+                    .presenting()
+                    .advanced(entry, Some(advance));
+            }
+            ShownAs::Bar(bar) => {
+                if let Some(length) = measured.length {
+                    bar.set_length(length);
+                }
+                bar.set_position(measured.position);
+            }
+        }
     }
 }
 

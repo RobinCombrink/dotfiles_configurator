@@ -17,13 +17,12 @@ use {
             superseded_name,
             workspace_reading::{Revision, WorkspaceReading},
         },
-        reporting::{Entry, RunReport, entry_of_this_task},
+        reporting::{Advancing, Entry, RunReport, entry_of_this_task},
         version::Version,
     },
     anyhow::{Context, Result, anyhow, bail},
     futures::StreamExt,
     git2::{Cred, FetchOptions, RemoteCallbacks, build::RepoBuilder},
-    indicatif::ProgressBar,
     reqwest::{Client, header},
     secrecy::ExposeSecret,
     std::{
@@ -114,9 +113,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
             .unwrap_or(destination.as_os_str())
             .to_string_lossy()
             .into_owned();
-        let progress = self
-            .report
-            .progress_bar(total_bytes, format!("downloading {name}"));
+        let progress = self.report.advancing("downloading", &name, total_bytes);
 
         let mut partial_file = tokio::fs::File::create(&partial_path)
             .await
@@ -128,7 +125,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
             tokio::io::copy(&mut chunk.as_ref(), &mut partial_file).await?;
         }
         drop(partial_file);
-        progress.finish_with_message(format!("downloaded {name}"));
+        progress.finish(format!("downloaded {name}"));
 
         fs::rename(&partial_path, destination).with_context(|| {
             format!(
@@ -170,7 +167,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
         &'token self,
         token: &'token secrecy::SecretString,
         account: &'token str,
-        progress: &'token ProgressBar,
+        progress: &'token Advancing<'_>,
         depth: FetchDepth,
     ) -> FetchOptions<'token> {
         let mut callbacks = RemoteCallbacks::new();
@@ -660,9 +657,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
             .html_url
             .ok_or_else(|| anyhow!("{repository} has no html url"))?;
 
-        let progress = self
-            .report
-            .progress_bar(None, format!("cloning {repository}"));
+        let progress = self.report.advancing("cloning", repository, None);
         let cloned = RepoBuilder::new()
             .fetch_options(self.fetch_options(
                 authenticated.token().secret(),
@@ -678,7 +673,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
             })
             .with_context(|| format!("Could not clone {url} into {}", directory_path.display()));
 
-        progress.finish_with_message(format!("cloned {repository}"));
+        progress.finish(format!("cloned {repository}"));
         cloned
     }
 
@@ -696,9 +691,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
             .find_remote("origin")
             .with_context(|| format!("The clone at {} has no origin", clone_directory.display()))?;
 
-        let progress = self
-            .report
-            .progress_bar(None, format!("deepening {repository}"));
+        let progress = self.report.advancing("deepening", repository, None);
         let deepened = origin
             .fetch(
                 &[] as &[&str],
@@ -717,7 +710,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
                 )
             });
 
-        progress.finish_with_message(format!("deepened {repository}"));
+        progress.finish(format!("deepened {repository}"));
         deepened
     }
 

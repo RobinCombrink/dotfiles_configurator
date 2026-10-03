@@ -7,6 +7,7 @@ use {
     std::{
         fmt::{self, Display},
         io::{self, Write},
+        sync::{Arc, Mutex, PoisonError},
         time::{Duration, Instant},
     },
 };
@@ -103,8 +104,13 @@ impl Verb {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryStatus {
-    Running { elapsed: Duration },
-    Converged { took: Duration },
+    Running {
+        elapsed: Duration,
+        advance: Option<Advance>,
+    },
+    Converged {
+        took: Duration,
+    },
     Failed,
     Held,
     Blocked,
@@ -125,7 +131,26 @@ impl EntryStatus {
 
     fn on_the_table(self, verb: Verb) -> String {
         match self {
-            EntryStatus::Running { elapsed } => format!("{}… {}", verb.present, Elapsed(elapsed)),
+            EntryStatus::Running {
+                advance:
+                    Some(Advance {
+                        verb,
+                        percent: Some(percent),
+                    }),
+                ..
+            } => format!("{verb} {percent}%"),
+            EntryStatus::Running {
+                elapsed,
+                advance:
+                    Some(Advance {
+                        verb,
+                        percent: None,
+                    }),
+            } => format!("{verb}… {}", Elapsed(elapsed)),
+            EntryStatus::Running {
+                elapsed,
+                advance: None,
+            } => format!("{}… {}", verb.present, Elapsed(elapsed)),
             EntryStatus::Converged { took } => format!("{} {}", verb.past, Elapsed(took)),
             EntryStatus::Failed => "failed".to_owned(),
             EntryStatus::Held => "held".to_owned(),
@@ -199,10 +224,32 @@ impl Display for Elapsed {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Advance {
+    verb: &'static str,
+    percent: Option<u64>,
+}
+
+impl Advance {
+    pub fn of(verb: &'static str, position: u64, length: Option<u64>) -> Self {
+        let percent = length
+            .filter(|length| *length > 0)
+            .map(|length| position.min(length) * 100 / length);
+        Self { verb, percent }
+    }
+}
+
+type SharedAdvance = Arc<Mutex<Option<Advance>>>;
+
+fn read_advance(advance: &SharedAdvance) -> Option<Advance> {
+    *advance.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 struct Row {
     entry: Entry,
     began: Instant,
     output: Vec<String>,
+    advance: SharedAdvance,
     ending: Option<(Ending, Instant)>,
 }
 
@@ -211,6 +258,7 @@ impl Row {
         match &self.ending {
             None => EntryStatus::Running {
                 elapsed: now.saturating_duration_since(self.began),
+                advance: read_advance(&self.advance),
             },
             Some((Ending::Converged, ended)) => EntryStatus::Converged {
                 took: ended.saturating_duration_since(self.began),
@@ -252,6 +300,7 @@ impl Board {
             entry: entry.clone(),
             began: at,
             output: Vec::new(),
+            advance: SharedAdvance::default(),
             ending: None,
         });
         &self.rows[self.rows.len() - 1]
@@ -260,6 +309,15 @@ impl Board {
     fn spoke(&mut self, entry: &Entry, line: &str) {
         if let Some(position) = self.running(entry) {
             self.rows[position].output.push(line.to_owned());
+        }
+    }
+
+    fn advanced(&mut self, entry: &Entry, advance: Option<Advance>) {
+        if let Some(position) = self.running(entry) {
+            *self.rows[position]
+                .advance
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = advance;
         }
     }
 
@@ -431,14 +489,23 @@ impl Presentation {
         }
     }
 
+    pub(super) fn table_is_live(&self) -> bool {
+        match self.screen {
+            Screen::Terminal => !self.table.is_empty() && !self.concluded,
+            Screen::Lines(_) => false,
+        }
+    }
+
     pub(super) fn started(&mut self, entry: &Entry, at: Instant) -> String {
-        let state_line = self.board.started(entry, at).state_line(at);
+        let row = self.board.started(entry, at);
+        let state_line = row.state_line(at);
+        let advance = Arc::clone(&row.advance);
         match &mut self.screen {
             Screen::Lines(output) => {
                 let _ = writeln!(output, "{state_line}");
             }
             Screen::Terminal => {
-                let row = self.progress.add(running_row(entry, at));
+                let row = self.progress.add(running_row(entry, at, advance));
                 self.table.push((entry.clone(), row));
             }
         }
@@ -447,6 +514,10 @@ impl Presentation {
 
     pub(super) fn spoke(&mut self, entry: &Entry, line: &str) {
         self.board.spoke(entry, line);
+    }
+
+    pub(super) fn advanced(&mut self, entry: &Entry, advance: Option<Advance>) {
+        self.board.advanced(entry, advance);
     }
 
     pub(super) fn finished(&mut self, entry: &Entry, outcome: EntryOutcome, at: Instant) -> String {
@@ -552,7 +623,7 @@ impl Presentation {
     }
 }
 
-fn running_row(entry: &Entry, began: Instant) -> ProgressBar {
+fn running_row(entry: &Entry, began: Instant, advance: SharedAdvance) -> ProgressBar {
     let verb = entry.verb();
     let style = ProgressStyle::with_template("{spinner:.green} {prefix} {status}")
         .unwrap_or_else(|_| ProgressStyle::default_spinner())
@@ -561,6 +632,7 @@ fn running_row(entry: &Entry, began: Instant) -> ProgressBar {
             move |_: &ProgressState, written: &mut dyn fmt::Write| {
                 let status = EntryStatus::Running {
                     elapsed: began.elapsed(),
+                    advance: read_advance(&advance),
                 };
                 let _ = written.write_str(&status.on_the_table(verb));
             },
@@ -769,10 +841,51 @@ mod tests {
 
         assert_eq!(
             EntryStatus::Running {
-                elapsed: Duration::from_secs(41)
+                elapsed: Duration::from_secs(41),
+                advance: None,
             }
             .on_the_table(verb),
             "installing… 41s"
+        );
+    }
+
+    #[test]
+    fn a_row_whose_download_has_a_known_size_shows_how_far_it_has_come() {
+        let transcript = Transcript::default();
+        let began = Instant::now();
+        let mut presentation = written_without_a_terminal(&transcript, began);
+        let neovim = Entry::new(Lane::Install, &winget_package("Neovim.Neovim"));
+
+        presentation.started(&neovim, began);
+        presentation.advanced(&neovim, Some(Advance::of("downloading", 68, Some(200))));
+
+        let status = presentation.board.rows[0].status(began);
+        assert_eq!(status.on_the_table(neovim.verb()), "downloading 34%");
+    }
+
+    #[test]
+    fn a_row_whose_download_has_finished_goes_back_to_how_long_it_has_been_running() {
+        let transcript = Transcript::default();
+        let began = Instant::now();
+        let mut presentation = written_without_a_terminal(&transcript, began);
+        let neovim = Entry::new(Lane::Install, &winget_package("Neovim.Neovim"));
+
+        presentation.started(&neovim, began);
+        presentation.advanced(&neovim, Some(Advance::of("downloading", 68, Some(200))));
+        presentation.advanced(&neovim, None);
+
+        let status = presentation.board.rows[0].status(began);
+        assert_eq!(status.on_the_table(neovim.verb()), "installing… 0s");
+    }
+
+    #[test]
+    fn a_download_of_unknown_size_shows_no_percentage() {
+        assert_eq!(
+            Advance::of("cloning", 68, None),
+            Advance {
+                verb: "cloning",
+                percent: None
+            }
         );
     }
 
