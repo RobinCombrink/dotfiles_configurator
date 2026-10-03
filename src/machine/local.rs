@@ -27,7 +27,7 @@ use {
     reqwest::{Client, header},
     secrecy::ExposeSecret,
     std::{
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         env,
         ffi::OsStr,
         fs,
@@ -221,14 +221,17 @@ impl From<&RepositoryClone> for FetchDepth {
     }
 }
 
-fn builds_of_other_revisions_reaped(build_cache: &Path, keeping: &Path) -> Vec<PathBuf> {
+fn builds_of_other_revisions_reaped(
+    build_cache: &Path,
+    keeping: &BTreeSet<PathBuf>,
+) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(build_cache) else {
         return Vec::new();
     };
 
     let mut reaped = Vec::new();
     for path in entries.flatten().map(|entry| entry.path()) {
-        if path == keeping {
+        if keeping.contains(&path) {
             continue;
         }
 
@@ -819,16 +822,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
     fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
         let tool = invocation.tool();
         let arguments = invocation.arguments();
-        let build_cache = self.build_cache_directory();
-
-        if let Some(directory) = invocation.build_directory(&build_cache) {
-            for reaped in builds_of_other_revisions_reaped(&build_cache, &directory) {
-                self.report
-                    .note(&format!("reaped the build directory {}", reaped.display()));
-            }
-        }
-
-        let environment = invocation.environment(&build_cache);
+        let environment = invocation.environment(&self.build_cache_directory());
 
         let output = self.run(tool, &arguments, &environment)?;
         if output.succeeded {
@@ -853,6 +847,19 @@ impl WriteMachine for LocalMachine<'_, '_> {
                 refused(tool, &arguments, &retried),
             )),
             Err(error) => Err(restoring(&superseded, &destination, error)),
+        }
+    }
+
+    fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>) {
+        let build_cache = self.build_cache_directory();
+        let keeping: BTreeSet<PathBuf> = building
+            .iter()
+            .map(|revision| revision.build_directory_in(&build_cache))
+            .collect();
+
+        for reaped in builds_of_other_revisions_reaped(&build_cache, &keeping) {
+            self.report
+                .note(&format!("reaped the build directory {}", reaped.display()));
         }
     }
 
@@ -1431,11 +1438,14 @@ mod tests {
     }
 
     #[test]
-    fn installing_a_revision_reaps_the_builds_of_every_other_revision() {
+    fn building_a_revision_reaps_the_builds_of_every_other_revision() {
         let build_cache = build_cache_holding(&["older", "oldest", "current"]);
         let keeping = build_cache.path().join("current");
 
-        let reaped = builds_of_other_revisions_reaped(build_cache.path(), &keeping);
+        let reaped = builds_of_other_revisions_reaped(
+            build_cache.path(),
+            &BTreeSet::from([keeping.clone()]),
+        );
 
         assert_eq!(reaped.len(), 2);
         assert!(keeping.exists());
@@ -1444,18 +1454,41 @@ mod tests {
     }
 
     #[test]
-    fn installing_the_only_revision_a_build_cache_holds_reaps_nothing() {
+    fn building_two_revisions_at_once_keeps_the_builds_of_both() {
+        let build_cache = build_cache_holding(&["older", "dotfiles", "configurator"]);
+        let keeping = BTreeSet::from([
+            build_cache.path().join("dotfiles"),
+            build_cache.path().join("configurator"),
+        ]);
+
+        let reaped = builds_of_other_revisions_reaped(build_cache.path(), &keeping);
+
+        assert_eq!(reaped, vec![build_cache.path().join("older")]);
+        assert!(keeping.iter().all(|kept| kept.exists()));
+    }
+
+    #[test]
+    fn building_the_only_revision_a_build_cache_holds_reaps_nothing() {
         let build_cache = build_cache_holding(&["current"]);
         let keeping = build_cache.path().join("current");
 
-        assert!(builds_of_other_revisions_reaped(build_cache.path(), &keeping).is_empty());
+        assert!(
+            builds_of_other_revisions_reaped(
+                build_cache.path(),
+                &BTreeSet::from([keeping.clone()])
+            )
+            .is_empty()
+        );
         assert!(keeping.exists());
     }
 
     #[test]
-    fn installing_against_a_build_cache_that_does_not_exist_yet_reaps_nothing() {
+    fn building_against_a_build_cache_that_does_not_exist_yet_reaps_nothing() {
         let absent = tempfile::tempdir().unwrap().path().join("build-cache");
 
-        assert!(builds_of_other_revisions_reaped(&absent, &absent.join("current")).is_empty());
+        assert!(
+            builds_of_other_revisions_reaped(&absent, &BTreeSet::from([absent.join("current")]))
+                .is_empty()
+        );
     }
 }

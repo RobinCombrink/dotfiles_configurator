@@ -103,6 +103,14 @@ fn installed(crate_name: &str) -> CargoCommand {
     CargoCommand::Installed(CrateName::from(crate_name))
 }
 
+fn builds_and_installs(machine: &FakeMachine) -> Vec<CargoCommand> {
+    machine
+        .cargo_commands()
+        .into_iter()
+        .filter(|command| !matches!(command, CargoCommand::ReapedBuildsOtherThan(_)))
+        .collect()
+}
+
 #[tokio::test]
 async fn the_changed_members_of_a_workspace_build_once_at_its_revision_before_any_of_them_installs()
 {
@@ -115,7 +123,7 @@ async fn the_changed_members_of_a_workspace_build_once_at_its_revision_before_an
     applying(Vec::new(), &machine).await;
 
     assert_eq!(
-        machine.cargo_commands(),
+        builds_and_installs(&machine),
         vec![
             built(&["claude-session", "session-mining"]),
             installed("claude-session"),
@@ -125,7 +133,30 @@ async fn the_changed_members_of_a_workspace_build_once_at_its_revision_before_an
 }
 
 #[tokio::test]
-async fn a_crate_from_outside_any_workspace_installs_without_a_build_before_it() {
+async fn the_builds_of_other_revisions_are_reaped_once_before_the_stage_rather_than_per_install() {
+    let machine = machine_holding_the_workspace(&[
+        ("claude-session", never_installed()),
+        ("session-mining", never_installed()),
+    ]);
+
+    applying(Vec::new(), &machine).await;
+
+    let commands = machine.cargo_commands();
+    let reaped: Vec<&CargoCommand> = commands
+        .iter()
+        .filter(|command| matches!(command, CargoCommand::ReapedBuildsOtherThan(_)))
+        .collect();
+    assert_eq!(
+        reaped,
+        vec![&CargoCommand::ReapedBuildsOtherThan(BTreeSet::from([
+            Revision::from(REVISION)
+        ]))]
+    );
+    assert_eq!(commands.first(), reaped.first().copied());
+}
+
+#[tokio::test]
+async fn a_crate_from_outside_any_workspace_installs_with_no_build_or_reaping_before_it() {
     let machine = machine_holding_the_workspace(&[(
         "stop-gate",
         installed_from_what_the_workspace_holds_now(),
@@ -152,7 +183,7 @@ async fn a_member_a_pass_already_attempted_is_not_built_again_on_a_later_pass() 
 
     assert!(outcome.passes > 1, "{outcome}");
     assert_eq!(
-        machine.cargo_commands(),
+        builds_and_installs(&machine),
         vec![built(&["session-mining"]), installed("session-mining")]
     );
 }

@@ -13,7 +13,7 @@ use {
     },
     anyhow::Result,
     std::{
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         path::{Path, PathBuf},
     },
 };
@@ -213,6 +213,8 @@ pub trait WriteMachine: ReadMachine {
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;
 
     fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement>;
+
+    fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>);
 
     fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()>;
 

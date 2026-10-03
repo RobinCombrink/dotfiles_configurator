@@ -89,6 +89,7 @@ struct MachineState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CargoCommand {
+    ReapedBuildsOtherThan(BTreeSet<Revision>),
     Built {
         clone_directory: PathBuf,
         revision: Revision,
@@ -1301,6 +1302,13 @@ impl WriteMachine for FakeMachine {
             true => Ok(Placement::Placed),
             false => bail!("cargo failed once the image in its way had been displaced"),
         }
+    }
+
+    fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>) {
+        self.state
+            .borrow_mut()
+            .cargo_commands
+            .push(CargoCommand::ReapedBuildsOtherThan(building.clone()));
     }
 
     fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()> {

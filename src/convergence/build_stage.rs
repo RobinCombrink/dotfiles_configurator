@@ -41,6 +41,16 @@ pub fn workspace_builds<'readings, 'change>(
 }
 
 pub fn build(builds: &[WorkspaceBuild<'_>], machine: &impl WriteMachine, report: &RunReport) {
+    if builds.is_empty() {
+        return;
+    }
+
+    machine.reap_builds_of_other_revisions(
+        &builds
+            .iter()
+            .map(|build| build.revision().clone())
+            .collect(),
+    );
     for build in builds {
         let _doing = report.doing(format!("building {build}"));
         if let Err(error) = machine.build_workspace_members(build) {
