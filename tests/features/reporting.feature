@@ -47,7 +47,7 @@ Feature: Reporting a run
     And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
     And "rg.exe" is installed and reports "ripgrep version 15.1.0"
     When Alice applies
-    Then Alice's run shows "rg" as blocked because "is not a version"
+    Then Alice's run shows the binary "rg.exe" as blocked because "is not a version"
 
   Scenario: Only the twenty most recent runs are kept
     Given 30 runs have already been logged

@@ -1867,11 +1867,14 @@ fn the_run_closes_on_a_tally_counting_blocked(world: &mut MachineWorld, blocked:
     );
 }
 
-#[then(expr = "Alice's run shows {string} as blocked because {string}")]
-fn the_run_shows_an_entry_blocked(world: &mut MachineWorld, name: String, because: String) {
+#[then(expr = "Alice's run shows the binary {string} as blocked because {string}")]
+fn the_run_shows_a_binary_blocked(world: &mut MachineWorld, binary: String, because: String) {
+    let shown_as = binary
+        .strip_suffix(std::env::consts::EXE_SUFFIX)
+        .unwrap_or(&binary);
     let diagnostics = world.diagnostics_shown();
     let after_the_entry = diagnostics
-        .split_once(&format!(" {name}: blocked\n"))
+        .split_once(&format!(" {shown_as}: blocked\n"))
         .map(|(_, after)| after.lines().next().unwrap_or_default().to_owned())
         .unwrap_or_default();
 
