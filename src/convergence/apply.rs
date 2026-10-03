@@ -4,12 +4,12 @@ use {
         configuration_source::WriteSource,
         confirmation::{Confirm, Confirmation},
         convergence::{
-            Blocked, Change, ChangeSet, SourceReadings, build_stage, converge::converge, plan,
+            Blocked, Change, ChangeSet, Lane, SourceReadings, build_stage, converge::converge, plan,
         },
         currency::{self, SelfReplacement},
         desired_state::{DesiredState, ResolvedResource},
         machine::{Placement, WriteMachine},
-        reporting::RunReport,
+        reporting::{Entry, EntryOutcome, RunReport},
     },
     anyhow::anyhow,
     std::{
@@ -174,6 +174,7 @@ pub async fn apply(
         ));
 
         if pass.replaced_itself {
+            report.conclude();
             report.announce(&format!(
                 "Installed the latest release over {}. The rest of this run belongs to it.",
                 currency::this_build()
@@ -191,6 +192,7 @@ pub async fn apply(
             break change_set;
         }
     };
+    report.conclude();
 
     let unverified = change_set
         .changes
@@ -402,19 +404,21 @@ async fn attempt_one(
     report: &RunReport,
     self_replacement: &SelfReplacement,
 ) -> Attempted {
+    let entry = Entry::new(Lane::of(&change.resource), change.resource.declared());
     if let Some(refusal) = refusal_to_replace_again(change, self_replacement) {
         report.note(&format!("FAILED {}: {refusal:#}", change.resource));
+        report.entry_finished(&entry, EntryOutcome::Failed);
         return Attempted::Failed(refusal);
     }
 
-    let outcome = {
-        let _doing = report.doing(format!("converging {}", change.resource));
-        converge(change, machine, readings).await
-    };
+    let outcome = report
+        .converging(&entry, converge(change, machine, readings))
+        .await;
 
     match outcome {
         Ok(Placement::Placed) => {
             report.note(&format!("converged {}", change.resource));
+            report.entry_finished(&entry, EntryOutcome::Converged);
             Attempted::Converged
         }
         Ok(Placement::Held(path)) => {
@@ -423,10 +427,12 @@ async fn attempt_one(
                 change.resource,
                 path.display()
             ));
+            report.entry_finished(&entry, EntryOutcome::Held);
             Attempted::Held(path)
         }
         Err(error) => {
             report.note(&format!("FAILED {}: {error:#}", change.resource));
+            report.entry_finished(&entry, EntryOutcome::Failed);
             Attempted::Failed(error)
         }
     }

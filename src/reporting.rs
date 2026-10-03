@@ -2,19 +2,33 @@ use {
     crate::TOOL_DIRECTORY,
     anyhow::{Context, Result},
     chrono::Local,
-    indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle},
+    entries::Presentation,
+    indicatif::{MultiProgress, ProgressBar, ProgressStyle},
     std::{
+        collections::BTreeMap,
         env,
         fmt::Display,
         fs::{self, File, OpenOptions},
-        io::{IsTerminal, Write},
+        io::Write,
         path::{Path, PathBuf},
         process,
-        sync::{Arc, Condvar, Mutex, PoisonError},
+        sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError},
         thread::{self, JoinHandle},
         time::{Duration, Instant, SystemTime},
     },
 };
+
+mod entries;
+
+pub use entries::{Entry, EntryOutcome, Screen};
+
+tokio::task_local! {
+    static SPEAKING_FOR: Entry;
+}
+
+pub fn entry_of_this_task() -> Option<Entry> {
+    SPEAKING_FOR.try_with(Entry::clone).ok()
+}
 
 // ADR 0013
 const SILENCE_THRESHOLD: Duration = Duration::from_secs(600); // 10 minutes
@@ -61,30 +75,21 @@ impl std::fmt::Debug for RunReport {
 struct Shared {
     log: Mutex<LogFile>,
     progress: MultiProgress,
-    screen: Screen,
-    current_activity: Mutex<Option<Activity>>,
+    presentation: Mutex<Presentation>,
+    speakers: Mutex<BTreeMap<Speaker, Activity>>,
 }
 
-// 2026-08-07: indicatif draws nothing at all where standard error is not a terminal.
-// ADR 0013
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Screen {
-    Terminal,
-    PlainLines,
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Speaker {
+    Run,
+    Entry(Entry),
 }
 
-impl Screen {
-    fn of_this_process() -> Self {
-        match std::io::stderr().is_terminal() {
-            true => Screen::Terminal,
-            false => Screen::PlainLines,
-        }
-    }
-
-    fn draw_target(self) -> ProgressDrawTarget {
-        match self {
-            Screen::Terminal => ProgressDrawTarget::stderr(),
-            Screen::PlainLines => ProgressDrawTarget::hidden(),
+impl Speaker {
+    fn of(entry: Option<&Entry>) -> Self {
+        match entry {
+            Some(entry) => Speaker::Entry(entry.clone()),
+            None => Speaker::Run,
         }
     }
 }
@@ -98,6 +103,16 @@ struct Activity {
     label: String,
     last_spoke: Instant,
     silence_already_reported: bool,
+}
+
+impl Activity {
+    fn named(label: String) -> Self {
+        Self {
+            label,
+            last_spoke: Instant::now(),
+            silence_already_reported: false,
+        }
+    }
 }
 
 struct SilenceWatchdog {
@@ -147,22 +162,27 @@ impl RunReport {
     }
 
     pub fn open_in(directory: &Path, kind: RunKind) -> Result<Self> {
+        Self::open_showing(directory, kind, Screen::of_this_process())
+    }
+
+    pub fn open_showing(directory: &Path, kind: RunKind, screen: Screen) -> Result<Self> {
         fs::create_dir_all(directory)
             .with_context(|| format!("Could not create {}", directory.display()))?;
         discard_all_but_newest(directory, RETAINED_RUNS.saturating_sub(1))?;
 
         let (path, file) = create_log(directory, kind)?;
-        let report = Self::new(LogFile { path, file }, Screen::of_this_process());
+        let report = Self::new(LogFile { path, file }, screen);
         report.note(&format!("{kind} started"));
         Ok(report)
     }
 
     fn new(log: LogFile, screen: Screen) -> Self {
+        let progress = MultiProgress::with_draw_target(screen.draw_target());
         let shared = Arc::new(Shared {
             log: Mutex::new(log),
-            progress: MultiProgress::with_draw_target(screen.draw_target()),
-            screen,
-            current_activity: Mutex::new(None),
+            presentation: Mutex::new(Presentation::new(screen, progress.clone(), Instant::now())),
+            progress,
+            speakers: Mutex::new(BTreeMap::new()),
         });
 
         Self {
@@ -189,27 +209,64 @@ impl RunReport {
         );
         bar.enable_steady_tick(Duration::from_millis(120));
 
-        if let Ok(mut current) = self.shared.current_activity.lock() {
-            *current = Some(Activity {
-                label,
-                last_spoke: Instant::now(),
-                silence_already_reported: false,
-            });
-        }
+        self.shared.listening_to(Speaker::Run, label);
 
         Doing { report: self, bar }
     }
 
-    pub fn child_line(&self, line: &str) {
-        self.restart_the_silence_clock();
-        self.note(line);
-        self.shared.show(line);
+    pub async fn converging<Output>(
+        &self,
+        entry: &Entry,
+        work: impl Future<Output = Output>,
+    ) -> Output {
+        let state_line = self.shared.presenting().started(entry, Instant::now());
+        self.note(&state_line);
+        self.shared
+            .listening_to(Speaker::Entry(entry.clone()), entry.to_string());
+
+        SPEAKING_FOR.scope(entry.clone(), work).await
+    }
+
+    pub fn entry_finished(&self, entry: &Entry, outcome: EntryOutcome) {
+        self.shared
+            .no_longer_listening_to(&Speaker::Entry(entry.clone()));
+        let state_line = self
+            .shared
+            .presenting()
+            .finished(entry, outcome, Instant::now());
+        self.note(&state_line);
+    }
+
+    pub fn conclude(&self) {
+        let tally = self.shared.presenting().concluded(Instant::now());
+        if let Some(tally) = tally {
+            self.note(&tally);
+        }
+    }
+
+    pub fn child_line(&self, speaking_for: Option<&Entry>, line: &str) {
+        self.shared.heard_from(&Speaker::of(speaking_for));
+        let Some(entry) = speaking_for else {
+            self.note(line);
+            self.shared.show(line);
+            return;
+        };
+
+        self.note(&format!("{entry}: {line}"));
+        self.shared.presenting().spoke(entry, line);
     }
 
     pub fn captured_output(&self, text: &str) {
-        self.restart_the_silence_clock();
+        let speaking_for = entry_of_this_task();
+        self.shared.heard_from(&Speaker::of(speaking_for.as_ref()));
         for line in text.lines() {
-            self.note(line);
+            match &speaking_for {
+                Some(entry) => {
+                    self.note(&format!("{entry}: {line}"));
+                    self.shared.presenting().spoke(entry, line);
+                }
+                None => self.note(line),
+            }
         }
     }
 
@@ -243,31 +300,49 @@ impl RunReport {
     pub fn note(&self, message: &str) {
         self.shared.write_down(message);
     }
+}
 
-    fn restart_the_silence_clock(&self) {
-        if let Ok(mut current) = self.shared.current_activity.lock()
-            && let Some(activity) = current.as_mut()
-        {
+impl Shared {
+    fn presenting(&self) -> MutexGuard<'_, Presentation> {
+        self.presentation
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn listening(&self) -> MutexGuard<'_, BTreeMap<Speaker, Activity>> {
+        self.speakers.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn listening_to(&self, speaker: Speaker, label: String) {
+        self.listening().insert(speaker, Activity::named(label));
+    }
+
+    fn no_longer_listening_to(&self, speaker: &Speaker) {
+        self.listening().remove(speaker);
+    }
+
+    fn heard_from(&self, speaker: &Speaker) {
+        if let Some(activity) = self.listening().get_mut(speaker) {
             activity.last_spoke = Instant::now();
             activity.silence_already_reported = false;
         }
     }
 
-    fn finished_the_current_activity(&self) {
-        if let Ok(mut current) = self.shared.current_activity.lock() {
-            *current = None;
-        }
-    }
-}
-
-impl Shared {
-    fn show(&self, message: &str) {
-        match self.screen {
-            Screen::Terminal => {
-                let _ = self.progress.println(message);
+    fn fallen_silent(&self) -> Vec<(String, Duration)> {
+        let mut silent = Vec::new();
+        for activity in self.listening().values_mut() {
+            let silence = activity.last_spoke.elapsed();
+            if activity.silence_already_reported || silence < SILENCE_THRESHOLD {
+                continue;
             }
-            Screen::PlainLines => eprintln!("{message}"),
+            activity.silence_already_reported = true;
+            silent.push((activity.label.clone(), silence));
         }
+        silent
+    }
+
+    fn show(&self, message: &str) {
+        self.presenting().show(message);
     }
 
     fn write_down(&self, message: &str) {
@@ -298,7 +373,7 @@ impl Drop for Doing<'_> {
     fn drop(&mut self) {
         self.bar.finish_and_clear();
         self.report.shared.progress.remove(&self.bar);
-        self.report.finished_the_current_activity();
+        self.report.shared.no_longer_listening_to(&Speaker::Run);
     }
 }
 
@@ -311,20 +386,9 @@ fn watch_for_silence(shared: Arc<Shared>) -> SilenceWatchdog {
 
     let thread = thread::spawn(move || {
         while !watched_for.was_reached_within(SILENCE_POLL_INTERVAL) {
-            let Ok(mut current) = shared.current_activity.lock() else {
-                continue;
-            };
-            let Some(activity) = current.as_mut() else {
-                continue;
-            };
-
-            let silence = activity.last_spoke.elapsed();
-            if activity.silence_already_reported || silence < SILENCE_THRESHOLD {
-                continue;
+            for (label, silence) in shared.fallen_silent() {
+                report_a_silence(&shared, &label, silence);
             }
-            activity.silence_already_reported = true;
-
-            report_a_silence(&shared, &activity.label, silence);
         }
     });
 
@@ -410,7 +474,13 @@ fn log_directory() -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        crate::{
+            configuration::{CargoPackage, CargoSource, CrateName, Package, Resource},
+            convergence::Lane,
+        },
+    };
 
     #[test]
     fn run_logs_are_written_into_the_tools_own_directory_under_the_home_directory() {
@@ -429,6 +499,20 @@ mod tests {
             .map(|entry| entry.path())
             .filter(|path| is_a_run_log(path))
             .collect()
+    }
+
+    fn quiet_report(directory: &Path, kind: RunKind) -> RunReport {
+        RunReport::open_showing(directory, kind, Screen::Lines(Box::new(std::io::sink()))).unwrap()
+    }
+
+    fn stop_gate() -> Entry {
+        Entry::new(
+            Lane::Cargo,
+            &Resource::Package(Package::Cargo(CargoPackage {
+                crate_name: CrateName::from("stop-gate"),
+                source: CargoSource::Registry { version: None },
+            })),
+        )
     }
 
     #[test]
@@ -476,8 +560,35 @@ mod tests {
     }
 
     #[test]
-    fn a_run_without_a_terminal_draws_no_progress_bars() {
-        assert!(Screen::PlainLines.draw_target().is_hidden());
+    fn a_line_an_entry_child_writes_reaches_the_log_prefixed_with_that_entry() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = quiet_report(directory.path(), RunKind::Apply);
+
+        report.child_line(Some(&stop_gate()), "Compiling stop-gate v0.1.0");
+        let written = fs::read_to_string(report.log_path()).unwrap();
+
+        assert!(
+            written.contains("[cargo] stop-gate: Compiling stop-gate v0.1.0"),
+            "{written}"
+        );
+    }
+
+    #[tokio::test]
+    async fn output_captured_while_converging_an_entry_reaches_the_log_prefixed_with_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = quiet_report(directory.path(), RunKind::Apply);
+
+        report
+            .converging(&stop_gate(), async {
+                report.captured_output("stop-gate 0.1.0");
+            })
+            .await;
+        let written = fs::read_to_string(report.log_path()).unwrap();
+
+        assert!(
+            written.contains("[cargo] stop-gate: stop-gate 0.1.0"),
+            "{written}"
+        );
     }
 
     #[test]

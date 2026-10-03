@@ -17,7 +17,7 @@ use {
             superseded_name,
             workspace_reading::{Revision, WorkspaceReading},
         },
-        reporting::RunReport,
+        reporting::{Entry, RunReport, entry_of_this_task},
         version::Version,
     },
     anyhow::{Context, Result, anyhow, bail},
@@ -279,7 +279,11 @@ fn stream(
     working_directory: Option<&Path>,
     report: &RunReport,
 ) -> Result<CommandOutput> {
-    report.announce(&rendered_invocation(program, arguments));
+    let speaking_for = entry_of_this_task();
+    report.child_line(
+        speaking_for.as_ref(),
+        &rendered_invocation(program, arguments),
+    );
 
     let mut command = ProcessCommand::new(program);
     if let Some(directory) = working_directory {
@@ -308,8 +312,8 @@ fn stream(
     })?;
 
     let (standard_output, standard_error) = thread::scope(|scope| {
-        let reading_output = scope.spawn(|| drain(piped_output, report));
-        let reading_error = scope.spawn(|| drain(piped_error, report));
+        let reading_output = scope.spawn(|| drain(piped_output, report, speaking_for.as_ref()));
+        let reading_error = scope.spawn(|| drain(piped_error, report, speaking_for.as_ref()));
         (
             reading_output.join().unwrap_or_default(),
             reading_error.join().unwrap_or_default(),
@@ -327,7 +331,7 @@ fn stream(
     })
 }
 
-fn drain(source: impl Read, report: &RunReport) -> String {
+fn drain(source: impl Read, report: &RunReport, speaking_for: Option<&Entry>) -> String {
     let mut reader = BufReader::new(source);
     let mut collected = String::new();
     let mut raw_line = Vec::new();
@@ -344,7 +348,7 @@ fn drain(source: impl Read, report: &RunReport) -> String {
         }
 
         let line = decode_output(&raw_line);
-        report.child_line(line.trim_end_matches(['\r', '\n']));
+        report.child_line(speaking_for, line.trim_end_matches(['\r', '\n']));
         collected.push_str(&line);
     }
 }
@@ -1043,7 +1047,14 @@ fn create_link(link_path: &Path, target_path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, crate::reporting::RunKind};
+    use {
+        super::*,
+        crate::{
+            configuration::{CargoPackage, CargoSource, Package, Resource},
+            convergence::Lane,
+            reporting::{RunKind, Screen},
+        },
+    };
 
     fn a_binary_at(directory: &Path, name: &str, contents: &str) -> PathBuf {
         let path = directory.join(name);
@@ -1285,6 +1296,39 @@ mod tests {
         assert!(output.succeeded, "{output:?}");
         assert!(
             written.contains("first") && written.contains("second"),
+            "{written}"
+        );
+    }
+
+    #[tokio::test]
+    async fn every_line_a_child_writes_while_converging_an_entry_reaches_the_log_prefixed_with_it()
+    {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_showing(
+            directory.path(),
+            RunKind::Apply,
+            Screen::Lines(Box::new(std::io::sink())),
+        )
+        .unwrap();
+        let (program, arguments) = echoing_two_lines();
+        let stop_gate = Entry::new(
+            Lane::Cargo,
+            &Resource::Package(Package::Cargo(CargoPackage {
+                crate_name: CrateName::from("stop-gate"),
+                source: CargoSource::Registry { version: None },
+            })),
+        );
+
+        report
+            .converging(&stop_gate, async {
+                stream(Path::new(&program), &arguments, &[], None, &report).unwrap()
+            })
+            .await;
+
+        let written = fs::read_to_string(report.log_path()).unwrap();
+        assert!(
+            written.contains("[cargo] stop-gate: first")
+                && written.contains("[cargo] stop-gate: second"),
             "{written}"
         );
     }
