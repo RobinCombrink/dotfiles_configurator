@@ -2,8 +2,8 @@ use {
     crate::{
         configuration::{
             Application, CargoWorkspace, Configuration, ConfigurationName, Context, DeclaredNotice,
-            EnvironmentVariable, GitHubAccount, GitHubRepository, Identity, MachineManifest,
-            Migration, Notice, Registration, Requirement, Resource, ResourceKind,
+            EnvironmentVariable, GitHubAccount, GitHubRepository, Identity, Migration, Notice,
+            Registration, RenderedManifest, Requirement, Resource, ResourceKind,
             SearchPathDirectory, SearchPathEntry,
         },
         configuration_source::AbsoluteDirectory,
@@ -299,7 +299,7 @@ impl DesiredState {
 
     pub fn of(
         configurations: Vec<ResolvedConfiguration>,
-        machine_manifest: MachineManifest,
+        machine_manifest: RenderedManifest,
         home_directory: &Path,
     ) -> Result<Self, Irreconcilable> {
         let for_every_machine = the_configuration_for_every_machine(&configurations)?;
@@ -407,6 +407,7 @@ pub enum Irreconcilable {
         first: Box<Claim>,
         second: Box<Claim>,
     },
+    UnrenderableManifest(serde_json::Error),
 }
 
 const ONE_FOR_EACH: &str =
@@ -432,6 +433,10 @@ impl Display for Irreconcilable {
                 "{} and {} make conflicting claims on {identity}. No machine could satisfy \
                  both:\n  {}\n  {}",
                 second.by, first.by, first.resource, second.resource
+            ),
+            Irreconcilable::UnrenderableManifest(failure) => write!(
+                formatter,
+                "The machine manifest could not be written out: {failure}"
             ),
         }
     }
@@ -533,7 +538,7 @@ mod tests {
     fn merged(configurations: Vec<ResolvedConfiguration>) -> Result<DesiredState, Irreconcilable> {
         DesiredState::of(
             configurations,
-            MachineManifest {
+            RenderedManifest::try_from(crate::configuration::MachineManifest {
                 repositories_directory_path: Path::new(REPOSITORIES_ROOT)
                     .join(MachineClass::Personal.repositories_leaf()),
                 estates: crate::configuration::Estates::new(),
@@ -541,7 +546,8 @@ mod tests {
                     class: MachineClass::Personal,
                     configuration_sources: Vec::new(),
                 },
-            },
+            })
+            .expect("a manifest naming a directory spelled in UTF-8 renders"),
             Path::new(HOME_DIRECTORY),
         )
     }

@@ -552,12 +552,11 @@ impl FakeMachine {
     }
 
     pub fn hold_machine_manifest(&self, machine: MachineClass) {
-        let document = String::try_from(&crate::declarations::manifest_for(machine))
-            .expect("a manifest that serialises");
+        let manifest = crate::declarations::rendered(crate::declarations::manifest_for(machine));
 
         self.write_text_file(
             &MachineManifest::path_within(self.home_directory()),
-            &document,
+            manifest.document(),
         )
         .expect("a manifest on the fake machine");
     }

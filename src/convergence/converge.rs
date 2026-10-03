@@ -65,9 +65,8 @@ pub async fn converge(
         Resource::Symlink(symlink) => converge_symlink(symlink, resource, machine),
         Resource::Registration(Registration::MachineManifest(manifest)) => {
             let path = MachineManifest::path_within(machine.home_directory());
-            let document = String::try_from(manifest)?;
             machine
-                .write_text_file(&path, &document)
+                .write_text_file(&path, manifest.document())
                 .with_context(|| format!("Could not write {}", path.display()))
         }
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {

@@ -9,7 +9,7 @@ use {
             ArchiveEntry, AssetPattern, BUILD_GENERATION, CargoWorkspace, Configuration,
             ConfigurationName, Context, DeclaredNotice, Estates, GitHubAccount, GitHubRepository,
             MachineClass, MachineManifest, RecordedRun, RecordedSource, ReleasedBinary,
-            RepositoryName, RepositoryOwner, Resource, VersionWord,
+            RenderedManifest, RepositoryName, RepositoryOwner, Resource, VersionWord,
         },
         configuration_source::AbsoluteDirectory,
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
@@ -50,6 +50,11 @@ pub fn manifest_for(machine: MachineClass) -> MachineManifest {
             configuration_sources: vec![RecordedSource::from(RECORDED_SOURCE.to_owned())],
         },
     }
+}
+
+pub fn rendered(manifest: MachineManifest) -> RenderedManifest {
+    RenderedManifest::try_from(manifest)
+        .expect("a manifest naming a directory spelled in UTF-8 renders")
 }
 
 pub fn named_repository(owner_and_name: &str) -> GitHubRepository {
@@ -156,7 +161,7 @@ pub fn read_as_two_accounts(
                 &repositories_root_path(),
             ),
         ],
-        manifest_for(MachineClass::Work),
+        rendered(manifest_for(MachineClass::Work)),
         &home_directory_path(),
     )
     .expect("a set holding one configuration for every machine and one for this class")
@@ -202,7 +207,7 @@ fn read_from(
                 &repositories_root_path(),
             ),
         ],
-        manifest_for(MachineClass::Personal),
+        rendered(manifest_for(MachineClass::Personal)),
         &home_directory_path(),
     )
     .expect("a set holding one configuration for every machine and one for this class")

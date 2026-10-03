@@ -3,8 +3,8 @@ use {
         configuration::{
             Configuration, ConfigurationName, Context, EstateConflict, GitHubAccount,
             GitHubRepository, MachineClass, MachineManifest, Migration, Notice, RecordedRun,
-            RecordedSource, RepositoryName, RepositoryOwner, Unreadable, parse_configuration,
-            resolve_estates,
+            RecordedSource, RenderedManifest, RepositoryName, RepositoryOwner, Unreadable,
+            parse_configuration, resolve_estates,
         },
         desired_state::{DesiredState, Irreconcilable, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
@@ -226,14 +226,17 @@ pub async fn load_desired_state(
         ));
     }
 
-    let machine_manifest = MachineManifest {
+    let machine_manifest = RenderedManifest::try_from(MachineManifest {
         repositories_directory_path: repositories_root.join(machine.repositories_leaf()),
         estates,
         recorded_run: RecordedRun {
             class: machine,
             configuration_sources: sources.iter().map(ConfigurationSource::recorded).collect(),
         },
-    };
+    })
+    .map_err(|failure| {
+        LoadFailure::Irreconcilable(Irreconcilable::UnrenderableManifest(failure))
+    })?;
 
     let home_directory = std::env::home_dir().ok_or_else(|| LoadFailure::Environment {
         failures: EnvironmentFailures::one(EnvironmentFailure::HomeDirectoryUnknown),
@@ -1194,6 +1197,43 @@ mod tests {
             error.to_string().contains(&missing.display().to_string()),
             "{error}"
         );
+    }
+
+    #[cfg(windows)]
+    fn a_directory_not_spelled_in_utf8() -> PathBuf {
+        use std::os::windows::ffi::OsStringExt;
+
+        PathBuf::from(std::ffi::OsString::from_wide(&[u16::from(b'/'), 0xD800]))
+    }
+
+    #[cfg(unix)]
+    fn a_directory_not_spelled_in_utf8() -> PathBuf {
+        use std::os::unix::ffi::OsStringExt;
+
+        PathBuf::from(std::ffi::OsString::from_vec(vec![b'/', 0xFF]))
+    }
+
+    #[tokio::test]
+    async fn a_manifest_that_cannot_be_written_out_is_refused_at_load_naming_why() {
+        let checkout = temporary_checkout("unrenderable_manifest");
+        write_configuration(&checkout, "everywhere.dotconfig.json", "everywhere", "");
+        write_configuration(&checkout, "personal.dotconfig.json", "personal", "");
+
+        let error = load_desired_state(
+            &[ConfigurationSource::LocalDirectory(absolute(
+                checkout.join("config"),
+            ))],
+            MachineClass::Personal,
+            &a_directory_not_spelled_in_utf8(),
+            &GitHubAccess::new(),
+        )
+        .await
+        .unwrap_err();
+
+        let LoadFailure::Irreconcilable(Irreconcilable::UnrenderableManifest(_)) = &error else {
+            panic!("expected the manifest to be refused, got {error:?}");
+        };
+        assert!(error.to_string().contains("UTF-8"), "{error}");
     }
 
     #[tokio::test]

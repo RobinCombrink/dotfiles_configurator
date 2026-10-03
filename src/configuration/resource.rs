@@ -636,7 +636,7 @@ pub enum Registration {
     // ADR 0030
     #[serde(skip_deserializing)]
     #[schemars(skip)]
-    MachineManifest(MachineManifest),
+    MachineManifest(RenderedManifest),
 }
 
 impl Display for Registration {
@@ -645,11 +645,7 @@ impl Display for Registration {
             Registration::ClaudeMcpServer(server) => {
                 write!(formatter, "claude mcp server {}", server.name)
             }
-            Registration::MachineManifest(manifest) => write!(
-                formatter,
-                "machine manifest naming {}",
-                manifest.repositories_directory_path.display()
-            ),
+            Registration::MachineManifest(manifest) => Display::fmt(manifest, formatter),
         }
     }
 }
@@ -715,16 +711,49 @@ impl MachineManifest {
     }
 }
 
-impl TryFrom<&MachineManifest> for String {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderedManifest {
+    document: String,
+    repositories_directory_path: PathBuf,
+}
+
+impl TryFrom<MachineManifest> for RenderedManifest {
     type Error = serde_json::Error;
 
-    fn try_from(manifest: &MachineManifest) -> Result<Self, Self::Error> {
+    fn try_from(manifest: MachineManifest) -> Result<Self, Self::Error> {
         #[derive(Serialize)]
         struct Document<'manifest> {
             machine: &'manifest MachineManifest,
         }
 
-        serde_json::to_string_pretty(&Document { machine: manifest })
+        Ok(Self {
+            document: serde_json::to_string_pretty(&Document { machine: &manifest })?,
+            repositories_directory_path: manifest.repositories_directory_path,
+        })
+    }
+}
+
+impl RenderedManifest {
+    pub fn document(&self) -> &str {
+        &self.document
+    }
+}
+
+impl Display for RenderedManifest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "machine manifest naming {}",
+            self.repositories_directory_path.display()
+        )
+    }
+}
+
+impl Serialize for RenderedManifest {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde_json::from_str::<serde_json::Value>(&self.document)
+            .map_err(serde::ser::Error::custom)?
+            .serialize(serializer)
     }
 }
 
@@ -888,9 +917,16 @@ mod tests {
         assert_eq!(entry.installed_name(), BinaryName::from("rg"));
     }
 
+    fn rendered(manifest: MachineManifest) -> String {
+        RenderedManifest::try_from(manifest)
+            .expect("a manifest that serialises")
+            .document()
+            .to_owned()
+    }
+
     #[test]
-    fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own() {
-        let document = String::try_from(&MachineManifest {
+    fn a_registered_manifest_is_written_out_as_the_document_it_renders() {
+        let manifest = RenderedManifest::try_from(MachineManifest {
             repositories_directory_path: PathBuf::from("/repositories/Personal"),
             estates: Estates::new(),
             recorded_run: RecordedRun {
@@ -899,6 +935,33 @@ mod tests {
             },
         })
         .expect("a manifest that serialises");
+
+        let written = serde_json::to_value(Registration::MachineManifest(manifest)).unwrap();
+
+        assert_eq!(
+            written,
+            serde_json::json!({
+                "registry": "machine_manifest",
+                "machine": {
+                    "repositories_directory_path": "/repositories/Personal",
+                    "estates": {},
+                    "class": "personal",
+                    "configuration_sources": []
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own() {
+        let document = rendered(MachineManifest {
+            repositories_directory_path: PathBuf::from("/repositories/Personal"),
+            estates: Estates::new(),
+            recorded_run: RecordedRun {
+                class: MachineClass::Personal,
+                configuration_sources: Vec::new(),
+            },
+        });
 
         assert_eq!(
             document,
@@ -909,7 +972,7 @@ mod tests {
 
     #[test]
     fn the_manifest_records_the_class_and_the_sources_of_the_run_that_wrote_it_as_written() {
-        let document = String::try_from(&MachineManifest {
+        let document = rendered(MachineManifest {
             repositories_directory_path: PathBuf::from("/repositories/Work"),
             estates: Estates::new(),
             recorded_run: RecordedRun {
@@ -919,8 +982,7 @@ mod tests {
                     RecordedSource::from("local:/repositories/Work/dotfiles/config".to_owned()),
                 ],
             },
-        })
-        .expect("a manifest that serialises");
+        });
 
         let machine = &serde_json::from_str::<serde_json::Value>(&document).unwrap()["machine"];
         assert_eq!(
@@ -951,15 +1013,14 @@ mod tests {
             ),
         ]);
 
-        let document = String::try_from(&MachineManifest {
+        let document = rendered(MachineManifest {
             repositories_directory_path: PathBuf::from("/repositories/Work"),
             estates,
             recorded_run: RecordedRun {
                 class: MachineClass::Work,
                 configuration_sources: Vec::new(),
             },
-        })
-        .expect("a manifest that serialises");
+        });
 
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&document).unwrap()["machine"]["estates"],

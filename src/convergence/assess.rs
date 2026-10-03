@@ -3,9 +3,9 @@ use {
         configuration::{
             Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
             CrateName, CrateVersion, EnvironmentVariable, GitHubAccount, GitHubRepository,
-            Installer, MachineManifest, Package, Registration, ReleasedBinary, RepositoryClone,
-            Requirement, Resource, SearchPathEntry, Symlink, UvToolName, UvToolPackage,
-            UvToolVersion, Variable, WingetPackage,
+            Installer, MachineManifest, Package, Registration, ReleasedBinary, RenderedManifest,
+            RepositoryClone, Requirement, Resource, SearchPathEntry, Symlink, UvToolName,
+            UvToolPackage, UvToolVersion, Variable, WingetPackage,
         },
         convergence::{
             Assessment, Impediment, ReadSource, SourceReading, UnreadableReason,
@@ -814,17 +814,10 @@ fn assess_symlink(
     }
 }
 
-fn assess_machine_manifest(manifest: &MachineManifest, machine: &impl ReadMachine) -> Assessment {
-    let declared = match String::try_from(manifest) {
-        Ok(document) => document,
-        Err(error) => {
-            return Assessment::Drifted(format!("the manifest could not be built: {error}").into());
-        }
-    };
-
+fn assess_machine_manifest(manifest: &RenderedManifest, machine: &impl ReadMachine) -> Assessment {
     match machine.text_file_at(&MachineManifest::path_within(machine.home_directory())) {
         Ok(None) => Assessment::Drifted("the machine holds no manifest".into()),
-        Ok(Some(held)) if held == declared => Assessment::Converged,
+        Ok(Some(held)) if held == manifest.document() => Assessment::Converged,
         Ok(Some(_)) => Assessment::Drifted("the manifest says something else".into()),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!("{error:#}").into(),

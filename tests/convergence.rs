@@ -9,7 +9,7 @@ use {
     cucumber::{World, given, then, when},
     declarations::{
         dotfiles_repository, manifest_for, named_repository, read_as_two_accounts,
-        read_out_of_a_checkout, read_out_of_the_dotfiles_repository,
+        read_out_of_a_checkout, read_out_of_the_dotfiles_repository, rendered,
         reporting_its_version_in_the_second_word,
     },
     dotfiles_configurator::{
@@ -1325,14 +1325,14 @@ fn personal_acting_as_declaring_an_estate_with_an_owner(
 }
 
 impl MachineWorld {
-    fn loaded_manifest(&self) -> MachineManifest {
+    fn loaded_manifest(&self) -> String {
         let loaded = self.loaded.as_ref().expect("a desired state was loaded");
         loaded
             .resources
             .iter()
             .find_map(|resource| match resource.declared() {
                 Resource::Registration(Registration::MachineManifest(manifest)) => {
-                    Some(manifest.clone())
+                    Some(manifest.document().to_owned())
                 }
                 _ => None,
             })
@@ -1340,7 +1340,10 @@ impl MachineWorld {
     }
 
     fn loaded_estates(&self) -> Estates {
-        self.loaded_manifest().estates
+        let document: serde_json::Value =
+            serde_json::from_str(&self.loaded_manifest()).expect("a manifest is JSON");
+        serde_json::from_value(document["machine"]["estates"].clone())
+            .expect("a manifest names its estates")
     }
 }
 
@@ -1353,7 +1356,7 @@ fn manifest_records_the_run(world: &mut MachineWorld) {
         .collect();
 
     assert_eq!(
-        world.loaded_manifest().recorded_run,
+        RecordedRun::read_from(&world.loaded_manifest()).expect("a manifest records its run"),
         RecordedRun {
             class: MachineClass::Personal,
             configuration_sources: named,
@@ -2186,13 +2189,11 @@ fn the_last_apply_was_recorded(world: &mut MachineWorld, class: String, source: 
     let class = MachineClass::from_str(&class).expect("a machine class");
     let mut manifest = manifest_for(class);
     manifest.recorded_run.configuration_sources = vec![RecordedSource::from(source)];
-    let document = String::try_from(&manifest).expect("a manifest that serialises");
-
     world
         .machine
         .write_text_file(
             &MachineManifest::path_within(world.machine.home_directory()),
-            &document,
+            rendered(manifest).document(),
         )
         .expect("a manifest on the fake machine");
 }
