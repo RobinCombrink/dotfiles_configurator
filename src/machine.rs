@@ -26,7 +26,7 @@ pub mod workspace_reading;
 
 pub use invocation::{
     DisplacingInvocation, ReadInvocation, RefusedCopy, ReplacementCommands, ReplacingInvocation,
-    ResolvedCargoSource, WriteInvocation,
+    ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,6 +213,8 @@ pub trait WriteMachine: ReadMachine {
     fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;
 
     fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement>;
+
+    fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()>;
 
     // ADR 0033
     fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement>;

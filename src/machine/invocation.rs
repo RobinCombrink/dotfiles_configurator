@@ -4,9 +4,16 @@ use {
             ClaudeMcpServer, CrateName, CrateVersion, GitHubAccount, GitHubRepository,
             McpServerName, PythonInterpreter, Tool, UvToolName, WingetPackageId,
         },
-        machine::{CommandOutput, Replacement, workspace_reading::Revision},
+        machine::{
+            CommandOutput, Replacement,
+            workspace_reading::{Revision, WorkspaceReading},
+        },
     },
-    std::path::{Path, PathBuf},
+    std::{
+        collections::BTreeSet,
+        fmt::Display,
+        path::{Path, PathBuf},
+    },
 };
 
 // ADR 0006
@@ -203,6 +210,85 @@ impl DisplacingInvocation {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceBuild<'reading> {
+    clone_directory: PathBuf,
+    reading: &'reading WorkspaceReading,
+    members: BTreeSet<CrateName>,
+}
+
+impl<'reading> WorkspaceBuild<'reading> {
+    pub fn of(
+        clone_directory: PathBuf,
+        reading: &'reading WorkspaceReading,
+        changed: impl IntoIterator<Item = CrateName>,
+    ) -> Option<Self> {
+        let members: BTreeSet<CrateName> = changed
+            .into_iter()
+            .filter(|member| reading.members.contains_key(member))
+            .collect();
+        if members.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            clone_directory,
+            reading,
+            members,
+        })
+    }
+
+    pub fn clone_directory(&self) -> &Path {
+        &self.clone_directory
+    }
+
+    pub fn revision(&self) -> &Revision {
+        &self.reading.revision
+    }
+
+    pub fn members(&self) -> &BTreeSet<CrateName> {
+        &self.members
+    }
+
+    pub fn arguments(&self) -> Vec<String> {
+        let mut arguments = vec![
+            "build".to_owned(),
+            "--release".to_owned(),
+            "--locked".to_owned(),
+            "--keep-going".to_owned(),
+        ];
+        for member in &self.members {
+            arguments.extend(["-p".to_owned(), member.to_string()]);
+        }
+        arguments
+    }
+
+    pub fn build_directory(&self, build_cache: &Path) -> PathBuf {
+        self.revision().build_directory_in(build_cache)
+    }
+
+    pub fn source_directory(&self, build_cache: &Path) -> PathBuf {
+        build_cache.join(format!("{}-source", self.revision()))
+    }
+
+    pub fn environment(&self, build_cache: &Path) -> Vec<(String, String)> {
+        cargo_environment(Some(&self.build_directory(build_cache)))
+    }
+}
+
+impl Display for WorkspaceBuild<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let members: Vec<String> = self.members.iter().map(CrateName::to_string).collect();
+        write!(
+            formatter,
+            "{} at {} in {}",
+            members.join(", "),
+            self.revision(),
+            self.clone_directory.display()
+        )
+    }
+}
+
 fn cargo_environment(build_directory: Option<&Path>) -> Vec<(String, String)> {
     // 2026-08-10: cargo's own libgit2 fetch cannot authenticate to a private GitHub repository on
     // a machine holding its credentials behind `gh auth git-credential`, failing with "no
@@ -380,7 +466,10 @@ fn destination_moved_to(text: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::configuration::{McpScope, RepositoryName, RepositoryOwner};
+    use crate::{
+        configuration::{McpScope, RepositoryName, RepositoryOwner},
+        machine::workspace_reading::{Fingerprint, InstalledState, MemberReading, ObjectHash},
+    };
     use std::collections::BTreeMap;
 
     fn cargo_said(standard_error: &str) -> CommandOutput {
@@ -626,6 +715,122 @@ mod tests {
                 "stop-gate",
             ]
         );
+    }
+
+    fn workspace_at(revision: &str, members: &[&str]) -> WorkspaceReading {
+        WorkspaceReading {
+            revision: Revision::from(revision),
+            members: members
+                .iter()
+                .map(|name| {
+                    let fingerprint = Fingerprint {
+                        crate_subtree: ObjectHash::from("aaa"),
+                        workspace_manifest: ObjectHash::from("bbb"),
+                        lock_closure: ObjectHash::from("ccc"),
+                        dependency_subtrees: BTreeMap::new(),
+                    };
+                    (
+                        CrateName::from(*name),
+                        MemberReading {
+                            desired: fingerprint.clone(),
+                            installed: InstalledState::At(fingerprint),
+                            absent_binaries: BTreeSet::new(),
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn changed(members: &[&str]) -> Vec<CrateName> {
+        members.iter().map(|name| CrateName::from(*name)).collect()
+    }
+
+    fn clone_directory() -> PathBuf {
+        PathBuf::from("C:\\Repositories\\Alice\\dotfiles")
+    }
+
+    #[test]
+    fn a_workspace_build_names_each_changed_member_and_keeps_going_past_one_that_fails() {
+        let reading = workspace_at(
+            "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c",
+            &["stop-gate", "live-set", "session-mining"],
+        );
+
+        let build = WorkspaceBuild::of(
+            clone_directory(),
+            &reading,
+            changed(&["stop-gate", "live-set"]),
+        )
+        .expect("two members to build");
+
+        assert_eq!(
+            build.arguments(),
+            vec![
+                "build",
+                "--release",
+                "--locked",
+                "--keep-going",
+                "-p",
+                "live-set",
+                "-p",
+                "stop-gate",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_workspace_build_leaves_out_a_crate_its_workspace_does_not_hold() {
+        let reading = workspace_at("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c", &["stop-gate"]);
+
+        let build = WorkspaceBuild::of(
+            clone_directory(),
+            &reading,
+            changed(&["stop-gate", "ripgrep"]),
+        )
+        .expect("one member to build");
+
+        assert_eq!(
+            build.members(),
+            &BTreeSet::from([CrateName::from("stop-gate")])
+        );
+    }
+
+    #[test]
+    fn a_workspace_with_no_member_to_change_has_nothing_to_build() {
+        let reading = workspace_at("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c", &["stop-gate"]);
+
+        assert_eq!(
+            WorkspaceBuild::of(clone_directory(), &reading, changed(&["ripgrep"])),
+            None
+        );
+    }
+
+    #[test]
+    fn a_workspace_build_targets_the_directory_its_revisions_installs_build_in() {
+        let reading = workspace_at("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c", &["stop-gate"]);
+        let build = WorkspaceBuild::of(clone_directory(), &reading, changed(&["stop-gate"]))
+            .expect("one member to build");
+        let install = installing_from_revision("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c");
+
+        let built_in = build.environment(&build_cache());
+        let installed_from = install.environment(&build_cache());
+
+        assert_eq!(
+            value_of(&built_in, "CARGO_TARGET_DIR"),
+            value_of(&installed_from, "CARGO_TARGET_DIR")
+        );
+    }
+
+    #[test]
+    fn a_workspace_build_checks_its_revision_out_beside_rather_than_inside_its_build_directory() {
+        let reading = workspace_at("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c", &["stop-gate"]);
+        let build = WorkspaceBuild::of(clone_directory(), &reading, changed(&["stop-gate"]))
+            .expect("one member to build");
+
+        let source = build.source_directory(&build_cache());
+
+        assert!(!source.starts_with(build.build_directory(&build_cache())));
     }
 
     fn registering(server: ClaudeMcpServer) -> ReplacingInvocation {

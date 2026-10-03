@@ -16,7 +16,8 @@ use {
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
-            Replacement, ReplacingInvocation, ResolvedCargoSource, WriteInvocation, WriteMachine,
+            Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
+            WriteMachine,
             environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
@@ -71,6 +72,8 @@ struct MachineState {
     executing_binaries: BTreeMap<PathBuf, Displacement>,
     superseded_images: BTreeSet<PathBuf>,
     cargo_installs: usize,
+    cargo_commands: Vec<CargoCommand>,
+    workspace_builds_fail: bool,
     registry_crates: BTreeMap<CrateName, CrateVersion>,
     releases: BTreeMap<GitHubRepository, ReleaseReading>,
     release_reads: Vec<(GitHubRepository, GitHubAccount)>,
@@ -82,6 +85,16 @@ struct MachineState {
     environment_variables: BTreeMap<VariableName, VariableValue>,
     claude_mcp_servers: BTreeMap<McpServerName, ClaudeMcpServer>,
     mcp_servers_claude_refuses_to_add: BTreeSet<McpServerName>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CargoCommand {
+    Built {
+        clone_directory: PathBuf,
+        revision: Revision,
+        members: BTreeSet<CrateName>,
+    },
+    Installed(CrateName),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,6 +269,14 @@ impl FakeMachine {
         self.state.borrow().cargo_installs
     }
 
+    pub fn cargo_commands(&self) -> Vec<CargoCommand> {
+        self.state.borrow().cargo_commands.clone()
+    }
+
+    pub fn make_workspace_builds_fail(&self) {
+        self.state.borrow_mut().workspace_builds_fail = true;
+    }
+
     pub fn times_the_declared_command_ran(&self, argument: &str) -> usize {
         self.state
             .borrow()
@@ -337,6 +358,9 @@ impl FakeMachine {
         state.cargo_installs += 1;
 
         let DisplacingInvocation::InstallCargoCrate { crate_name, source } = invocation;
+        state
+            .cargo_commands
+            .push(CargoCommand::Installed(crate_name.clone()));
 
         if let Some(destination) = state.executing_binaries.keys().next().cloned() {
             return CommandOutput {
@@ -723,6 +747,8 @@ impl FakeMachine {
             executing_binaries,
             superseded_images,
             cargo_installs,
+            cargo_commands,
+            workspace_builds_fail,
             registry_crates,
             releases,
             release_reads: _,
@@ -743,7 +769,7 @@ impl FakeMachine {
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
              {executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
-             {registry_crates:?}|{releases:?}|\
+             {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
              {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\
              {mcp_servers_claude_refuses_to_add:?}"
@@ -1274,6 +1300,20 @@ impl WriteMachine for FakeMachine {
         match self.run_cargo(invocation).succeeded {
             true => Ok(Placement::Placed),
             false => bail!("cargo failed once the image in its way had been displaced"),
+        }
+    }
+
+    fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()> {
+        let mut state = self.state.borrow_mut();
+        state.cargo_commands.push(CargoCommand::Built {
+            clone_directory: build.clone_directory().to_path_buf(),
+            revision: build.revision().clone(),
+            members: build.members().clone(),
+        });
+
+        match state.workspace_builds_fail {
+            true => bail!("cargo could not build {build}"),
+            false => Ok(()),
         }
     }
 

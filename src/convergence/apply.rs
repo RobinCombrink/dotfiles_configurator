@@ -3,7 +3,9 @@ use {
         configuration::{Identity, Migration, Notice, Resource, ResourceKind},
         configuration_source::WriteSource,
         confirmation::{Confirm, Confirmation},
-        convergence::{Blocked, Change, ChangeSet, SourceReadings, converge::converge, plan},
+        convergence::{
+            Blocked, Change, ChangeSet, SourceReadings, build_stage, converge::converge, plan,
+        },
         currency::{self, SelfReplacement},
         desired_state::{DesiredState, ResolvedResource},
         machine::{Placement, WriteMachine},
@@ -330,6 +332,16 @@ async fn attempt(
     handled: &BTreeSet<Handled>,
     self_replacement: &SelfReplacement,
 ) -> Pass {
+    let pending = change_set
+        .changes
+        .iter()
+        .filter(|change| !handled.contains(&Handled::of(change, machine.home_directory())));
+    build_stage::build(
+        &build_stage::workspace_builds(pending, readings),
+        machine,
+        report,
+    );
+
     let mut pass = Pass::default();
     for change in &change_set.changes {
         let key = Handled::of(change, machine.home_directory());

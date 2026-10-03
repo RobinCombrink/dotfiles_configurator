@@ -9,6 +9,7 @@ use {
 
 pub mod apply;
 pub mod assess;
+mod build_stage;
 pub mod converge;
 pub mod resolve;
 pub mod source_reading;

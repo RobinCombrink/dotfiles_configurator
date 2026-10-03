@@ -9,8 +9,8 @@ use {
         github::GitHubAccess,
         machine::{
             CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
-            Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WriteInvocation,
-            WriteMachine,
+            Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild,
+            WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -79,6 +79,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
             Path::new(tool.program()),
             arguments,
             environment,
+            None,
             self.report,
         )
     }
@@ -139,7 +140,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
     }
 
     fn run_installer(&self, installer_path: &Path) -> Result<()> {
-        let output = stream(installer_path, &[], &[], self.report)?;
+        let output = stream(installer_path, &[], &[], None, self.report)?;
 
         match output.succeeded {
             true => Ok(()),
@@ -149,6 +150,19 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
                 output.standard_output.trim(),
                 output.standard_error.trim()
             ),
+        }
+    }
+
+    fn git(&self, clone_directory: &Path, arguments: &[&str]) -> Result<()> {
+        let arguments: Vec<String> = ["-C".to_owned(), clone_directory.display().to_string()]
+            .into_iter()
+            .chain(arguments.iter().map(|argument| (*argument).to_owned()))
+            .collect();
+        let output = capture(Path::new(Tool::Git.program()), &arguments, self.report)?;
+
+        match output.succeeded {
+            true => Ok(()),
+            false => Err(refused(Tool::Git, &arguments, &output)),
         }
     }
 
@@ -259,11 +273,16 @@ fn stream(
     program: &Path,
     arguments: &[String],
     environment: &[(String, String)],
+    working_directory: Option<&Path>,
     report: &RunReport,
 ) -> Result<CommandOutput> {
     report.announce(&rendered_invocation(program, arguments));
 
-    let mut child = ProcessCommand::new(program)
+    let mut command = ProcessCommand::new(program);
+    if let Some(directory) = working_directory {
+        command.current_dir(directory);
+    }
+    let mut child = command
         .args(arguments)
         .envs(environment.iter().map(|(name, value)| (name, value)))
         .stdin(Stdio::null())
@@ -837,6 +856,53 @@ impl WriteMachine for LocalMachine<'_, '_> {
         }
     }
 
+    fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()> {
+        let build_cache = self.build_cache_directory();
+        let source = build.source_directory(&build_cache);
+        let clone_directory = build.clone_directory();
+        let source_argument = source.display().to_string();
+
+        if source.exists() {
+            fs::remove_dir_all(&source)
+                .with_context(|| format!("Could not clear {}", source.display()))?;
+        }
+        self.git(clone_directory, &["worktree", "prune"])?;
+        self.git(
+            clone_directory,
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                &source_argument,
+                build.revision().as_ref(),
+            ],
+        )?;
+
+        let arguments = build.arguments();
+        let built = stream(
+            Path::new(Tool::Cargo.program()),
+            &arguments,
+            &build.environment(&build_cache),
+            Some(&source),
+            self.report,
+        )
+        .and_then(|output| match output.succeeded {
+            true => Ok(()),
+            false => Err(refused(Tool::Cargo, &arguments, &output)),
+        });
+        let removed = self.git(
+            clone_directory,
+            &["worktree", "remove", "--force", &source_argument],
+        );
+
+        match (built, removed) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(failure), Ok(())) => Err(failure),
+            (Ok(()), Err(unremoved)) => Err(unremoved),
+            (Err(failure), Err(unremoved)) => Err(failure.context(format!("{unremoved:#}"))),
+        }
+    }
+
     fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement> {
         let tool = invocation.tool();
         let commands = invocation.commands();
@@ -863,7 +929,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
 
     fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput> {
         let (program, arguments) = shell_invocation(shell, args);
-        stream(Path::new(&program), &arguments, &[], self.report)
+        stream(Path::new(&program), &arguments, &[], None, self.report)
     }
 }
 
@@ -1206,7 +1272,7 @@ mod tests {
         let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
         let (program, arguments) = echoing_two_lines();
 
-        let output = stream(Path::new(&program), &arguments, &[], &report).unwrap();
+        let output = stream(Path::new(&program), &arguments, &[], None, &report).unwrap();
 
         let written = fs::read_to_string(report.log_path()).unwrap();
         assert!(output.succeeded, "{output:?}");
@@ -1222,7 +1288,7 @@ mod tests {
         let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
         let (program, arguments) = echoing_two_lines();
 
-        let output = stream(Path::new(&program), &arguments, &[], &report).unwrap();
+        let output = stream(Path::new(&program), &arguments, &[], None, &report).unwrap();
 
         assert!(output.standard_output.contains("first"), "{output:?}");
         assert!(output.standard_output.contains("second"), "{output:?}");
@@ -1346,6 +1412,7 @@ mod tests {
             Path::new(&program),
             &arguments,
             &[("CARGO_TARGET_DIR".to_owned(), asked.to_owned())],
+            None,
             &report,
         )
         .unwrap();
