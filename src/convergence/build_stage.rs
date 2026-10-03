@@ -3,7 +3,7 @@ use {
         configuration::{CargoPackage, CargoSource, CrateName, Package, Resource},
         convergence::{Change, SourceReadings},
         machine::{WorkspaceBuild, WriteMachine},
-        reporting::RunReport,
+        reporting::{Entry, EntryOutcome, RunReport},
     },
     std::{
         collections::{BTreeMap, BTreeSet},
@@ -40,7 +40,7 @@ pub fn workspace_builds<'readings, 'change>(
         .collect()
 }
 
-pub fn build(builds: &[WorkspaceBuild<'_>], machine: &impl WriteMachine, report: &RunReport) {
+pub async fn build(builds: &[WorkspaceBuild<'_>], machine: &impl WriteMachine, report: &RunReport) {
     if builds.is_empty() {
         return;
     }
@@ -52,12 +52,19 @@ pub fn build(builds: &[WorkspaceBuild<'_>], machine: &impl WriteMachine, report:
             .collect(),
     );
     for build in builds {
-        let _doing = report.doing(format!("building {build}"));
-        if let Err(error) = machine.build_workspace_members(build) {
-            report.note(&format!(
-                "the build of {build} did not finish, so each install builds what it still \
-                 needs: {error:#}"
-            ));
-        }
+        let entry = Entry::workspace_build(build);
+        let built = report
+            .converging(&entry, async { machine.build_workspace_members(build) })
+            .await;
+        let Err(error) = built else {
+            report.entry_finished(&entry, EntryOutcome::Converged);
+            continue;
+        };
+
+        report.note(&format!(
+            "the build of {build} did not finish, so each install builds what it still needs: \
+             {error:#}"
+        ));
+        report.entry_finished(&entry, EntryOutcome::Failed);
     }
 }

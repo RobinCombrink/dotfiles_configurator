@@ -20,16 +20,41 @@ const NAME_COLUMN: usize = 32;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Entry {
     lane: Lane,
-    kind: ResourceKind,
+    subject: Subject,
     name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Subject {
+    Resource(ResourceKind),
+    WorkspaceBuild { workspace: String },
+}
+
+impl Display for Subject {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Subject::Resource(kind) => Display::fmt(kind, formatter),
+            Subject::WorkspaceBuild { .. } => formatter.write_str("workspace build"),
+        }
+    }
 }
 
 impl Entry {
     pub fn new(lane: Lane, resource: &Resource) -> Self {
         Self {
             lane,
-            kind: resource.kind(),
+            subject: Subject::Resource(resource.kind()),
             name: resource.name(),
+        }
+    }
+
+    pub fn workspace_build(workspace: impl Display) -> Self {
+        Self {
+            lane: Lane::Cargo,
+            subject: Subject::WorkspaceBuild {
+                workspace: workspace.to_string(),
+            },
+            name: "build".to_owned(),
         }
     }
 
@@ -37,13 +62,13 @@ impl Entry {
         format!(
             "{:<LANE_COLUMN$} {:<KIND_COLUMN$} {:<NAME_COLUMN$}",
             self.lane.to_string(),
-            self.kind.to_string(),
+            self.subject.to_string(),
             self.name
         )
     }
 
     fn verb(&self) -> Verb {
-        Verb::of(self.kind)
+        Verb::of(&self.subject)
     }
 }
 
@@ -60,14 +85,17 @@ struct Verb {
 }
 
 impl Verb {
-    fn of(kind: ResourceKind) -> Self {
-        let (present, past) = match kind {
-            ResourceKind::Repository => ("cloning", "cloned"),
-            ResourceKind::Application | ResourceKind::Package => ("installing", "installed"),
-            ResourceKind::EnvironmentVariable => ("setting", "set"),
-            ResourceKind::Symlink => ("linking", "linked"),
-            ResourceKind::Registration => ("registering", "registered"),
-            ResourceKind::Command => ("running", "ran"),
+    fn of(subject: &Subject) -> Self {
+        let (present, past) = match subject {
+            Subject::Resource(ResourceKind::Repository) => ("cloning", "cloned"),
+            Subject::Resource(ResourceKind::Application | ResourceKind::Package) => {
+                ("installing", "installed")
+            }
+            Subject::Resource(ResourceKind::EnvironmentVariable) => ("setting", "set"),
+            Subject::Resource(ResourceKind::Symlink) => ("linking", "linked"),
+            Subject::Resource(ResourceKind::Registration) => ("registering", "registered"),
+            Subject::Resource(ResourceKind::Command) => ("running", "ran"),
+            Subject::WorkspaceBuild { .. } => ("building", "built"),
         };
         Self { present, past }
     }
@@ -556,7 +584,7 @@ mod tests {
 
     #[test]
     fn a_running_row_on_the_table_shows_how_long_it_has_been_running() {
-        let verb = Verb::of(ResourceKind::Package);
+        let verb = Verb::of(&Subject::Resource(ResourceKind::Package));
 
         assert_eq!(
             EntryStatus::Running {

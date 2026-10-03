@@ -66,6 +66,14 @@ fn machine_holding_the_workspace(members: &[(&str, MemberReading)]) -> FakeMachi
 }
 
 async fn applying(resources: Vec<Resource>, machine: &FakeMachine) -> ApplyOutcome {
+    applying_reported_to(resources, machine, &Reporting::opening(RunKind::Apply)).await
+}
+
+async fn applying_reported_to(
+    resources: Vec<Resource>,
+    machine: &FakeMachine,
+    reporting: &Reporting,
+) -> ApplyOutcome {
     let desired_state = declaring(
         resources,
         vec![CargoWorkspace {
@@ -76,7 +84,7 @@ async fn applying(resources: Vec<Resource>, machine: &FakeMachine) -> ApplyOutco
     let enactment = apply(
         &desired_state,
         machine,
-        Reporting::opening(RunKind::Apply).report(),
+        reporting.report(),
         &Operator::AnsweredInAdvance,
         &SelfReplacement::Available,
     )
@@ -200,4 +208,43 @@ async fn a_build_that_fails_leaves_each_member_to_build_in_its_own_install() {
 
     assert!(outcome.failed.is_empty(), "{outcome}");
     assert_eq!(outcome.converged.len(), 2, "{outcome}");
+}
+
+fn states_of_the_build(shown: &str) -> Vec<&str> {
+    shown
+        .lines()
+        .filter_map(|line| line.strip_prefix("[cargo] build: "))
+        .map(|state| state.split(' ').next().unwrap_or(state))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_workspace_build_is_reported_as_a_cargo_entry_from_building_to_built() {
+    let machine = machine_holding_the_workspace(&[("claude-session", never_installed())]);
+    let reporting = Reporting::opening(RunKind::Apply);
+
+    applying_reported_to(Vec::new(), &machine, &reporting).await;
+
+    let shown = reporting.shown();
+    assert_eq!(
+        states_of_the_build(&shown),
+        ["building", "built"],
+        "{shown}"
+    );
+}
+
+#[tokio::test]
+async fn a_workspace_build_that_fails_is_reported_failed_in_its_own_entry() {
+    let machine = machine_holding_the_workspace(&[("claude-session", never_installed())]);
+    machine.make_workspace_builds_fail();
+    let reporting = Reporting::opening(RunKind::Apply);
+
+    applying_reported_to(Vec::new(), &machine, &reporting).await;
+
+    let shown = reporting.shown();
+    assert_eq!(
+        states_of_the_build(&shown),
+        ["building", "failed"],
+        "{shown}"
+    );
 }

@@ -342,7 +342,8 @@ async fn attempt(
         &build_stage::workspace_builds(pending, readings),
         machine,
         report,
-    );
+    )
+    .await;
 
     let mut pass = Pass::default();
     for change in &change_set.changes {
