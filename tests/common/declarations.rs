@@ -13,29 +13,74 @@ use {
         },
         configuration_source::AbsoluteDirectory,
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
-        reporting::{RunKind, RunReport},
+        reporting::{RunKind, RunReport, Screen},
     },
-    std::num::NonZeroUsize,
+    std::{
+        io::{self, Write},
+        num::NonZeroUsize,
+        sync::{Arc, Mutex},
+    },
     tempfile::TempDir,
 };
+
+#[derive(Debug, Clone, Default)]
+pub struct CapturedScreen(Arc<Mutex<Vec<u8>>>);
+
+impl Write for CapturedScreen {
+    fn write(&mut self, written: &[u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .expect("a screen nothing panicked while writing to")
+            .extend_from_slice(written);
+        Ok(written.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl CapturedScreen {
+    pub fn text(&self) -> String {
+        String::from_utf8(
+            self.0
+                .lock()
+                .expect("a screen nothing panicked while writing to")
+                .clone(),
+        )
+        .expect("a run writes text to its screen")
+    }
+
+    pub fn showing(&self) -> Screen {
+        Screen::Lines(Box::new(self.clone()))
+    }
+}
 
 pub struct Reporting {
     _logs: TempDir,
     report: RunReport,
+    screen: CapturedScreen,
 }
 
 impl Reporting {
     pub fn opening(kind: RunKind) -> Self {
         let logs = tempfile::tempdir().expect("a directory to write run logs into");
-        let report = RunReport::open_in(logs.path(), kind).expect("a run log");
+        let screen = CapturedScreen::default();
+        let report =
+            RunReport::open_showing(logs.path(), kind, screen.showing()).expect("a run log");
         Self {
             _logs: logs,
             report,
+            screen,
         }
     }
 
     pub fn report(&self) -> &RunReport {
         &self.report
+    }
+
+    pub fn shown(&self) -> String {
+        self.screen.text()
     }
 }
 

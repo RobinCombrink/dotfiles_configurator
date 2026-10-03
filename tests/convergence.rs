@@ -8,7 +8,7 @@ mod fake_machine;
 use {
     cucumber::{World, given, then, when},
     declarations::{
-        dotfiles_repository, manifest_for, named_repository, read_as_two_accounts,
+        CapturedScreen, dotfiles_repository, manifest_for, named_repository, read_as_two_accounts,
         read_out_of_a_checkout, read_out_of_the_dotfiles_repository, rendered,
         reporting_its_version_in_the_second_word,
     },
@@ -42,7 +42,7 @@ use {
             },
         },
         planned_run::PlannedRun,
-        reporting::{RunKind, RunReport, Screen},
+        reporting::{RunKind, RunReport},
         version::Version,
     },
     fake_machine::{
@@ -53,15 +53,11 @@ use {
         cell::Cell,
         collections::{BTreeMap, BTreeSet},
         env, fs,
-        io::{self, Write},
         num::NonZeroU32,
         path::{Path, PathBuf},
         process,
         str::FromStr,
-        sync::{
-            Arc, Mutex,
-            atomic::{AtomicUsize, Ordering},
-        },
+        sync::atomic::{AtomicUsize, Ordering},
     },
     tempfile::TempDir,
     url::Url,
@@ -100,26 +96,6 @@ struct MachineWorld {
     log_directory: TempDir,
     report: Option<RunReport>,
     screen: CapturedScreen,
-}
-
-#[derive(Debug, Clone, Default)]
-struct CapturedScreen(Arc<Mutex<Vec<u8>>>);
-
-impl Write for CapturedScreen {
-    fn write(&mut self, written: &[u8]) -> io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(written);
-        Ok(written.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl CapturedScreen {
-    fn text(&self) -> String {
-        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,12 +142,7 @@ impl MachineWorld {
     }
 
     fn open_a_report(&self, kind: RunKind) -> RunReport {
-        RunReport::open_showing(
-            self.log_directory.path(),
-            kind,
-            Screen::Lines(Box::new(self.screen.clone())),
-        )
-        .unwrap()
+        RunReport::open_showing(self.log_directory.path(), kind, self.screen.showing()).unwrap()
     }
 
     fn logged_runs(&self) -> usize {
