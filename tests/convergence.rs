@@ -42,7 +42,7 @@ use {
             },
         },
         planned_run::PlannedRun,
-        reporting::{RunKind, RunReport},
+        reporting::{RunKind, RunReport, Screen},
         version::Version,
     },
     fake_machine::{
@@ -53,11 +53,15 @@ use {
         cell::Cell,
         collections::{BTreeMap, BTreeSet},
         env, fs,
+        io::{self, Write},
         num::NonZeroU32,
         path::{Path, PathBuf},
         process,
         str::FromStr,
-        sync::atomic::{AtomicUsize, Ordering},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
     },
     tempfile::TempDir,
     url::Url,
@@ -95,6 +99,27 @@ struct MachineWorld {
     planned_run: Option<PlannedRun>,
     log_directory: TempDir,
     report: Option<RunReport>,
+    screen: CapturedScreen,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CapturedScreen(Arc<Mutex<Vec<u8>>>);
+
+impl Write for CapturedScreen {
+    fn write(&mut self, written: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(written);
+        Ok(written.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl CapturedScreen {
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,11 +161,17 @@ impl MachineWorld {
             planned_run: None,
             log_directory: tempfile::tempdir().expect("a directory to write run logs into"),
             report: None,
+            screen: CapturedScreen::default(),
         }
     }
 
     fn open_a_report(&self, kind: RunKind) -> RunReport {
-        RunReport::open_in(self.log_directory.path(), kind).unwrap()
+        RunReport::open_showing(
+            self.log_directory.path(),
+            kind,
+            Screen::Lines(Box::new(self.screen.clone())),
+        )
+        .unwrap()
     }
 
     fn logged_runs(&self) -> usize {
@@ -1804,6 +1835,41 @@ fn the_log_names(world: &mut MachineWorld, expected: String) {
     assert!(
         written.contains(&expected),
         "expected the log to name {expected:?}, got:\n{written}"
+    );
+}
+
+#[then(expr = "Alice's run reports {string} as {string} and then as {string}")]
+fn the_run_reports_an_entry_starting_and_ending(
+    world: &mut MachineWorld,
+    name: String,
+    starting: String,
+    ending: String,
+) {
+    let shown = world.screen.text();
+    let states: Vec<&str> = shown
+        .lines()
+        .filter_map(|line| line.split_once(&format!(" {name}: ")))
+        .map(|(_, state)| state.split(' ').next().unwrap_or(state))
+        .collect();
+
+    assert_eq!(states, [starting, ending], "{shown}");
+}
+
+#[then(expr = "Alice's run closes on a tally of {int} converged, {int} failed and {int} held")]
+fn the_run_closes_on_a_tally(
+    world: &mut MachineWorld,
+    converged: usize,
+    failed: usize,
+    held: usize,
+) {
+    let shown = world.screen.text();
+    let last = shown.lines().last().unwrap_or_default();
+
+    assert!(
+        last.starts_with(&format!(
+            "{converged} converged, {failed} failed, {held} held in "
+        )),
+        "{shown}"
     );
 }
 

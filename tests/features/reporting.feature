@@ -23,6 +23,18 @@ Feature: Reporting a run
     When Alice applies twice
     Then 2 runs are logged
 
+  Scenario: Without a terminal, a run reports each change as it starts and as it ends
+    Given Alice declares the application "Neovim"
+    And Neovim is not installed on Alice's machine
+    When Alice applies
+    Then Alice's run reports "Neovim" as "installing" and then as "installed"
+
+  Scenario: A run closes on a tally of what it converged, failed and held
+    Given a newer configurator than this machine holds has been released
+    And Alice's machine is running the configurator and will not let it be replaced
+    When Alice applies
+    Then Alice's run closes on a tally of 0 converged, 0 failed and 1 held
+
   Scenario: Only the twenty most recent runs are kept
     Given 30 runs have already been logged
     And Alice declares the application "Neovim"
