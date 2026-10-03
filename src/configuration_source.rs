@@ -9,10 +9,11 @@ use {
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
     },
-    anyhow::{Context as _, Error, Result, anyhow, bail},
+    anyhow::{Error, Result, anyhow},
+    github_authentication::cli,
     std::{
         fmt::{Display, Formatter},
-        fs,
+        fs, io,
         path::{Component, Path, PathBuf},
     },
 };
@@ -161,20 +162,20 @@ pub async fn load_desired_state(
     github: &GitHubAccess,
 ) -> Result<DesiredState, LoadFailure> {
     let mut per_source: Vec<(&ConfigurationSource, Vec<LoadedConfiguration>)> = Vec::new();
-    let mut unreadable: Vec<Unreadable> = Vec::new();
+    let mut failures: Vec<SourceFailure> = Vec::new();
     for source in sources {
         let mut from_this_source: Vec<LoadedConfiguration> = Vec::new();
         for attempt in source.load(github).await {
             match attempt {
                 Ok(configuration) => from_this_source.push(configuration),
-                Err(refusal) => unreadable.push(refusal),
+                Err(failure) => failures.push(failure),
             }
         }
         per_source.push((source, from_this_source));
     }
 
-    if let Some(refusal) = Refusal::of(unreadable) {
-        return Err(LoadFailure::Unreadable(refusal));
+    if let Some(refusal) = refusal_of(failures) {
+        return Err(refusal);
     }
 
     let mut read: Vec<(LoadedConfiguration, SourceLocation)> = Vec::new();
@@ -234,15 +235,154 @@ pub async fn load_desired_state(
         },
     };
 
-    let home_directory = home_directory().map_err(LoadFailure::Irreconcilable)?;
+    let home_directory = std::env::home_dir().ok_or_else(|| LoadFailure::Environment {
+        failures: EnvironmentFailures::one(EnvironmentFailure::HomeDirectoryUnknown),
+        unreadable: None,
+    })?;
     DesiredState::of(resolved, machine_manifest, &home_directory)
         .map(|desired_state| desired_state.also_reporting(migrations, announcements))
         .map_err(LoadFailure::Irreconcilable)
 }
 
 #[derive(Debug)]
+pub enum EnvironmentFailure {
+    GitHubCli(cli::Refusal),
+    GitHubClient(octocrab::Error),
+    GitHubFetch {
+        path: String,
+        failure: octocrab::Error,
+    },
+    LocalRead {
+        path: PathBuf,
+        failure: io::Error,
+    },
+    HomeDirectoryUnknown,
+}
+
+impl Display for EnvironmentFailure {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnvironmentFailure::GitHubCli(refusal @ cli::Refusal::ToolAbsent) => write!(
+                formatter,
+                "{refusal}. Install it from https://cli.github.com, then authenticate with `gh \
+                 auth login`"
+            ),
+            EnvironmentFailure::GitHubCli(refusal @ cli::Refusal::AccountUnheld { account }) => {
+                write!(
+                    formatter,
+                    "{refusal}. Run `gh auth login` and sign in as {account}"
+                )
+            }
+            EnvironmentFailure::GitHubCli(refusal @ cli::Refusal::Failed { .. }) => {
+                write!(formatter, "{refusal}")
+            }
+            EnvironmentFailure::GitHubClient(failure) => {
+                write!(formatter, "Could not prepare a client for GitHub")?;
+                write_causes(formatter, failure)
+            }
+            EnvironmentFailure::GitHubFetch { path, failure } => {
+                write!(formatter, "Could not read {path}")?;
+                write_causes(formatter, failure)
+            }
+            EnvironmentFailure::LocalRead { path, failure } => {
+                write!(formatter, "Could not read {}", path.display())?;
+                write_causes(formatter, failure)
+            }
+            EnvironmentFailure::HomeDirectoryUnknown => {
+                formatter.write_str("Could not find the home directory to resolve symlinks against")
+            }
+        }
+    }
+}
+
+fn write_causes(
+    formatter: &mut Formatter<'_>,
+    failure: &(dyn std::error::Error + 'static),
+) -> std::fmt::Result {
+    let mut cause = Some(failure);
+    while let Some(current) = cause {
+        write!(formatter, ": {current}")?;
+        cause = current.source();
+    }
+    Ok(())
+}
+
+impl std::error::Error for EnvironmentFailure {}
+
+#[derive(Debug)]
+pub struct EnvironmentFailures(Vec<EnvironmentFailure>);
+
+impl EnvironmentFailures {
+    fn of(failures: Vec<EnvironmentFailure>) -> Option<Self> {
+        match failures.is_empty() {
+            true => None,
+            false => Some(Self(failures)),
+        }
+    }
+
+    fn one(failure: EnvironmentFailure) -> Self {
+        Self(vec![failure])
+    }
+}
+
+impl Display for EnvironmentFailures {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut failures = self.0.iter();
+        if let Some(first) = failures.next() {
+            write!(formatter, "{first}")?;
+        }
+        failures.try_for_each(|failure| write!(formatter, "\n{failure}"))
+    }
+}
+
+#[derive(Debug)]
+enum SourceFailure {
+    Environment(EnvironmentFailure),
+    Unreadable(Unreadable),
+}
+
+impl From<EnvironmentFailure> for SourceFailure {
+    fn from(failure: EnvironmentFailure) -> Self {
+        Self::Environment(failure)
+    }
+}
+
+impl From<Unreadable> for SourceFailure {
+    fn from(unreadable: Unreadable) -> Self {
+        Self::Unreadable(unreadable)
+    }
+}
+
+fn refusal_of(failures: Vec<SourceFailure>) -> Option<LoadFailure> {
+    let mut environment: Vec<EnvironmentFailure> = Vec::new();
+    let mut unreadable: Vec<Unreadable> = Vec::new();
+    for failure in failures {
+        match failure {
+            SourceFailure::Environment(failure) => environment.push(failure),
+            SourceFailure::Unreadable(refusal) => unreadable.push(refusal),
+        }
+    }
+
+    match (
+        EnvironmentFailures::of(environment),
+        Refusal::of(unreadable),
+    ) {
+        (None, None) => None,
+        (None, Some(refusal)) => Some(LoadFailure::Unreadable(refusal)),
+        (Some(failures), unreadable) => Some(LoadFailure::Environment {
+            failures,
+            unreadable,
+        }),
+    }
+}
+
+#[derive(Debug)]
 pub enum LoadFailure {
     Unreadable(Refusal),
+    Environment {
+        failures: EnvironmentFailures,
+        unreadable: Option<Refusal>,
+    },
     NoConfigurationFound(Vec<ConfigurationSource>),
     NoneAppliesTo(MachineClass),
     // ADR 0025
@@ -258,16 +398,25 @@ pub enum LoadFailure {
 
 impl LoadFailure {
     pub fn is_answered_by_a_newer_build(&self) -> bool {
+        self.unreadable().iter().any(Unreadable::is_too_new)
+    }
+
+    pub fn unreadable(&self) -> &[Unreadable] {
         match self {
-            LoadFailure::Unreadable(refusal) => {
-                refusal.unreadable().iter().any(Unreadable::is_too_new)
+            LoadFailure::Unreadable(refusal)
+            | LoadFailure::Environment {
+                unreadable: Some(refusal),
+                ..
+            } => refusal.unreadable(),
+            LoadFailure::Environment {
+                unreadable: None, ..
             }
-            LoadFailure::NoConfigurationFound(_)
+            | LoadFailure::NoConfigurationFound(_)
             | LoadFailure::NoneAppliesTo(_)
             | LoadFailure::TwoTrees { .. }
             | LoadFailure::SourceOutsideACheckout(_)
             | LoadFailure::Estates(_)
-            | LoadFailure::Irreconcilable(_) => false,
+            | LoadFailure::Irreconcilable(_) => &[],
         }
     }
 }
@@ -276,6 +425,16 @@ impl Display for LoadFailure {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             LoadFailure::Unreadable(refusal) => Display::fmt(refusal, formatter),
+            LoadFailure::Environment {
+                failures,
+                unreadable,
+            } => {
+                write!(formatter, "{failures}")?;
+                match unreadable {
+                    Some(refusal) => write!(formatter, "\n{refusal}"),
+                    None => Ok(()),
+                }
+            }
             LoadFailure::NoConfigurationFound(sources) => write!(
                 formatter,
                 "No configurations were found in any of the sources given: {}",
@@ -315,11 +474,6 @@ impl Display for LoadFailure {
 
 impl std::error::Error for LoadFailure {}
 
-fn home_directory() -> Result<PathBuf> {
-    std::env::home_dir()
-        .ok_or_else(|| anyhow!("Could not find the home directory to resolve symlinks against"))
-}
-
 // ADR 0025
 fn refuse_two_trees_for_one_source(
     source: &ConfigurationSource,
@@ -349,14 +503,14 @@ fn refuse_an_account_other_than_the_sources_owner(
     source: &ConfigurationName,
     declared: &GitHubAccount,
     owner: &RepositoryOwner,
-) -> Result<()> {
+) -> Result<(), Unreadable> {
     match declared.as_ref() == owner.as_ref() {
         true => Ok(()),
-        false => bail!(
+        false => Err(Unreadable::Malformed(anyhow!(
             "{source} declares the account {declared}, and it was read from a repository owned by \
              {owner}. A source is read as the account that owns it, so either the declaration \
              names {owner}, or the configuration belongs in a repository {declared} owns."
-        ),
+        ))),
     }
 }
 
@@ -430,7 +584,7 @@ impl ConfigurationSource {
         }
     }
 
-    async fn load(&self, github: &GitHubAccess) -> Vec<Result<LoadedConfiguration, Unreadable>> {
+    async fn load(&self, github: &GitHubAccess) -> Vec<Result<LoadedConfiguration, SourceFailure>> {
         match self {
             ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory.as_ref()),
             ConfigurationSource::GitHubRepository {
@@ -440,12 +594,15 @@ impl ConfigurationSource {
         }
     }
 
-    fn load_local(directory: &Path) -> Vec<Result<LoadedConfiguration, Unreadable>> {
+    fn load_local(directory: &Path) -> Vec<Result<LoadedConfiguration, SourceFailure>> {
         let entries = match fs::read_dir(directory) {
             Ok(entries) => entries,
             Err(failure) => {
-                return vec![Err(Unreadable::Malformed(
-                    Error::new(failure).context(format!("Could not read {}", directory.display())),
+                return vec![Err(SourceFailure::Environment(
+                    EnvironmentFailure::LocalRead {
+                        path: directory.to_path_buf(),
+                        failure,
+                    },
                 ))];
             }
         };
@@ -461,9 +618,11 @@ impl ConfigurationSource {
             .into_iter()
             .map(|path| {
                 let source = ConfigurationName::from(path.as_path());
-                let contents = fs::read_to_string(&path)
-                    .with_context(|| format!("Could not read {source}"))
-                    .map_err(Unreadable::Malformed)?;
+                let contents =
+                    fs::read_to_string(&path).map_err(|failure| EnvironmentFailure::LocalRead {
+                        path: path.clone(),
+                        failure,
+                    })?;
                 let reading = parse_configuration(&contents, &source)?;
 
                 let pending = match reading.migrated_from {
@@ -486,29 +645,30 @@ impl ConfigurationSource {
         repository: &GitHubRepository,
         directory: &str,
         github: &GitHubAccess,
-    ) -> Vec<Result<LoadedConfiguration, Unreadable>> {
+    ) -> Vec<Result<LoadedConfiguration, SourceFailure>> {
         // ADR 0020
         let reading_as = GitHubAccount::from(repository.owner.as_ref());
         let account = match github.account(&reading_as) {
             Ok(account) => account,
-            Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
+            Err(failure) => return vec![Err(SourceFailure::Environment(failure))],
         };
 
         let file_paths =
             match github::list_directory_files(repository, directory, account.client()).await {
                 Ok(file_paths) => file_paths,
-                Err(refusal) => return vec![Err(Unreadable::Malformed(refusal))],
+                Err(failure) => return vec![Err(SourceFailure::Environment(failure))],
             };
 
-        let mut loaded: Vec<Result<LoadedConfiguration, Unreadable>> = Vec::new();
+        let mut loaded: Vec<Result<LoadedConfiguration, SourceFailure>> = Vec::new();
         for file_path in file_paths
             .iter()
             .filter(|file_path| is_configuration_file(file_path))
         {
             let source = ConfigurationName::from(format!("{repository}/{file_path}"));
             match github::get_file_contents(repository, file_path, account.client()).await {
-                Err(refusal) => loaded.push(Err(Unreadable::Malformed(refusal))),
-                Ok(documents) => loaded.extend(documents.into_iter().map(|contents| {
+                Err(failure) => loaded.push(Err(SourceFailure::Environment(failure))),
+                Ok(documents) => loaded.extend(documents.into_iter().map(|decoded| {
+                    let contents = decoded.map_err(Unreadable::Malformed)?;
                     let reading = parse_configuration(&contents, &source)?;
                     refuse_an_account_other_than_the_sources_owner(
                         &source,
@@ -753,6 +913,184 @@ mod tests {
         ]);
 
         assert!(refusal.is_answered_by_a_newer_build());
+    }
+
+    async fn refused_as_unauthorised() -> octocrab::Error {
+        use http_body_util::BodyExt;
+
+        let body = http_body_util::Full::new(bytes::Bytes::from_static(
+            br#"{ "message": "Bad credentials" }"#,
+        ))
+        .map_err(|never| match never {})
+        .boxed();
+        let response = http::Response::builder()
+            .status(http::StatusCode::UNAUTHORIZED)
+            .body(body)
+            .expect("a response GitHub could have sent");
+
+        octocrab::map_github_error(response)
+            .await
+            .expect_err("a 401 is a failure")
+    }
+
+    fn refusal_naming(failure: EnvironmentFailure) -> LoadFailure {
+        refusal_of(vec![SourceFailure::Environment(failure)])
+            .expect("a failure to read a source refuses the load")
+    }
+
+    #[tokio::test]
+    async fn a_source_github_refuses_to_authenticate_is_a_failure_of_the_environment() {
+        let refusal = refusal_naming(EnvironmentFailure::GitHubFetch {
+            path: "Alice/dotfiles/config".to_owned(),
+            failure: refused_as_unauthorised().await,
+        });
+
+        let LoadFailure::Environment { .. } = refusal else {
+            panic!("expected a failure of the environment, got {refusal:?}");
+        };
+    }
+
+    #[tokio::test]
+    async fn a_source_github_refuses_to_authenticate_counts_as_no_unreadable_configuration() {
+        let refusal = refusal_naming(EnvironmentFailure::GitHubFetch {
+            path: "Alice/dotfiles/config".to_owned(),
+            failure: refused_as_unauthorised().await,
+        });
+
+        assert!(refusal.unreadable().is_empty(), "{refusal}");
+    }
+
+    #[test]
+    fn an_account_the_github_cli_does_not_hold_is_a_failure_of_the_environment() {
+        let refusal = refusal_naming(EnvironmentFailure::GitHubCli(cli::Refusal::AccountUnheld {
+            account: "Alice".to_owned(),
+        }));
+
+        let LoadFailure::Environment { .. } = refusal else {
+            panic!("expected a failure of the environment, got {refusal:?}");
+        };
+    }
+
+    #[test]
+    fn an_account_the_github_cli_does_not_hold_counts_as_no_unreadable_configuration() {
+        let refusal = refusal_naming(EnvironmentFailure::GitHubCli(cli::Refusal::AccountUnheld {
+            account: "Alice".to_owned(),
+        }));
+
+        assert!(refusal.unreadable().is_empty(), "{refusal}");
+    }
+
+    #[test]
+    fn a_configuration_whose_content_cannot_be_read_is_unreadable_rather_than_the_environments() {
+        let refusal = refusal_of(vec![SourceFailure::Unreadable(Unreadable::Malformed(
+            anyhow!("personal.dotconfig.json is not valid JSON"),
+        ))])
+        .expect("an unreadable configuration refuses the load");
+
+        let LoadFailure::Unreadable(_) = refusal else {
+            panic!("expected an unreadable configuration, got {refusal:?}");
+        };
+    }
+
+    #[tokio::test]
+    async fn a_run_failing_in_the_environment_and_on_content_reports_each_source_with_its_cause() {
+        let refusal = refusal_of(vec![
+            SourceFailure::Environment(EnvironmentFailure::GitHubFetch {
+                path: "Employer/dotfiles/config".to_owned(),
+                failure: refused_as_unauthorised().await,
+            }),
+            SourceFailure::Unreadable(Unreadable::Malformed(anyhow!(
+                "personal.dotconfig.json is not valid JSON"
+            ))),
+        ])
+        .expect("both failures refuse the load")
+        .to_string();
+
+        assert!(
+            refusal.contains("Employer/dotfiles/config: GitHub: Bad credentials")
+                && refusal.contains("personal.dotconfig.json is not valid JSON"),
+            "{refusal}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_run_counts_only_the_configurations_whose_content_could_not_be_read() {
+        let refusal = refusal_of(vec![
+            SourceFailure::Environment(EnvironmentFailure::GitHubFetch {
+                path: "Employer/dotfiles/config".to_owned(),
+                failure: refused_as_unauthorised().await,
+            }),
+            SourceFailure::Unreadable(Unreadable::Malformed(anyhow!(
+                "personal.dotconfig.json is not valid JSON"
+            ))),
+            SourceFailure::Unreadable(Unreadable::Malformed(anyhow!(
+                "work.dotconfig.json is not valid JSON"
+            ))),
+        ])
+        .expect("every failure refuses the load")
+        .to_string();
+
+        assert!(
+            refusal.contains("2 configurations could not be read"),
+            "{refusal}"
+        );
+    }
+
+    #[test]
+    fn an_absent_github_cli_is_answered_with_how_to_install_it() {
+        let reported = EnvironmentFailure::GitHubCli(cli::Refusal::ToolAbsent).to_string();
+
+        assert!(
+            reported.ends_with(
+                "Install it from https://cli.github.com, then authenticate with `gh auth login`"
+            ),
+            "{reported}"
+        );
+    }
+
+    #[test]
+    fn an_account_the_github_cli_does_not_hold_is_answered_with_how_to_sign_in_as_it() {
+        let reported = EnvironmentFailure::GitHubCli(cli::Refusal::AccountUnheld {
+            account: "Alice".to_owned(),
+        })
+        .to_string();
+
+        assert!(
+            reported.ends_with("Run `gh auth login` and sign in as Alice"),
+            "{reported}"
+        );
+    }
+
+    #[test]
+    fn a_github_cli_failure_with_no_act_behind_it_is_answered_with_its_reason_alone() {
+        let reported = EnvironmentFailure::GitHubCli(cli::Refusal::Failed {
+            account: "Alice".to_owned(),
+            reason: "the token it wrote is not valid UTF-8".to_owned(),
+        })
+        .to_string();
+
+        assert!(
+            reported.ends_with("the token it wrote is not valid UTF-8"),
+            "{reported}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_directory_that_does_not_exist_is_a_failure_of_the_environment() {
+        let error = load_desired_state(
+            &[ConfigurationSource::LocalDirectory(absolute(
+                env::temp_dir().join("no").join("such").join("directory"),
+            ))],
+            MachineClass::Personal,
+            Path::new("/repositories"),
+            &GitHubAccess::new(),
+        )
+        .await
+        .unwrap_err();
+
+        let LoadFailure::Environment { .. } = error else {
+            panic!("expected a failure of the environment, got {error:?}");
+        };
     }
 
     #[test]

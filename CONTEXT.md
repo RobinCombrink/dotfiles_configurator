@@ -204,6 +204,14 @@ updating itself; **too old** is a document this build has outgrown, and a person
 running an intervening build once or by rewriting the document.
 _Avoid_: invalid, broken, corrupt
 
+**Environment failure**:
+Describes a configuration source a run could not reach, as opposed to a configuration it reached
+and could not read: the GitHub CLI refusing an account, a GitHub request failing on its
+authentication or its network or naming nothing, or a local directory or file that cannot be read.
+A fault in the machine running the program rather than in any repository or build, so a person
+resolves it on that machine, and it is never counted among the unreadable configurations.
+_Avoid_: malformed, unreachable configuration, network error
+
 **Migration**:
 The rewriting of a configuration from the generation below into the one this build reads. Neither
 a change nor a notice, and reported in its own right: it alters a configuration rather than the

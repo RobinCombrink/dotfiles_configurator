@@ -481,6 +481,7 @@ name = "dotfiles_configurator"
 version = "0.0.0-dev"
 dependencies = [
  "anyhow",
+ "bytes",
  "chrono",
  "clap",
  "cucumber",
@@ -489,6 +490,8 @@ dependencies = [
  "futures",
  "git2",
  "github_authentication",
+ "http",
+ "http-body-util",
  "indicatif",
  "log",
  "octocrab",

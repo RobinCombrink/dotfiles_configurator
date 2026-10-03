@@ -1,6 +1,9 @@
 use {
-    crate::configuration::{GitHubAccount, GitHubRepository},
-    anyhow::{Context, Result, anyhow},
+    crate::{
+        configuration::{GitHubAccount, GitHubRepository},
+        configuration_source::EnvironmentFailure,
+    },
+    anyhow::{Result, anyhow},
     github_authentication::{GitHubToken, cli},
     octocrab::{Octocrab, models::repos::Content},
     std::{
@@ -15,15 +18,12 @@ pub struct AuthenticatedAccount {
 }
 
 impl AuthenticatedAccount {
-    fn authenticate_as(account: &GitHubAccount) -> Result<Self> {
-        let token =
-            cli::token_for(account.as_ref()).map_err(|refusal| match remedy_for(&refusal) {
-                Some(remedy) => anyhow!("{refusal}. {remedy}"),
-                None => anyhow!("{refusal}"),
-            })?;
+    fn authenticate_as(account: &GitHubAccount) -> Result<Self, EnvironmentFailure> {
+        let token = cli::token_for(account.as_ref()).map_err(EnvironmentFailure::GitHubCli)?;
         let client = Octocrab::builder()
             .personal_token(token.secret().clone())
-            .build()?;
+            .build()
+            .map_err(EnvironmentFailure::GitHubClient)?;
 
         Ok(Self {
             token,
@@ -50,7 +50,10 @@ impl GitHubAccess {
         Self::default()
     }
 
-    pub fn account(&self, account: &GitHubAccount) -> Result<Arc<AuthenticatedAccount>> {
+    pub fn account(
+        &self,
+        account: &GitHubAccount,
+    ) -> Result<Arc<AuthenticatedAccount>, EnvironmentFailure> {
         let mut held = self
             .authenticated_accounts
             .lock()
@@ -66,37 +69,27 @@ impl GitHubAccess {
     }
 }
 
-fn remedy_for(refusal: &cli::Refusal) -> Option<String> {
-    match refusal {
-        cli::Refusal::ToolAbsent => Some(
-            "Install it from https://cli.github.com, then authenticate with `gh auth login`"
-                .to_owned(),
-        ),
-        cli::Refusal::AccountUnheld { account } => {
-            Some(format!("Run `gh auth login` and sign in as {account}"))
-        }
-        cli::Refusal::Failed { .. } => None,
-    }
-}
-
 pub async fn get_file_contents(
     repository: &GitHubRepository,
     file_path: &str,
     octocrab: &Arc<Octocrab>,
-) -> Result<Vec<String>> {
+) -> Result<Vec<Result<String>>, EnvironmentFailure> {
     let contents = octocrab
         .repos(repository.owner.as_ref(), repository.repository.as_ref())
         .get_content()
         .path(file_path.to_owned())
         .send()
         .await
-        .with_context(|| format!("Could not read {repository}/{file_path}"))?;
+        .map_err(|failure| EnvironmentFailure::GitHubFetch {
+            path: format!("{repository}/{file_path}"),
+            failure,
+        })?;
 
-    contents
+    Ok(contents
         .items
         .iter()
         .map(|item| decoded_content_of(item, repository))
-        .collect()
+        .collect())
 }
 
 fn decoded_content_of(item: &Content, repository: &GitHubRepository) -> Result<String> {
@@ -114,14 +107,17 @@ pub async fn list_directory_files(
     repository: &GitHubRepository,
     directory: &str,
     octocrab: &Arc<Octocrab>,
-) -> Result<Vec<String>> {
+) -> Result<Vec<String>, EnvironmentFailure> {
     let contents = octocrab
         .repos(repository.owner.as_ref(), repository.repository.as_ref())
         .get_content()
         .path(directory.to_owned())
         .send()
         .await
-        .with_context(|| format!("Could not read {repository}/{directory}"))?;
+        .map_err(|failure| EnvironmentFailure::GitHubFetch {
+            path: format!("{repository}/{directory}"),
+            failure,
+        })?;
 
     let mut file_paths: Vec<String> = contents
         .items
@@ -136,28 +132,6 @@ pub async fn list_directory_files(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_absent_tool_is_answered_with_how_to_install_it() {
-        let remedy = remedy_for(&cli::Refusal::ToolAbsent);
-
-        assert_eq!(
-            remedy.as_deref(),
-            Some("Install it from https://cli.github.com, then authenticate with `gh auth login`")
-        );
-    }
-
-    #[test]
-    fn an_account_the_tool_does_not_hold_is_answered_with_how_to_sign_in_as_it() {
-        let remedy = remedy_for(&cli::Refusal::AccountUnheld {
-            account: "Alice".to_owned(),
-        });
-
-        assert_eq!(
-            remedy.as_deref(),
-            Some("Run `gh auth login` and sign in as Alice")
-        );
-    }
 
     fn dotfiles() -> GitHubRepository {
         GitHubRepository {
@@ -202,15 +176,5 @@ mod tests {
                 .contains("configurations/configuration.json"),
             "expected the message to name the file it could not read, got: {error}"
         );
-    }
-
-    #[test]
-    fn a_failure_with_no_act_behind_it_is_answered_with_no_remedy() {
-        let remedy = remedy_for(&cli::Refusal::Failed {
-            account: "Alice".to_owned(),
-            reason: "the token it wrote is not valid UTF-8".to_owned(),
-        });
-
-        assert_eq!(remedy, None);
     }
 }
