@@ -9,9 +9,9 @@ use {
         configuration_source::AbsoluteDirectory,
         currency,
     },
-    anyhow::{Result, anyhow, bail},
     std::{
         collections::BTreeMap,
+        fmt::{Display, Formatter},
         path::{Path, PathBuf},
     },
 };
@@ -301,7 +301,7 @@ impl DesiredState {
         configurations: Vec<ResolvedConfiguration>,
         machine_manifest: MachineManifest,
         home_directory: &Path,
-    ) -> Result<Self> {
+    ) -> Result<Self, Irreconcilable> {
         let for_every_machine = the_configuration_for_every_machine(&configurations)?;
         refuse_a_set_holding_nothing_for_this_class(&configurations)?;
 
@@ -358,12 +358,16 @@ impl DesiredState {
                             resources.push(resource);
                         }
                         Some(claim) if claim.resource == resource => {}
-                        Some(claim) => bail!(
-                            "{source} and {} make conflicting claims on {identity}. No machine \
-                             could satisfy both:\n  {}\n  {resource}",
-                            claim.by,
-                            claim.resource
-                        ),
+                        Some(claim) => {
+                            return Err(Irreconcilable::ConflictingClaims {
+                                identity,
+                                first: Box::new(claim.clone()),
+                                second: Box::new(Claim {
+                                    by: source.clone(),
+                                    resource,
+                                }),
+                            });
+                        }
                     },
                 }
             }
@@ -388,39 +392,73 @@ impl DesiredState {
     }
 }
 
-struct Claim {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Claim {
     by: ConfigurationName,
     resource: ResolvedResource,
 }
+
+#[derive(Debug)]
+pub enum Irreconcilable {
+    NoConfigurationForEveryMachine,
+    NoConfigurationForThisClass,
+    ConflictingClaims {
+        identity: Identity,
+        first: Box<Claim>,
+        second: Box<Claim>,
+    },
+}
+
+const ONE_FOR_EACH: &str =
+    "A run reads one configuration for every machine and exactly one for this machine's class.";
+
+impl Display for Irreconcilable {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Irreconcilable::NoConfigurationForEveryMachine => write!(
+                formatter,
+                "No configuration for every machine was loaded. {ONE_FOR_EACH}"
+            ),
+            Irreconcilable::NoConfigurationForThisClass => write!(
+                formatter,
+                "No configuration for this machine's class was loaded. {ONE_FOR_EACH}"
+            ),
+            Irreconcilable::ConflictingClaims {
+                identity,
+                first,
+                second,
+            } => write!(
+                formatter,
+                "{} and {} make conflicting claims on {identity}. No machine could satisfy \
+                 both:\n  {}\n  {}",
+                second.by, first.by, first.resource, second.resource
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Irreconcilable {}
 
 const THIS_BUILD: &str = "this build";
 
 fn the_configuration_for_every_machine(
     configurations: &[ResolvedConfiguration],
-) -> Result<&ResolvedConfiguration> {
+) -> Result<&ResolvedConfiguration, Irreconcilable> {
     configurations
         .iter()
         .find(|configuration| configuration.context() == Context::Everywhere)
-        .ok_or_else(|| {
-            anyhow!(
-                "No configuration for every machine was loaded. A run reads one configuration for \
-                 every machine and exactly one for this machine's class."
-            )
-        })
+        .ok_or(Irreconcilable::NoConfigurationForEveryMachine)
 }
 
 fn refuse_a_set_holding_nothing_for_this_class(
     configurations: &[ResolvedConfiguration],
-) -> Result<()> {
+) -> Result<(), Irreconcilable> {
     match configurations
         .iter()
         .any(|configuration| configuration.context() != Context::Everywhere)
     {
         true => Ok(()),
-        false => bail!(
-            "No configuration for this machine's class was loaded. A run reads one configuration \
-             for every machine and exactly one for this machine's class."
-        ),
+        false => Err(Irreconcilable::NoConfigurationForThisClass),
     }
 }
 
@@ -492,7 +530,7 @@ mod tests {
         )
     }
 
-    fn merged(configurations: Vec<ResolvedConfiguration>) -> Result<DesiredState> {
+    fn merged(configurations: Vec<ResolvedConfiguration>) -> Result<DesiredState, Irreconcilable> {
         DesiredState::of(
             configurations,
             MachineManifest {
@@ -514,7 +552,7 @@ mod tests {
 
     const EMPTY: &str = r#""resources": []"#;
 
-    fn a_readable_set(personal: &str) -> Result<DesiredState> {
+    fn a_readable_set(personal: &str) -> Result<DesiredState, Irreconcilable> {
         merged(vec![
             read_from_the_dotfiles_repository("everywhere", EMPTY),
             read_from_the_dotfiles_repository("personal", personal),

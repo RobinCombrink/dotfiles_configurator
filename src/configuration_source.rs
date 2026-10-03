@@ -6,10 +6,10 @@ use {
             RecordedSource, RepositoryName, RepositoryOwner, Unreadable, parse_configuration,
             resolve_estates,
         },
-        desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
+        desired_state::{DesiredState, Irreconcilable, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
     },
-    anyhow::{Error, Result, anyhow},
+    anyhow::{Result, anyhow},
     github_authentication::cli,
     std::{
         fmt::{Display, Formatter},
@@ -393,7 +393,7 @@ pub enum LoadFailure {
     },
     SourceOutsideACheckout(PathBuf),
     Estates(EstateConflict),
-    Irreconcilable(Error),
+    Irreconcilable(Irreconcilable),
 }
 
 impl LoadFailure {
@@ -467,7 +467,7 @@ impl Display for LoadFailure {
                 directory.display()
             ),
             LoadFailure::Estates(conflict) => Display::fmt(conflict, formatter),
-            LoadFailure::Irreconcilable(fault) => write!(formatter, "{fault:#}"),
+            LoadFailure::Irreconcilable(reason) => Display::fmt(reason, formatter),
         }
     }
 }
