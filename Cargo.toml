@@ -5,6 +5,10 @@ edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[workspace]
+members = ["crates/workspace-lock"]
+default-members = [".", "crates/workspace-lock"]
+
 [dependencies]
 github_authentication  = { git = "https://github.com/RobinCombrink/GitHubAuthentication" }
 clap = { version = "4.5.43", features = ["derive", "string"] }
@@ -28,8 +32,8 @@ strum = { version = "0.28.0", features = ["derive"] }
 futures = "0.3.31"
 toml = "0.8.23"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
-cargo-lock = { version = "11.1.0", features = ["dependency-tree"] }
 semver = "1.0.28"
+workspace-lock = { path = "crates/workspace-lock" }
 
 [dev-dependencies]
 cucumber = "0.23.0"

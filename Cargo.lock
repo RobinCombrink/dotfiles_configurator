@@ -481,7 +481,6 @@ name = "dotfiles_configurator"
 version = "0.0.0-dev"
 dependencies = [
  "anyhow",
- "cargo-lock",
  "chrono",
  "clap",
  "cucumber",
@@ -508,6 +507,7 @@ dependencies = [
  "windows-registry",
  "windows-sys 0.60.2",
  "winresource",
+ "workspace-lock",
  "zip",
 ]
 
@@ -3245,6 +3245,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "workspace-lock"
+version = "0.1.0"
+dependencies = [
+ "cargo-lock",
+ "toml 0.8.23",
 ]
 
 [[package]]

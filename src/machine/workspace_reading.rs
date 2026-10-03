@@ -1,7 +1,6 @@
 use {
     crate::configuration::{BinaryName, CrateName},
     anyhow::{Result, anyhow, bail},
-    cargo_lock::{Lockfile, dependency::Tree},
     serde::Deserialize,
     std::{
         collections::{BTreeMap, BTreeSet},
@@ -338,78 +337,6 @@ pub fn inherited_dependency_paths(manifest: &str) -> Result<BTreeMap<String, Str
         .collect())
 }
 
-pub struct WorkspaceLock {
-    tree: Tree,
-}
-
-impl WorkspaceLock {
-    pub fn read(lock: &str) -> Result<Self> {
-        let lockfile: Lockfile = lock
-            .parse()
-            .map_err(|error| anyhow!("its Cargo.lock could not be read: {error}"))?;
-        let tree = lockfile
-            .dependency_tree()
-            .map_err(|error| anyhow!("its Cargo.lock could not be resolved: {error}"))?;
-        Ok(Self { tree })
-    }
-
-    pub fn closure_of(&self, member: &CrateName) -> Result<String> {
-        let graph = self.tree.graph();
-        let mut entries = self
-            .tree
-            .nodes()
-            .iter()
-            .filter(|(entry, _)| entry.name.as_str() == member.as_ref() && entry.source.is_none())
-            .map(|(_, node)| *node);
-        let (Some(root), None) = (entries.next(), entries.next()) else {
-            bail!("its Cargo.lock does not hold exactly one entry for the member {member}");
-        };
-
-        let mut reached = BTreeSet::new();
-        let mut pending = vec![root];
-        while let Some(node) = pending.pop() {
-            if reached.insert(node) {
-                pending.extend(graph.neighbors(node));
-            }
-        }
-
-        let mut packages: Vec<_> = reached.into_iter().map(|node| &graph[node]).collect();
-        packages.sort_by_key(|package| cargo_lock::Dependency::from(*package));
-
-        let mut canonical = String::new();
-        for package in packages {
-            let source = package
-                .source
-                .as_ref()
-                .map_or_else(|| "path".to_owned(), ToString::to_string);
-            let checksum = package
-                .checksum
-                .as_ref()
-                .map_or_else(|| "none".to_owned(), ToString::to_string);
-            canonical.push_str(&format!(
-                "{} {} {source} {checksum}\n",
-                package.name, package.version
-            ));
-
-            let mut dependencies: Vec<_> = package.dependencies.iter().collect();
-            dependencies.sort();
-            for dependency in dependencies {
-                canonical.push_str(&format!("  {dependency}\n"));
-            }
-        }
-        Ok(canonical)
-    }
-}
-
-pub fn manifest_without_membership(manifest: &str) -> Result<String> {
-    let mut document: toml::Table = toml::from_str(manifest).map_err(|error| anyhow!("{error}"))?;
-    if let Some(toml::Value::Table(workspace)) = document.get_mut("workspace") {
-        workspace.remove("members");
-        workspace.remove("exclude");
-    }
-    toml::to_string(&document).map_err(|error| anyhow!("{error}"))
-}
-
 pub fn read_member_manifest(manifest: &str) -> Result<MemberManifest> {
     let document: MemberDocument = toml::from_str(manifest).map_err(|error| anyhow!("{error}"))?;
 
@@ -504,51 +431,6 @@ mod tests {
         "#;
 
         assert!(member_paths(manifest).is_err());
-    }
-
-    #[test]
-    fn a_workspace_manifest_differing_only_in_its_excluded_paths_reads_the_same() {
-        let excluding_nothing = r#"
-            [workspace]
-            members = ["tools/stop-gate"]
-        "#;
-        let excluding_a_path = r#"
-            [workspace]
-            members = ["tools/stop-gate"]
-            exclude = ["tools/scratch"]
-        "#;
-
-        assert_eq!(
-            manifest_without_membership(excluding_nothing).unwrap(),
-            manifest_without_membership(excluding_a_path).unwrap()
-        );
-    }
-
-    #[test]
-    fn a_workspace_manifest_reads_the_same_whatever_order_its_keys_are_written_in() {
-        let one_order = r#"
-            [profile.release]
-            lto = true
-            strip = true
-
-            [workspace]
-            resolver = "2"
-            members = ["tools/stop-gate"]
-        "#;
-        let another_order = r#"
-            [workspace]
-            members = ["tools/stop-gate"]
-            resolver = "2"
-
-            [profile.release]
-            strip = true
-            lto = true
-        "#;
-
-        assert_eq!(
-            manifest_without_membership(one_order).unwrap(),
-            manifest_without_membership(another_order).unwrap()
-        );
     }
 
     #[test]

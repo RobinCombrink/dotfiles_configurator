@@ -3,9 +3,8 @@ use {
         configuration::{BinaryName, CrateName},
         machine::workspace_reading::{
             Fingerprint, InferableBinary, InstalledState, MemberManifest, MemberReading,
-            MemberTree, ObjectHash, Revision, WorkspaceLock, WorkspaceReading,
-            inherited_dependency_paths, manifest_without_membership, member_paths,
-            read_member_manifest,
+            MemberTree, ObjectHash, Revision, WorkspaceReading, inherited_dependency_paths,
+            member_paths, read_member_manifest,
         },
     },
     anyhow::{Context, Result, anyhow},
@@ -14,6 +13,7 @@ use {
         collections::{BTreeMap, BTreeSet},
         path::Path,
     },
+    workspace_lock::{WorkspaceLock, manifest_without_membership},
 };
 
 struct MemberAtRevision {
@@ -140,7 +140,7 @@ fn members_at(
         if !binaries.is_empty() {
             let dependency_subtrees =
                 dependency_subtrees(repository, &tree, &path, &member, &inherited_paths)?;
-            let lock_closure = content_hash(&lock.closure_of(&member.name)?)?;
+            let lock_closure = content_hash(lock.closure_of(member.name.as_ref())?.as_str())?;
             members.insert(
                 member.name,
                 MemberAtRevision {
