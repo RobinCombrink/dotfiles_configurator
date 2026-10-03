@@ -171,39 +171,20 @@ impl DisplacingInvocation {
         }
     }
 
-    // 2026-09-14: cargo reuses a build it finds in a shared target directory even when the
-    // revision asked for differs, installing the previous revision's binary and reporting
-    // success, because it fingerprints a git source by its relative path (rust-lang/cargo#13259,
-    // open and S-accepted; the fix, PR #13689, was closed unmerged on 2026-05-31). Naming the
-    // directory for the revision is what makes that reuse unreachable.
     pub fn build_directory(&self, build_cache: &Path) -> Option<PathBuf> {
         match self {
             DisplacingInvocation::InstallCargoCrate {
                 source: ResolvedCargoSource::Repository { revision, .. },
                 ..
-            } => Some(build_cache.join(revision.as_ref())),
+            } => Some(revision.build_directory_in(build_cache)),
             DisplacingInvocation::InstallCargoCrate { .. } => None,
         }
     }
 
     pub fn environment(&self, build_cache: &Path) -> Vec<(String, String)> {
         match self {
-            // 2026-08-10: cargo's own libgit2 fetch cannot authenticate to a private GitHub
-            // repository on a machine holding its credentials behind `gh auth git-credential`,
-            // failing with "no authentication methods succeeded" against a cold cache. The git
-            // command line runs that helper and fetches the same revision.
             DisplacingInvocation::InstallCargoCrate { .. } => {
-                let mut environment =
-                    vec![("CARGO_NET_GIT_FETCH_WITH_CLI".to_owned(), "true".to_owned())];
-
-                if let Some(directory) = self.build_directory(build_cache) {
-                    environment.push((
-                        "CARGO_TARGET_DIR".to_owned(),
-                        directory.display().to_string(),
-                    ));
-                }
-
-                environment
+                cargo_environment(self.build_directory(build_cache).as_deref())
             }
         }
     }
@@ -220,6 +201,23 @@ impl DisplacingInvocation {
             }
         }
     }
+}
+
+fn cargo_environment(build_directory: Option<&Path>) -> Vec<(String, String)> {
+    // 2026-08-10: cargo's own libgit2 fetch cannot authenticate to a private GitHub repository on
+    // a machine holding its credentials behind `gh auth git-credential`, failing with "no
+    // authentication methods succeeded" against a cold cache. The git command line runs that
+    // helper and fetches the same revision.
+    let mut environment = vec![("CARGO_NET_GIT_FETCH_WITH_CLI".to_owned(), "true".to_owned())];
+
+    if let Some(directory) = build_directory {
+        environment.push((
+            "CARGO_TARGET_DIR".to_owned(),
+            directory.display().to_string(),
+        ));
+    }
+
+    environment
 }
 
 impl WriteInvocation {

@@ -5,6 +5,7 @@ use {
     std::{
         collections::{BTreeMap, BTreeSet},
         fmt::Display,
+        path::{Path, PathBuf},
     },
 };
 
@@ -42,6 +43,17 @@ macro_rules! object_identifier {
 
 object_identifier!(Revision);
 object_identifier!(ObjectHash);
+
+impl Revision {
+    // 2026-09-14: cargo reuses a build it finds in a shared target directory even when the
+    // revision asked for differs, installing the previous revision's binary and reporting
+    // success, because it fingerprints a git source by its relative path (rust-lang/cargo#13259,
+    // open and S-accepted; the fix, PR #13689, was closed unmerged on 2026-05-31). Naming the
+    // directory for the revision is what makes that reuse unreachable.
+    pub fn build_directory_in(&self, build_cache: &Path) -> PathBuf {
+        build_cache.join(&self.0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fingerprint {
