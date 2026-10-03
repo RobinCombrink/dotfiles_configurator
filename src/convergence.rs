@@ -11,6 +11,7 @@ pub mod apply;
 pub mod assess;
 mod build_stage;
 pub mod converge;
+pub mod lane;
 pub mod resolve;
 pub mod source_reading;
 
@@ -18,6 +19,7 @@ pub use {
     apply::{ApplyOutcome, Enactment},
     assess::{SourceReadings, assess},
     converge::install_release,
+    lane::Lane,
     resolve::resolve,
     source_reading::{ReadSource, SourceReading, UnreadableReason},
 };

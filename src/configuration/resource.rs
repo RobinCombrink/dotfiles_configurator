@@ -64,6 +64,30 @@ impl Resource {
         ResourceKind::from(self)
     }
 
+    pub fn name(&self) -> String {
+        match self {
+            Resource::Repository(clone) => clone.repository.to_string(),
+            Resource::Application(application) => application.to_string(),
+            Resource::Package(Package::Winget(package)) => package.id.to_string(),
+            Resource::Package(Package::Cargo(package)) => package.crate_name.to_string(),
+            Resource::Package(Package::UvTool(package)) => package.name.to_string(),
+            Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => {
+                variable.name.to_string()
+            }
+            Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(entry)) => {
+                entry.directory.to_string()
+            }
+            Resource::Symlink(symlink) => symlink.link_path.display().to_string(),
+            Resource::Registration(Registration::ClaudeMcpServer(server)) => {
+                server.name.to_string()
+            }
+            Resource::Registration(Registration::MachineManifest(_)) => {
+                "machine manifest".to_owned()
+            }
+            Resource::Command(command) => command.rendered(),
+        }
+    }
+
     pub fn can_be_read_back(&self) -> bool {
         match self {
             Resource::Command(command) => command.presence_check.is_some(),
