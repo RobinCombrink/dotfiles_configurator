@@ -387,9 +387,9 @@ fn assess_released_binary(
     let released = match readings.release_of(&binary.repository) {
         Ok(Some(release)) => release,
         Ok(None) => {
-            return Assessment::Drifted(
+            return Assessment::Unassessable(Impediment::ActualStateUnreadable(
                 format!("{} has published no release", binary.repository).into(),
-            );
+            ));
         }
         Err(impediment) => return Assessment::Unassessable(impediment),
     };

@@ -104,10 +104,11 @@ Feature: Planning what a machine needs
     Then the change set reports 0 changes
     And the change set reports the machine as converged
 
-  Scenario: A released binary from a repository that has published nothing is a change
+  Scenario: A released binary from a repository that has published nothing is blocked rather than a change
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
     When Alice plans
-    Then the change set reports 1 change
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
     And the change set mentions "no release"
 
   Scenario: A released binary whose repository cannot be asked is blocked rather than a change
