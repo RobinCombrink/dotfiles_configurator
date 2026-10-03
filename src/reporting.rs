@@ -20,7 +20,7 @@ use {
 
 mod entries;
 
-pub use entries::{Entry, EntryOutcome, Screen};
+pub use entries::{Closing, Entry, EntryOutcome, Screen};
 
 tokio::task_local! {
     static SPEAKING_FOR: Entry;
@@ -237,10 +237,10 @@ impl RunReport {
         self.note(&state_line);
     }
 
-    pub fn conclude(&self) {
-        let tally = self.shared.presenting().concluded(Instant::now());
-        if let Some(tally) = tally {
-            self.note(&tally);
+    pub fn conclude(&self, closing: Closing) {
+        let written_down = self.shared.presenting().concluded(closing, Instant::now());
+        for line in written_down {
+            self.note(&line);
         }
     }
 

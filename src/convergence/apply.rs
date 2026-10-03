@@ -9,12 +9,11 @@ use {
         currency::{self, SelfReplacement},
         desired_state::{DesiredState, ResolvedResource},
         machine::{Placement, WriteMachine},
-        reporting::{Entry, EntryOutcome, RunReport},
+        reporting::{Closing, Entry, EntryOutcome, RunReport},
     },
     anyhow::anyhow,
     std::{
         collections::BTreeSet,
-        fmt::Display,
         path::{Path, PathBuf},
     },
 };
@@ -52,58 +51,33 @@ impl ApplyOutcome {
     }
 }
 
-impl Display for ApplyOutcome {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for resource in &self.converged {
-            writeln!(formatter, "  converged {resource}")?;
+impl ApplyOutcome {
+    fn closing(&self) -> Closing {
+        let entry_of =
+            |resource: &ResolvedResource| Entry::new(Lane::of(resource), resource.declared());
+        Closing {
+            converged: self.converged.len(),
+            failed: self.failed.len(),
+            held: self.held.len(),
+            blocked: self
+                .blocked
+                .iter()
+                .map(|blocked| (entry_of(&blocked.resource), blocked.impediment.to_string()))
+                .collect(),
+            did_not_take: self
+                .unverified
+                .iter()
+                .map(|change| {
+                    (
+                        entry_of(&change.resource),
+                        format!("converged, but still {}", change.reason),
+                    )
+                })
+                .collect(),
+            migrated: self.migrated.iter().map(ToString::to_string).collect(),
+            notices: self.notices.iter().map(ToString::to_string).collect(),
+            passes: self.passes,
         }
-        for failure in &self.failed {
-            writeln!(
-                formatter,
-                "  FAILED    {}: {:#}",
-                failure.resource, failure.error
-            )?;
-        }
-        for held in &self.held {
-            writeln!(
-                formatter,
-                "  HELD      {} ({} is being executed)",
-                held.resource,
-                held.path.display()
-            )?;
-        }
-        for blocked in &self.blocked {
-            writeln!(
-                formatter,
-                "  BLOCKED   {} ({})",
-                blocked.resource, blocked.impediment
-            )?;
-        }
-        for change in &self.unverified {
-            writeln!(
-                formatter,
-                "  UNDONE    {} (converged, but still {})",
-                change.resource, change.reason
-            )?;
-        }
-        for migration in &self.migrated {
-            writeln!(formatter, "  migrated  {migration}")?;
-        }
-        for notice in &self.notices {
-            writeln!(formatter, "  notice    {notice}")?;
-        }
-        write!(
-            formatter,
-            "\n{} converged, {} failed, {} held, {} still blocked, {} did not take, {} migrated, \
-             over {} pass(es)",
-            self.converged.len(),
-            self.failed.len(),
-            self.held.len(),
-            self.blocked.len(),
-            self.unverified.len(),
-            self.migrated.len(),
-            self.passes
-        )
     }
 }
 
@@ -174,7 +148,20 @@ pub async fn apply(
         ));
 
         if pass.replaced_itself {
-            report.conclude();
+            converged.extend(pass.converged);
+            failed.extend(pass.failed);
+            held.extend(pass.held);
+            let handed_over = ApplyOutcome {
+                converged,
+                failed,
+                held,
+                blocked: Vec::new(),
+                unverified: Vec::new(),
+                notices: Vec::new(),
+                migrated: desired_state.migrations.clone(),
+                passes,
+            };
+            report.conclude(handed_over.closing());
             report.announce(&format!(
                 "Installed the latest release over {}. The rest of this run belongs to it.",
                 currency::this_build()
@@ -192,7 +179,6 @@ pub async fn apply(
             break change_set;
         }
     };
-    report.conclude();
 
     let unverified = change_set
         .changes
@@ -206,7 +192,7 @@ pub async fn apply(
     let mut notices = change_set.notices;
     notices.extend(notice_of_an_environment_change(&converged));
 
-    Ok(Enactment::Enacted(ApplyOutcome {
+    let outcome = ApplyOutcome {
         converged,
         failed,
         held,
@@ -215,7 +201,9 @@ pub async fn apply(
         notices,
         migrated: desired_state.migrations.clone(),
         passes,
-    }))
+    };
+    report.conclude(outcome.closing());
+    Ok(Enactment::Enacted(outcome))
 }
 
 // ADR 0017
@@ -408,7 +396,12 @@ async fn attempt_one(
     let entry = Entry::new(Lane::of(&change.resource), change.resource.declared());
     if let Some(refusal) = refusal_to_replace_again(change, self_replacement) {
         report.note(&format!("FAILED {}: {refusal:#}", change.resource));
-        report.entry_finished(&entry, EntryOutcome::Failed);
+        report.entry_finished(
+            &entry,
+            EntryOutcome::Failed {
+                reason: format!("{refusal:#}"),
+            },
+        );
         return Attempted::Failed(refusal);
     }
 
@@ -423,17 +416,15 @@ async fn attempt_one(
             Attempted::Converged
         }
         Ok(Placement::Held(path)) => {
-            report.note(&format!(
-                "HELD {}: {} is being executed",
-                change.resource,
-                path.display()
-            ));
-            report.entry_finished(&entry, EntryOutcome::Held);
+            let reason = format!("{} is being executed", path.display());
+            report.note(&format!("HELD {}: {reason}", change.resource));
+            report.entry_finished(&entry, EntryOutcome::Held { reason });
             Attempted::Held(path)
         }
         Err(error) => {
-            report.note(&format!("FAILED {}: {error:#}", change.resource));
-            report.entry_finished(&entry, EntryOutcome::Failed);
+            let reason = format!("{error:#}");
+            report.note(&format!("FAILED {}: {reason}", change.resource));
+            report.entry_finished(&entry, EntryOutcome::Failed { reason });
             Attempted::Failed(error)
         }
     }

@@ -107,6 +107,8 @@ pub enum EntryStatus {
     Converged { took: Duration },
     Failed,
     Held,
+    Blocked,
+    DidNotTake,
 }
 
 impl EntryStatus {
@@ -116,6 +118,8 @@ impl EntryStatus {
             EntryStatus::Converged { took } => format!("{} {}", verb.past, Elapsed(took)),
             EntryStatus::Failed => "failed".to_owned(),
             EntryStatus::Held => "held".to_owned(),
+            EntryStatus::Blocked => "blocked".to_owned(),
+            EntryStatus::DidNotTake => "did not take".to_owned(),
         }
     }
 
@@ -125,15 +129,60 @@ impl EntryStatus {
             EntryStatus::Converged { took } => format!("{} {}", verb.past, Elapsed(took)),
             EntryStatus::Failed => "failed".to_owned(),
             EntryStatus::Held => "held".to_owned(),
+            EntryStatus::Blocked => "blocked".to_owned(),
+            EntryStatus::DidNotTake => "did not take".to_owned(),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EntryOutcome {
     Converged,
-    Failed,
-    Held,
+    Failed { reason: String },
+    Held { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Ending {
+    Converged,
+    Failed(String),
+    Held(String),
+    Blocked(String),
+    DidNotTake(String),
+}
+
+impl From<EntryOutcome> for Ending {
+    fn from(outcome: EntryOutcome) -> Self {
+        match outcome {
+            EntryOutcome::Converged => Ending::Converged,
+            EntryOutcome::Failed { reason } => Ending::Failed(reason),
+            EntryOutcome::Held { reason } => Ending::Held(reason),
+        }
+    }
+}
+
+impl Ending {
+    fn reason(&self) -> Option<&str> {
+        match self {
+            Ending::Converged => None,
+            Ending::Failed(reason)
+            | Ending::Held(reason)
+            | Ending::Blocked(reason)
+            | Ending::DidNotTake(reason) => Some(reason),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Closing {
+    pub converged: usize,
+    pub failed: usize,
+    pub held: usize,
+    pub blocked: Vec<(Entry, String)>,
+    pub did_not_take: Vec<(Entry, String)>,
+    pub migrated: Vec<String>,
+    pub notices: Vec<String>,
+    pub passes: usize,
 }
 
 struct Elapsed(Duration);
@@ -154,20 +203,22 @@ struct Row {
     entry: Entry,
     began: Instant,
     output: Vec<String>,
-    ending: Option<(EntryOutcome, Instant)>,
+    ending: Option<(Ending, Instant)>,
 }
 
 impl Row {
     fn status(&self, now: Instant) -> EntryStatus {
-        match self.ending {
+        match &self.ending {
             None => EntryStatus::Running {
                 elapsed: now.saturating_duration_since(self.began),
             },
-            Some((EntryOutcome::Converged, ended)) => EntryStatus::Converged {
+            Some((Ending::Converged, ended)) => EntryStatus::Converged {
                 took: ended.saturating_duration_since(self.began),
             },
-            Some((EntryOutcome::Failed, _)) => EntryStatus::Failed,
-            Some((EntryOutcome::Held, _)) => EntryStatus::Held,
+            Some((Ending::Failed(_), _)) => EntryStatus::Failed,
+            Some((Ending::Held(_), _)) => EntryStatus::Held,
+            Some((Ending::Blocked(_), _)) => EntryStatus::Blocked,
+            Some((Ending::DidNotTake(_), _)) => EntryStatus::DidNotTake,
         }
     }
 
@@ -179,11 +230,8 @@ impl Row {
         )
     }
 
-    fn calls_for_diagnosis(&self) -> bool {
-        match self.ending {
-            Some((EntryOutcome::Failed | EntryOutcome::Held, _)) => !self.output.is_empty(),
-            Some((EntryOutcome::Converged, _)) | None => false,
-        }
+    fn reason(&self) -> Option<&str> {
+        self.ending.as_ref().and_then(|(ending, _)| ending.reason())
     }
 }
 
@@ -215,7 +263,7 @@ impl Board {
         }
     }
 
-    fn finished(&mut self, entry: &Entry, outcome: EntryOutcome, at: Instant) -> &Row {
+    fn ended(&mut self, entry: &Entry, ending: Ending, at: Instant) -> &Row {
         let position = match self.running(entry) {
             Some(position) => position,
             None => {
@@ -224,33 +272,33 @@ impl Board {
             }
         };
         let row = &mut self.rows[position];
-        row.ending = Some((outcome, at));
-        if outcome == EntryOutcome::Converged {
+        if ending == Ending::Converged {
             row.output = Vec::new();
         }
+        row.ending = Some((ending, at));
         row
     }
 
-    fn tally(&self, now: Instant) -> Tally {
-        let count = |wanted: EntryOutcome| {
-            self.rows
-                .iter()
-                .filter(|row| row.ending.is_some_and(|(outcome, _)| outcome == wanted))
-                .count()
+    fn did_not_take(&mut self, entry: &Entry, reason: String, at: Instant) -> &Row {
+        let converged = self
+            .rows
+            .iter()
+            .rposition(|row| row.entry == *entry && matches_converged(row.ending.as_ref()));
+        let Some(position) = converged else {
+            return self.ended(entry, Ending::DidNotTake(reason), at);
         };
-        Tally {
-            converged: count(EntryOutcome::Converged),
-            failed: count(EntryOutcome::Failed),
-            held: count(EntryOutcome::Held),
-            duration: now.saturating_duration_since(self.began),
-        }
+
+        let row = &mut self.rows[position];
+        let ended = row.ending.as_ref().map_or(at, |(_, ended)| *ended);
+        row.ending = Some((Ending::DidNotTake(reason), ended));
+        row
     }
 
     fn diagnostics(&self, now: Instant) -> Option<String> {
         let diagnosed: Vec<&Row> = self
             .rows
             .iter()
-            .filter(|row| row.calls_for_diagnosis())
+            .filter(|row| row.reason().is_some())
             .collect();
         if diagnosed.is_empty() {
             return None;
@@ -260,7 +308,8 @@ impl Board {
         for row in diagnosed {
             written.push('\n');
             written.push_str(&row.state_line(now));
-            for line in &row.output {
+            let reason = row.reason().unwrap_or_default();
+            for line in row.output.iter().map(String::as_str).chain(reason.lines()) {
                 written.push_str("\n  ");
                 written.push_str(line);
             }
@@ -269,21 +318,35 @@ impl Board {
     }
 }
 
-struct Tally {
-    converged: usize,
-    failed: usize,
-    held: usize,
+fn matches_converged(ending: Option<&(Ending, Instant)>) -> bool {
+    match ending {
+        Some((Ending::Converged, _)) => true,
+        Some((
+            Ending::Failed(_) | Ending::Held(_) | Ending::Blocked(_) | Ending::DidNotTake(_),
+            _,
+        ))
+        | None => false,
+    }
+}
+
+struct Tally<'closing> {
+    closing: &'closing Closing,
     duration: Duration,
 }
 
-impl Display for Tally {
+impl Display for Tally<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{} converged, {} failed, {} held in {}",
-            self.converged,
-            self.failed,
-            self.held,
+            "{} converged, {} failed, {} held, {} still blocked, {} did not take, {} migrated, \
+             over {} pass(es) in {}",
+            self.closing.converged,
+            self.closing.failed,
+            self.closing.held,
+            self.closing.blocked.len(),
+            self.closing.did_not_take.len(),
+            self.closing.migrated.len(),
+            self.closing.passes,
             Elapsed(self.duration)
         )
     }
@@ -387,20 +450,37 @@ impl Presentation {
     }
 
     pub(super) fn finished(&mut self, entry: &Entry, outcome: EntryOutcome, at: Instant) -> String {
-        let row = self.board.finished(entry, outcome, at);
+        self.ended(entry, Ending::from(outcome), at)
+    }
+
+    fn ended(&mut self, entry: &Entry, ending: Ending, at: Instant) -> String {
+        let row = self.board.ended(entry, ending, at);
         let state_line = row.state_line(at);
         let on_the_table = row.status(at).on_the_table(entry.verb());
+        self.redrawn(entry, &state_line, on_the_table);
+        state_line
+    }
 
+    fn did_not_take(&mut self, entry: &Entry, reason: String, at: Instant) -> String {
+        let row = self.board.did_not_take(entry, reason, at);
+        let state_line = row.state_line(at);
+        let on_the_table = row.status(at).on_the_table(entry.verb());
+        self.redrawn(entry, &state_line, on_the_table);
+        state_line
+    }
+
+    fn redrawn(&mut self, entry: &Entry, state_line: &str, on_the_table: String) {
         match &mut self.screen {
             Screen::Lines(output) => {
                 let _ = writeln!(output, "{state_line}");
             }
             Screen::Terminal => {
-                let position = self
+                let drawn = self
                     .table
                     .iter()
-                    .rposition(|(drawn, row)| drawn == entry && !row.is_finished());
-                let row = match position {
+                    .rposition(|(drawn, row)| drawn == entry && !row.is_finished())
+                    .or_else(|| self.table.iter().rposition(|(drawn, _)| drawn == entry));
+                let row = match drawn {
                     Some(position) => self.table[position].1.clone(),
                     None => {
                         let row = self.progress.add(ProgressBar::new_spinner());
@@ -413,28 +493,62 @@ impl Presentation {
                 row.finish_with_message(on_the_table);
             }
         }
-        state_line
     }
 
-    pub(super) fn concluded(&mut self, at: Instant) -> Option<String> {
-        if self.board.rows.is_empty() || self.concluded {
-            return None;
+    pub(super) fn concluded(&mut self, closing: Closing, at: Instant) -> Vec<String> {
+        if self.concluded {
+            return Vec::new();
         }
 
-        let tally = self.board.tally(at).to_string();
+        let mut written_down = Vec::new();
+        for (entry, reason) in &closing.blocked {
+            written_down.push(self.ended(entry, Ending::Blocked(reason.clone()), at));
+        }
+        for (entry, reason) in &closing.did_not_take {
+            written_down.push(self.did_not_take(entry, reason.clone(), at));
+        }
+
+        let tally = Tally {
+            closing: &closing,
+            duration: at.saturating_duration_since(self.board.began),
+        }
+        .to_string();
+        let mut afterwards: Vec<String> = closing
+            .migrated
+            .iter()
+            .map(|migration| format!("migrated {migration}"))
+            .chain(
+                closing
+                    .notices
+                    .iter()
+                    .map(|notice| format!("notice {notice}")),
+            )
+            .collect();
+        written_down.extend(afterwards.iter().cloned());
+        written_down.push(tally.clone());
+
         let diagnostics = self.board.diagnostics(at);
-        let written = match (&self.screen, diagnostics) {
-            (_, None) => tally.clone(),
-            (Screen::Terminal, Some(diagnostics)) => format!("{tally}\n{diagnostics}"),
-            (Screen::Lines(_), Some(diagnostics)) => format!("{diagnostics}\n{tally}"),
+        let shown: Vec<String> = match &self.screen {
+            Screen::Lines(_) => {
+                let mut shown: Vec<String> = diagnostics.into_iter().collect();
+                shown.append(&mut afterwards);
+                shown.push(tally);
+                shown
+            }
+            Screen::Terminal => {
+                let mut shown = vec![tally];
+                shown.append(&mut afterwards);
+                shown.extend(diagnostics);
+                shown
+            }
         };
 
         if let Screen::Terminal = self.screen {
             self.progress.set_draw_target(ProgressDrawTarget::hidden());
         }
         self.concluded = true;
-        self.show(&written);
-        Some(tally)
+        self.show(&shown.join("\n"));
+        written_down
     }
 }
 
@@ -515,6 +629,12 @@ mod tests {
         )
     }
 
+    fn failed(reason: &str) -> EntryOutcome {
+        EntryOutcome::Failed {
+            reason: reason.to_owned(),
+        }
+    }
+
     #[test]
     fn without_a_terminal_each_state_change_is_a_line_then_the_diagnostics_then_the_tally() {
         let transcript = Transcript::default();
@@ -524,18 +644,35 @@ mod tests {
         let stop_gate = Entry::new(Lane::Cargo, &cargo_package("stop-gate"));
         let neovim = Entry::new(Lane::Install, &winget_package("Neovim.Neovim"));
         let ripgrep = Entry::new(Lane::Cargo, &cargo_package("ripgrep"));
+        let coverage = Entry::new(Lane::Cargo, &cargo_package("cargo-llvm-cov"));
 
         presentation.started(&stop_gate, at(0));
         presentation.spoke(&stop_gate, "Compiling stop-gate v0.1.0");
         presentation.finished(&stop_gate, EntryOutcome::Converged, at(41));
         presentation.started(&neovim, at(41));
         presentation.spoke(&neovim, "Installer failed with exit code: 1603");
-        presentation.finished(&neovim, EntryOutcome::Failed, at(60));
+        presentation.finished(&neovim, failed("Could not install Neovim.Neovim"), at(60));
         presentation.started(&ripgrep, at(60));
         presentation.spoke(&ripgrep, "Replacing rg.exe");
-        presentation.spoke(&ripgrep, "rg.exe is being executed");
-        presentation.finished(&ripgrep, EntryOutcome::Held, at(100));
-        presentation.concluded(at(100));
+        presentation.finished(
+            &ripgrep,
+            EntryOutcome::Held {
+                reason: "rg.exe is being executed".to_owned(),
+            },
+            at(100),
+        );
+        presentation.concluded(
+            Closing {
+                converged: 1,
+                failed: 1,
+                held: 1,
+                blocked: vec![(coverage, "cargo is not on the path".to_owned())],
+                notices: vec!["open a new shell".to_owned()],
+                passes: 2,
+                ..Closing::default()
+            },
+            at(100),
+        );
 
         assert_eq!(
             transcript.text(),
@@ -545,41 +682,85 @@ mod tests {
              [install] Neovim.Neovim: failed\n\
              [cargo] ripgrep: installing\n\
              [cargo] ripgrep: held\n\
+             [cargo] cargo-llvm-cov: blocked\n\
              diagnostics\n\
              [install] Neovim.Neovim: failed\n\
              \x20 Installer failed with exit code: 1603\n\
+             \x20 Could not install Neovim.Neovim\n\
              [cargo] ripgrep: held\n\
              \x20 Replacing rg.exe\n\
              \x20 rg.exe is being executed\n\
-             1 converged, 1 failed, 1 held in 1m40s\n"
+             [cargo] cargo-llvm-cov: blocked\n\
+             \x20 cargo is not on the path\n\
+             notice open a new shell\n\
+             1 converged, 1 failed, 1 held, 1 still blocked, 0 did not take, 0 migrated, \
+             over 2 pass(es) in 1m40s\n"
         );
     }
 
     #[test]
-    fn an_entry_that_fails_before_it_starts_is_still_counted_as_failed() {
+    fn an_entry_that_converged_but_still_reads_as_drifted_is_reported_as_not_having_taken() {
+        let transcript = Transcript::default();
+        let began = Instant::now();
+        let mut presentation = written_without_a_terminal(&transcript, began);
+        let stop_gate = Entry::new(Lane::Cargo, &cargo_package("stop-gate"));
+
+        presentation.started(&stop_gate, began);
+        presentation.finished(&stop_gate, EntryOutcome::Converged, began);
+        presentation.concluded(
+            Closing {
+                converged: 1,
+                did_not_take: vec![(stop_gate, "still at 0.1.0".to_owned())],
+                passes: 1,
+                ..Closing::default()
+            },
+            began,
+        );
+
+        assert_eq!(
+            transcript.text(),
+            "[cargo] stop-gate: installing\n\
+             [cargo] stop-gate: installed 0s\n\
+             [cargo] stop-gate: did not take\n\
+             diagnostics\n\
+             [cargo] stop-gate: did not take\n\
+             \x20 still at 0.1.0\n\
+             1 converged, 0 failed, 0 held, 0 still blocked, 1 did not take, 0 migrated, \
+             over 1 pass(es) in 0s\n"
+        );
+    }
+
+    #[test]
+    fn an_entry_that_fails_before_it_starts_is_still_reported_as_failed() {
         let transcript = Transcript::default();
         let began = Instant::now();
         let mut presentation = written_without_a_terminal(&transcript, began);
         let configurator = Entry::new(Lane::Replacement, &cargo_package("dotfiles_configurator"));
 
-        presentation.finished(&configurator, EntryOutcome::Failed, began);
-        presentation.concluded(began);
+        presentation.finished(&configurator, failed("still behind"), began);
 
-        assert_eq!(
-            transcript.text(),
-            "[self] dotfiles_configurator: failed\n0 converged, 1 failed, 0 held in 0s\n"
-        );
+        assert_eq!(transcript.text(), "[self] dotfiles_configurator: failed\n");
     }
 
     #[test]
-    fn a_run_that_changed_nothing_ends_without_a_tally() {
+    fn a_run_that_changed_nothing_still_closes_on_its_tally() {
         let transcript = Transcript::default();
         let began = Instant::now();
         let mut presentation = written_without_a_terminal(&transcript, began);
 
-        presentation.concluded(began);
+        presentation.concluded(
+            Closing {
+                passes: 1,
+                ..Closing::default()
+            },
+            began,
+        );
 
-        assert_eq!(transcript.text(), "");
+        assert_eq!(
+            transcript.text(),
+            "0 converged, 0 failed, 0 held, 0 still blocked, 0 did not take, 0 migrated, \
+             over 1 pass(es) in 0s\n"
+        );
     }
 
     #[test]

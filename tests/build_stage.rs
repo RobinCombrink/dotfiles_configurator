@@ -189,7 +189,7 @@ async fn a_member_a_pass_already_attempted_is_not_built_again_on_a_later_pass() 
 
     let outcome = applying(vec![powershell], &machine).await;
 
-    assert!(outcome.passes > 1, "{outcome}");
+    assert!(outcome.passes > 1, "{outcome:?}");
     assert_eq!(
         builds_and_installs(&machine),
         vec![built(&["session-mining"]), installed("session-mining")]
@@ -206,13 +206,14 @@ async fn a_build_that_fails_leaves_each_member_to_build_in_its_own_install() {
 
     let outcome = applying(Vec::new(), &machine).await;
 
-    assert!(outcome.failed.is_empty(), "{outcome}");
-    assert_eq!(outcome.converged.len(), 2, "{outcome}");
+    assert!(outcome.failed.is_empty(), "{outcome:?}");
+    assert_eq!(outcome.converged.len(), 2, "{outcome:?}");
 }
 
 fn states_of_the_build(shown: &str) -> Vec<&str> {
     shown
         .lines()
+        .take_while(|line| *line != "diagnostics")
         .filter_map(|line| line.strip_prefix("[cargo] build: "))
         .map(|state| state.split(' ').next().unwrap_or(state))
         .collect()

@@ -672,23 +672,35 @@ fn claude_holds_no_server(world: &mut MachineWorld, name: String) {
     );
 }
 
+impl MachineWorld {
+    fn diagnostics_shown(&self) -> String {
+        let shown = self.screen.text();
+        shown
+            .split_once("\ndiagnostics\n")
+            .map(|(_, diagnostics)| diagnostics.to_owned())
+            .unwrap_or_default()
+    }
+}
+
 #[then(expr = "the run reports a failure mentioning {string}")]
 fn run_reports_a_failure_mentioning(world: &mut MachineWorld, text: String) {
-    let rendered = world.outcome().to_string();
+    let diagnostics = world.diagnostics_shown();
 
     assert!(
-        rendered.contains(&text),
-        "expected a failure mentioning {text:?}, got:\n{rendered}"
+        diagnostics.contains(&text),
+        "expected a failure mentioning {text:?}, got:\n{}",
+        world.screen.text()
     );
 }
 
 #[then(expr = "the run reports no failure mentioning {string}")]
 fn run_reports_no_failure_mentioning(world: &mut MachineWorld, text: String) {
-    let rendered = world.outcome().to_string();
+    let diagnostics = world.diagnostics_shown();
 
     assert!(
-        !rendered.contains(&text),
-        "expected nothing mentioning {text:?}, got:\n{rendered}"
+        !diagnostics.contains(&text),
+        "expected nothing mentioning {text:?}, got:\n{}",
+        world.screen.text()
     );
 }
 
@@ -1838,9 +1850,35 @@ fn the_run_closes_on_a_tally(
 
     assert!(
         last.starts_with(&format!(
-            "{converged} converged, {failed} failed, {held} held in "
+            "{converged} converged, {failed} failed, {held} held, "
         )),
         "{shown}"
+    );
+}
+
+#[then(expr = "Alice's run closes on a tally counting {int} still blocked")]
+fn the_run_closes_on_a_tally_counting_blocked(world: &mut MachineWorld, blocked: usize) {
+    let shown = world.screen.text();
+    let last = shown.lines().last().unwrap_or_default();
+
+    assert!(
+        last.contains(&format!(" {blocked} still blocked, ")),
+        "{shown}"
+    );
+}
+
+#[then(expr = "Alice's run shows {string} as blocked because {string}")]
+fn the_run_shows_an_entry_blocked(world: &mut MachineWorld, name: String, because: String) {
+    let diagnostics = world.diagnostics_shown();
+    let after_the_entry = diagnostics
+        .split_once(&format!(" {name}: blocked\n"))
+        .map(|(_, after)| after.lines().next().unwrap_or_default().to_owned())
+        .unwrap_or_default();
+
+    assert!(
+        after_the_entry.contains(&because),
+        "{}",
+        world.screen.text()
     );
 }
 
@@ -1929,7 +1967,7 @@ fn nothing_changed(world: &mut MachineWorld) {
 
 #[then(expr = "the machine is reported as converged")]
 fn machine_reported_converged(world: &mut MachineWorld) {
-    assert!(world.outcome().is_converged(), "{}", world.outcome());
+    assert!(world.outcome().is_converged(), "{:?}", world.outcome());
 }
 
 #[then(expr = "the machine is not reported as converged")]

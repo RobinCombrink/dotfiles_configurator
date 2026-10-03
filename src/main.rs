@@ -223,7 +223,6 @@ async fn run(task: Task) -> Result<Ending> {
             .await?
             {
                 Enactment::Enacted(outcome) => {
-                    println!("{outcome}");
                     Ok(Ending::Concluded(Conclusion::of(outcome.is_converged())))
                 }
                 Enactment::Declined => Ok(Ending::Concluded(Conclusion::DidNothing)),

@@ -61,10 +61,11 @@ pub async fn build(builds: &[WorkspaceBuild<'_>], machine: &impl WriteMachine, r
             continue;
         };
 
-        report.note(&format!(
+        let reason = format!(
             "the build of {build} did not finish, so each install builds what it still needs: \
              {error:#}"
-        ));
-        report.entry_finished(&entry, EntryOutcome::Failed);
+        );
+        report.note(&reason);
+        report.entry_finished(&entry, EntryOutcome::Failed { reason });
     }
 }

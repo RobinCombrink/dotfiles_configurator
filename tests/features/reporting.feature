@@ -35,6 +35,20 @@ Feature: Reporting a run
     When Alice applies
     Then Alice's run closes on a tally of 0 converged, 0 failed and 1 held
 
+  Scenario: A run's tally counts what is still blocked
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
+    And "rg.exe" is installed and reports "ripgrep version 15.1.0"
+    When Alice applies
+    Then Alice's run closes on a tally counting 1 still blocked
+
+  Scenario: A blocked entry is shown with what blocks it
+    Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
+    And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
+    And "rg.exe" is installed and reports "ripgrep version 15.1.0"
+    When Alice applies
+    Then Alice's run shows "rg" as blocked because "is not a version"
+
   Scenario: Only the twenty most recent runs are kept
     Given 30 runs have already been logged
     And Alice declares the application "Neovim"
