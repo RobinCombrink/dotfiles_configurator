@@ -396,7 +396,7 @@ impl Presentation {
         let tally = self.board.tally(at).to_string();
         let diagnostics = self.board.diagnostics(at);
         let written = match (&self.screen, diagnostics) {
-            (_, None) => tally,
+            (_, None) => tally.clone(),
             (Screen::Terminal, Some(diagnostics)) => format!("{tally}\n{diagnostics}"),
             (Screen::Lines(_), Some(diagnostics)) => format!("{diagnostics}\n{tally}"),
         };
@@ -406,7 +406,7 @@ impl Presentation {
         }
         self.concluded = true;
         self.show(&written);
-        Some(written)
+        Some(tally)
     }
 }
 
