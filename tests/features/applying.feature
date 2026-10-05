@@ -214,6 +214,16 @@ Feature: Applying a change set
     Then cargo no longer holds the binary "session-census" on Alice's machine
     And the machine is reported as converged
 
+  Scenario: A binary cargo refuses to remove leaves the machine unconverged
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "session-mining"
+    And cargo installed "session-mining" from the content the workspace holds now
+    And an earlier install of "session-mining" left the binary "session-census" behind
+    And cargo refuses to uninstall anything on Alice's machine
+    When Alice applies
+    Then the machine is not reported as converged
+
   Scenario: A binary that will not be moved aside is reported as held rather than as failed
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine

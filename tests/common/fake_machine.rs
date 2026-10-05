@@ -70,6 +70,7 @@ struct MachineState {
     cargo_workspaces: BTreeMap<PathBuf, WorkspaceReading>,
     earlier_cargo_workspaces: BTreeMap<(PathBuf, Revision), BTreeMap<CrateName, Fingerprint>>,
     install_records: Vec<InstallRecord>,
+    uninstalls_refused: bool,
     workspace_reads: Vec<PathBuf>,
     executing_binaries: BTreeMap<PathBuf, Displacement>,
     superseded_images: BTreeSet<PathBuf>,
@@ -266,6 +267,10 @@ impl FakeMachine {
         });
     }
 
+    pub fn refuse_every_uninstall(&self) {
+        self.state.borrow_mut().uninstalls_refused = true;
+    }
+
     pub fn cargo_records_the_binary(&self, binary: &BinaryName) -> bool {
         self.state
             .borrow()
@@ -281,6 +286,9 @@ impl FakeMachine {
             standard_output: String::new(),
             standard_error,
         };
+        if state.uninstalls_refused {
+            return refused("error: Access is denied. (os error 5)".to_owned());
+        }
 
         let Some(position) = state
             .install_records
@@ -932,6 +940,7 @@ impl FakeMachine {
             cargo_workspaces,
             earlier_cargo_workspaces,
             install_records,
+            uninstalls_refused,
             workspace_reads: _,
             executing_binaries,
             superseded_images,
@@ -960,7 +969,7 @@ impl FakeMachine {
              {uv_tools_failing_to_upgrade:?}|{failing_applications:?}|{silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
-             {earlier_cargo_workspaces:?}|{install_records:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
+             {earlier_cargo_workspaces:?}|{install_records:?}|{uninstalls_refused:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
              {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
              {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\

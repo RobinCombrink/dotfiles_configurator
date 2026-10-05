@@ -1556,6 +1556,11 @@ fn cargo_holds_a_binary_from_elsewhere(
         .hold_cargo_binary(&binary, format!("{binary} {EARLIER_WORKSPACE_REVISION}\n"));
 }
 
+#[given(expr = "cargo refuses to uninstall anything on Alice's machine")]
+fn cargo_refuses_to_uninstall(world: &mut MachineWorld) {
+    world.machine.refuse_every_uninstall();
+}
+
 #[given(expr = "the file of the binary {string} is gone from where cargo installs it")]
 fn the_file_of_a_binary_is_gone(world: &mut MachineWorld, binary: String) {
     world.machine.remove_cargo_binary(&binary);
