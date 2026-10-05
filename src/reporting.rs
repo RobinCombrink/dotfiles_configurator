@@ -41,6 +41,7 @@ const SILENCE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 pub enum RunKind {
     Plan,
     Apply,
+    Elevated,
 }
 
 impl RunKind {
@@ -48,6 +49,7 @@ impl RunKind {
         match self {
             RunKind::Plan => "plan",
             RunKind::Apply => "apply",
+            RunKind::Elevated => "elevated",
         }
     }
 }
@@ -230,6 +232,15 @@ impl RunReport {
 
     pub fn awaiting_its_lane(&self, entry: &Entry) {
         self.note(&format!("{entry}: waiting for its lane"));
+        self.shared
+            .no_longer_listening_to(&Speaker::Entry(entry.clone()));
+    }
+
+    // ADR 0042
+    pub fn awaiting_elevation(&self, entry: &Entry, refusal: &str) {
+        self.note(&format!(
+            "{entry}: waiting for the elevated batch, having been refused: {refusal}"
+        ));
         self.shared
             .no_longer_listening_to(&Speaker::Entry(entry.clone()));
     }
@@ -719,6 +730,17 @@ mod tests {
 
         report.converging(&stop_gate(), async {}).await;
         report.awaiting_its_lane(&stop_gate());
+
+        assert!(!watched_for_silence(&report, &stop_gate()));
+    }
+
+    #[tokio::test]
+    async fn an_entry_waiting_for_elevation_is_not_watched_for_silence() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = quiet_report(directory.path(), RunKind::Apply);
+
+        report.converging(&stop_gate(), async {}).await;
+        report.awaiting_elevation(&stop_gate(), "os error 1314");
 
         assert!(!watched_for_silence(&report, &stop_gate()));
     }

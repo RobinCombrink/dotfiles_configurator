@@ -8,9 +8,10 @@ use {
         configuration_source::WriteSource,
         github::GitHubAccess,
         machine::{
-            CommandOutput, DisplacingInvocation, Downloaded, Exited, HeldReason, Placement,
-            ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool,
-            WorkspaceBuild, WriteInvocation, WriteMachine,
+            CommandOutput, DisplacingInvocation, Downloaded, ElevatedBatch, ElevatedWork,
+            Elevation, Exited, HeldReason, Placement, PrivilegeRefusal, ReadInvocation,
+            ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild,
+            WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -38,6 +39,7 @@ use {
     url::Url,
 };
 
+pub mod elevation;
 pub mod environment;
 #[cfg(target_family = "windows")]
 pub mod privileges;
@@ -52,6 +54,7 @@ pub struct LocalMachine<'report, 'access> {
     github: &'access GitHubAccess,
     http_client: Client,
     report: &'report RunReport,
+    elevated: bool,
 }
 
 impl<'report, 'access> LocalMachine<'report, 'access> {
@@ -67,16 +70,15 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
             github,
             http_client: Client::default(),
             report,
+            elevated: this_process_is_elevated()?,
         })
     }
 
     #[cfg(target_family = "windows")]
-    pub fn note_the_privileges_it_holds(&self) -> Result<()> {
-        let elevated = privileges::this_process_is_elevated()?;
-        for line in privileges::opening_lines(elevated, &privileges::developer_mode_is_on()) {
+    pub fn note_the_privileges_it_holds(&self) {
+        for line in privileges::opening_lines(self.elevated, &privileges::developer_mode_is_on()) {
             self.report.note(&line);
         }
-        Ok(())
     }
 
     async fn run(
@@ -148,18 +150,18 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
         })
     }
 
-    async fn run_installer(&self, installer_path: &Path) -> Result<()> {
-        let output = stream(installer_path, &[], &[], None, self.report).await?;
-
-        match output.exited.succeeded() {
-            true => Ok(()),
-            false => bail!(
-                "{} failed, {}:\n{}\n{}",
-                installer_path.display(),
-                output.exited,
-                output.standard_output.trim(),
-                output.standard_error.trim()
-            ),
+    async fn run_installer(&self, installer_path: &Path) -> Result<Placement> {
+        match run_installer_at(installer_path, self.report).await {
+            Ok(()) => Ok(Placement::Placed),
+            Err(error) if refused_for_want_of(&error, Want::Elevation) => {
+                Ok(Placement::Refused(PrivilegeRefusal {
+                    work: ElevatedWork::Installer {
+                        installer_path: installer_path.to_path_buf(),
+                    },
+                    refusal: format!("{error:#}"),
+                }))
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -424,6 +426,77 @@ fn refused(tool: Tool, arguments: &[String], output: &CommandOutput) -> anyhow::
     )
 }
 
+async fn run_installer_at(installer_path: &Path, report: &RunReport) -> Result<()> {
+    let output = stream(installer_path, &[], &[], None, report).await?;
+
+    match output.exited.succeeded() {
+        true => Ok(()),
+        false => bail!(
+            "{} failed, {}:\n{}\n{}",
+            installer_path.display(),
+            output.exited,
+            output.standard_output.trim(),
+            output.standard_error.trim()
+        ),
+    }
+}
+
+fn place_link(link_path: &Path, target_path: &Path) -> Result<()> {
+    if let Some(parent_directory) = link_path.parent() {
+        fs::create_dir_all(parent_directory).with_context(|| {
+            format!(
+                "Could not create the directory holding {}",
+                link_path.display()
+            )
+        })?;
+    }
+
+    replace_existing_link(link_path)?;
+
+    create_link(link_path, target_path).with_context(|| {
+        format!(
+            "Could not link {} to {}",
+            link_path.display(),
+            target_path.display()
+        )
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Want {
+    Privilege,
+    Elevation,
+}
+
+#[cfg(target_family = "windows")]
+fn refused_for_want_of(error: &anyhow::Error, want: Want) -> bool {
+    use windows_sys::Win32::Foundation::{ERROR_ELEVATION_REQUIRED, ERROR_PRIVILEGE_NOT_HELD};
+
+    let refusal = match want {
+        Want::Privilege => ERROR_PRIVILEGE_NOT_HELD,
+        Want::Elevation => ERROR_ELEVATION_REQUIRED,
+    };
+    error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
+        .any(|cause| cause.raw_os_error() == Some(refusal.cast_signed()))
+}
+
+#[cfg(target_family = "unix")]
+fn refused_for_want_of(_error: &anyhow::Error, _want: Want) -> bool {
+    false
+}
+
+#[cfg(target_family = "windows")]
+fn this_process_is_elevated() -> Result<bool> {
+    privileges::this_process_is_elevated()
+}
+
+#[cfg(target_family = "unix")]
+fn this_process_is_elevated() -> Result<bool> {
+    Ok(false)
+}
+
 fn cargo_binaries_directory(home_directory: &Path) -> PathBuf {
     match env::var_os("CARGO_HOME") {
         Some(cargo_home) => PathBuf::from(cargo_home).join("bin"),
@@ -515,6 +588,10 @@ impl ReadMachine for LocalMachine<'_, '_> {
 
     fn tool_is_present(&self, tool: Tool) -> bool {
         program_is_on_path(tool.program())
+    }
+
+    fn is_elevated(&self) -> bool {
+        self.elevated
     }
 
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput> {
@@ -629,25 +706,20 @@ impl ReadMachine for LocalMachine<'_, '_> {
 }
 
 impl WriteMachine for LocalMachine<'_, '_> {
-    fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<()> {
-        if let Some(parent_directory) = link_path.parent() {
-            fs::create_dir_all(parent_directory).with_context(|| {
-                format!(
-                    "Could not create the directory holding {}",
-                    link_path.display()
-                )
-            })?;
+    fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<Placement> {
+        match place_link(link_path, target_path) {
+            Ok(()) => Ok(Placement::Placed),
+            Err(error) if refused_for_want_of(&error, Want::Privilege) => {
+                Ok(Placement::Refused(PrivilegeRefusal {
+                    work: ElevatedWork::Link {
+                        link_path: link_path.to_path_buf(),
+                        target_path: target_path.to_path_buf(),
+                    },
+                    refusal: format!("{error:#}"),
+                }))
+            }
+            Err(error) => Err(error),
         }
-
-        replace_existing_link(link_path)?;
-
-        create_link(link_path, target_path).with_context(|| {
-            format!(
-                "Could not link {} to {}",
-                link_path.display(),
-                target_path.display()
-            )
-        })
     }
 
     fn write_text_file(&self, path: &Path, contents: &str) -> Result<()> {
@@ -771,8 +843,18 @@ impl WriteMachine for LocalMachine<'_, '_> {
         Ok(Downloaded::fetched(installer.clone(), installer_path))
     }
 
-    async fn install_application(&self, downloaded: Downloaded<Installer>) -> Result<()> {
+    async fn install_application(&self, downloaded: Downloaded<Installer>) -> Result<Placement> {
         self.run_installer(downloaded.file()).await
+    }
+
+    #[cfg(target_family = "windows")]
+    async fn run_elevated(&self, batch: &ElevatedBatch<()>) -> Result<Elevation> {
+        elevation::run_elevated(batch, self.report).await
+    }
+
+    #[cfg(target_family = "unix")]
+    async fn run_elevated(&self, _batch: &ElevatedBatch<()>) -> Result<Elevation> {
+        bail!("Elevation is asked for only on Windows")
     }
 
     async fn download_released_binary(
@@ -1280,6 +1362,7 @@ mod tests {
             github: &github,
             http_client: Client::default(),
             report: &report,
+            elevated: false,
         };
 
         let images = machine.superseded_images();
@@ -1566,6 +1649,36 @@ mod tests {
 
         assert_eq!(fs::read(&destination).unwrap(), b"the new copy");
         assert!(!directory.path().join("rg.exe.superseded").exists());
+    }
+
+    #[cfg(target_family = "windows")]
+    fn refused_with(os_error: i32) -> anyhow::Error {
+        anyhow::Error::from(std::io::Error::from_raw_os_error(os_error))
+            .context("Could not link C:\\Users\\Alice\\.gitconfig to C:\\dotfiles\\gitconfig")
+    }
+
+    #[cfg(target_family = "windows")]
+    #[test]
+    fn a_link_refused_with_os_error_1314_wants_a_privilege() {
+        assert!(refused_for_want_of(&refused_with(1314), Want::Privilege));
+    }
+
+    #[cfg(target_family = "windows")]
+    #[test]
+    fn a_link_refused_for_any_other_reason_wants_no_privilege() {
+        assert!(!refused_for_want_of(&refused_with(5), Want::Privilege));
+    }
+
+    #[cfg(target_family = "windows")]
+    #[test]
+    fn an_installer_refused_with_os_error_740_wants_elevation() {
+        assert!(refused_for_want_of(&refused_with(740), Want::Elevation));
+    }
+
+    #[cfg(target_family = "windows")]
+    #[test]
+    fn an_installer_refused_for_want_of_a_privilege_is_not_read_as_wanting_elevation() {
+        assert!(!refused_for_want_of(&refused_with(1314), Want::Elevation));
     }
 
     #[test]

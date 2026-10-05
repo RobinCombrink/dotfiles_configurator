@@ -67,11 +67,18 @@ the result names rather than hides.
 _Avoid_: displace, swap, overwrite, re-register
 
 **Held**:
-Describes a resource that could not converge because the machine is executing the file it must
-replace, and displacing that file was refused as well. Neither blocked, where something is missing
-rather than in use, nor failed, which is a fault rather than an obstruction. A held resource leaves
-the machine unconverged.
+Describes a resource that could not converge for want of something only a person can release: the
+machine is executing the file it must replace and displacing that file was refused as well, or the
+elevation it needed was declined. Neither blocked, where something is missing rather than in use,
+nor failed, which is a fault rather than an obstruction. A held resource leaves the machine
+unconverged, and carries which of these held it.
 _Avoid_: locked, busy, in use, pinned
+
+**Elevated batch**:
+The entries a pass was refused for want of elevation or a privilege, run together at the end of
+that pass by one elevated relaunch of the configurator, so that the pass asks for elevation at most
+once.
+_Avoid_: sudo, admin run, UAC batch
 
 ### Resources
 

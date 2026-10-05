@@ -11,7 +11,10 @@ use {
         },
         currency::{self, SelfReplacement},
         desired_state::{DesiredState, ResolvedResource},
-        machine::{HeldReason, Placement, WriteInvocation, WriteMachine},
+        machine::{
+            ElevatedBatch, ElevatedOutcome, ElevatedWork, Elevation, HeldReason, Placement,
+            ReadMachine, WriteInvocation, WriteMachine,
+        },
         reporting::{Closing, Entry, EntryOutcome, RunReport},
     },
     anyhow::anyhow,
@@ -322,6 +325,13 @@ enum Attempted {
     Failed(anyhow::Error),
 }
 
+// ADR 0042
+#[derive(Debug)]
+enum Reached {
+    Attempted(Attempted),
+    AwaitingElevation(ElevatedWork),
+}
+
 #[derive(Debug, Default)]
 struct Pass {
     converged: Vec<ResolvedResource>,
@@ -333,10 +343,10 @@ struct Pass {
 }
 
 #[derive(Debug)]
-struct Settled<'change> {
+struct Settled<'change, Outcome = Attempted> {
     position: usize,
     change: &'change Change,
-    attempted: Attempted,
+    attempted: Outcome,
 }
 
 impl Pass {
@@ -384,7 +394,7 @@ impl<'change> Work<'change> {
         readings: &SourceReadings,
         machine: &impl WriteMachine,
         report: &RunReport,
-    ) -> Settled<'change> {
+    ) -> Settled<'change, Reached> {
         let Work {
             position,
             change,
@@ -429,15 +439,16 @@ async fn attempt(
             .filter(move |(_, change)| Lane::of(&change.resource) == lane)
     };
 
-    let mut settled: Vec<Settled> = Vec::new();
+    let mut settled: Vec<Settled<Reached>> = Vec::new();
     for (position, change) in in_lane(Lane::Replacement) {
         let attempted = match refusal_to_replace_again(change, self_replacement) {
-            Some(refusal) => refuse(change, refusal, report),
+            Some(refusal) => Reached::Attempted(failed(change, &entry_of(change), refusal, report)),
             None => converge_one(change, readings, machine, report).await,
         };
         let replaced_itself = match attempted {
-            Attempted::Converged => true,
-            Attempted::Held(_) | Attempted::Failed(_) => false,
+            Reached::Attempted(Attempted::Converged) => true,
+            Reached::Attempted(Attempted::Held(_) | Attempted::Failed(_))
+            | Reached::AwaitingElevation(_) => false,
         };
         settled.push(Settled {
             position,
@@ -445,6 +456,7 @@ async fn attempt(
             attempted,
         });
         if replaced_itself {
+            let settled = settled_with_elevation(settled, machine, report).await;
             return Pass::of(settled, claimed, true);
         }
     }
@@ -507,9 +519,77 @@ async fn attempt(
         });
     }
 
+    let settled = settled_with_elevation(settled, machine, report).await;
     Pass {
         withdrawn,
         ..Pass::of(settled, claimed, false)
+    }
+}
+
+// ADR 0042
+async fn settled_with_elevation<'change>(
+    reached: Vec<Settled<'change, Reached>>,
+    machine: &impl WriteMachine,
+    report: &RunReport,
+) -> Vec<Settled<'change>> {
+    let mut settled = Vec::new();
+    let mut awaiting = Vec::new();
+    for Settled {
+        position,
+        change,
+        attempted,
+    } in reached
+    {
+        match attempted {
+            Reached::Attempted(attempted) => settled.push(Settled {
+                position,
+                change,
+                attempted,
+            }),
+            Reached::AwaitingElevation(work) => awaiting.push((position, change, work)),
+        }
+    }
+    if awaiting.is_empty() {
+        return settled;
+    }
+
+    let batch = ElevatedBatch::of(awaiting.iter().map(|(_, _, work)| work.clone()));
+    let elevation = {
+        let _doing = report.doing(format!(
+            "asking for elevation to settle {} refused resource(s)",
+            awaiting.len()
+        ));
+        machine.run_elevated(&batch).await
+    };
+
+    for (position, change, work) in awaiting {
+        let attempted = conclude(
+            change,
+            &entry_of(change),
+            elevated_outcome(&elevation, &work),
+            report,
+        );
+        settled.push(Settled {
+            position,
+            change,
+            attempted,
+        });
+    }
+    settled
+}
+
+fn elevated_outcome(
+    elevation: &anyhow::Result<Elevation>,
+    work: &ElevatedWork,
+) -> anyhow::Result<Placement> {
+    match elevation {
+        Ok(Elevation::Declined) => Ok(Placement::Held(HeldReason::ElevationDeclined)),
+        Ok(Elevation::Performed(settled)) => match settled.outcome_of(work) {
+            Some(ElevatedOutcome::Converged) => Ok(Placement::Placed),
+            Some(ElevatedOutcome::Failed { reason }) => Err(anyhow!("{reason}")),
+            None => Err(anyhow!("the elevated batch reported nothing for {work}")),
+        },
+        Err(error) => Err(anyhow!("the elevated batch could not be run: {error:#}")),
     }
 }
 
@@ -518,7 +598,7 @@ async fn fetch_ahead_of_the_lanes<'change>(
     readings: &SourceReadings,
     machine: &impl WriteMachine,
     report: &RunReport,
-) -> (BTreeMap<usize, Fetched>, Vec<Settled<'change>>) {
+) -> (BTreeMap<usize, Fetched>, Vec<Settled<'change, Reached>>) {
     let fetching = pending
         .iter()
         .filter(|(_, change)| Lane::of(&change.resource) != Lane::Replacement)
@@ -544,7 +624,7 @@ async fn fetch_ahead_of_the_lanes<'change>(
             Err(error) => failed.push(Settled {
                 position,
                 change,
-                attempted: finish(change, &entry, Err(error), report),
+                attempted: Reached::Attempted(conclude(change, &entry, Err(error), report)),
             }),
         }
     }
@@ -556,7 +636,7 @@ async fn in_order<'change>(
     readings: &SourceReadings,
     machine: &impl WriteMachine,
     report: &RunReport,
-) -> Vec<Settled<'change>> {
+) -> Vec<Settled<'change, Reached>> {
     let mut settled = Vec::new();
     for item in work {
         settled.push(item.run(readings, machine, report).await);
@@ -571,7 +651,7 @@ async fn cargo_lane<'change>(
     readings: &SourceReadings,
     machine: &impl WriteMachine,
     report: &RunReport,
-) -> (Vec<Settled<'change>>, Withdrawn) {
+) -> (Vec<Settled<'change, Reached>>, Withdrawn) {
     build_stage::build(
         &build_stage::workspace_builds(work.iter().map(Work::change), readings),
         machine,
@@ -588,7 +668,7 @@ async fn install_lane<'change>(
     readings: &SourceReadings,
     machine: &impl WriteMachine,
     report: &RunReport,
-) -> Vec<Settled<'change>> {
+) -> Vec<Settled<'change, Reached>> {
     let (installers, winget): (Vec<Work>, Vec<Work>) =
         work.into_iter().partition(|item| item.fetched.is_some());
 
@@ -646,29 +726,18 @@ fn entry_of(change: &Change) -> Entry {
     Entry::new(Lane::of(&change.resource), change.resource.declared())
 }
 
-fn refuse(change: &Change, refusal: anyhow::Error, report: &RunReport) -> Attempted {
-    report.note(&format!("FAILED {}: {refusal:#}", change.resource));
-    report.entry_finished(
-        &entry_of(change),
-        EntryOutcome::Failed {
-            reason: format!("{refusal:#}"),
-        },
-    );
-    Attempted::Failed(refusal)
-}
-
 async fn converge_one(
     change: &Change,
     readings: &SourceReadings,
     machine: &impl WriteMachine,
     report: &RunReport,
-) -> Attempted {
+) -> Reached {
     let entry = entry_of(change);
     let outcome = report
         .converging(&entry, Box::pin(converge(change, machine, readings)))
         .await;
 
-    finish(change, &entry, outcome, report)
+    reached(change, &entry, outcome, machine, report)
 }
 
 async fn install_fetched(
@@ -676,16 +745,33 @@ async fn install_fetched(
     fetched: Fetched,
     machine: &impl WriteMachine,
     report: &RunReport,
-) -> Attempted {
+) -> Reached {
     let entry = entry_of(change);
     let outcome = report
         .resuming(&entry, Box::pin(fetched.installed(machine)))
         .await;
 
-    finish(change, &entry, outcome, report)
+    reached(change, &entry, outcome, machine, report)
 }
 
-fn finish(
+// ADR 0042
+fn reached(
+    change: &Change,
+    entry: &Entry,
+    outcome: anyhow::Result<Placement>,
+    machine: &impl ReadMachine,
+    report: &RunReport,
+) -> Reached {
+    match outcome {
+        Ok(Placement::Refused(refusal)) if !machine.is_elevated() => {
+            report.awaiting_elevation(entry, &refusal.refusal);
+            Reached::AwaitingElevation(refusal.work)
+        }
+        outcome => Reached::Attempted(conclude(change, entry, outcome, report)),
+    }
+}
+
+fn conclude(
     change: &Change,
     entry: &Entry,
     outcome: anyhow::Result<Placement>,
@@ -707,11 +793,14 @@ fn finish(
             );
             Attempted::Held(reason)
         }
-        Err(error) => {
-            let reason = format!("{error:#}");
-            report.note(&format!("FAILED {}: {reason}", change.resource));
-            report.entry_finished(entry, EntryOutcome::Failed { reason });
-            Attempted::Failed(error)
-        }
+        Ok(Placement::Refused(refusal)) => failed(change, entry, anyhow!(refusal.refusal), report),
+        Err(error) => failed(change, entry, error, report),
     }
+}
+
+fn failed(change: &Change, entry: &Entry, error: anyhow::Error, report: &RunReport) -> Attempted {
+    let reason = format!("{error:#}");
+    report.note(&format!("FAILED {}: {reason}", change.resource));
+    report.entry_finished(entry, EntryOutcome::Failed { reason });
+    Attempted::Failed(error)
 }

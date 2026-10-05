@@ -66,7 +66,7 @@ pub async fn converge(
                 format!("Could not put {} on the search path", directory.display())
             })
         }
-        Resource::Symlink(symlink) => converge_symlink(symlink, resource, machine),
+        Resource::Symlink(symlink) => return converge_symlink(symlink, resource, machine),
         Resource::Registration(Registration::MachineManifest(manifest)) => {
             let path = MachineManifest::path_within(machine.home_directory());
             machine
@@ -131,9 +131,7 @@ impl<'resource> Download<'resource> {
 impl Fetched {
     pub async fn installed(self, machine: &impl WriteMachine) -> Result<Placement> {
         match self {
-            Fetched::Installer(downloaded) => install_application(downloaded, machine)
-                .await
-                .map(|()| Placement::Placed),
+            Fetched::Installer(downloaded) => install_application(downloaded, machine).await,
             Fetched::ReleasedBinary(downloaded) => install_released_binary(downloaded, machine),
         }
     }
@@ -182,7 +180,7 @@ async fn download_installer(
 async fn install_application(
     downloaded: Downloaded<Installer>,
     machine: &impl WriteMachine,
-) -> Result<()> {
+) -> Result<Placement> {
     let name = downloaded.declared().name.clone();
     machine
         .install_application(downloaded)
@@ -354,7 +352,7 @@ fn converge_symlink(
     symlink: &Symlink,
     resource: &ResolvedResource,
     machine: &impl WriteMachine,
-) -> Result<()> {
+) -> Result<Placement> {
     let (link_path, source_path) = symlink_location(symlink, resource, machine);
 
     if !machine.path_exists(&source_path) {

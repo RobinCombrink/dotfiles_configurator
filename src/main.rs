@@ -16,7 +16,10 @@ use {
         },
         desired_state::DesiredState,
         github::GitHubAccess,
-        machine::{HeldReason, Placement, ReadMachine, local::LocalMachine},
+        machine::{
+            ElevatedBatch, HeldReason, Placement, ReadMachine,
+            local::{LocalMachine, elevation},
+        },
         planned_run::PlannedRun,
         reporting::{RunKind, RunReport},
         version::Version,
@@ -32,7 +35,7 @@ use {
 };
 
 #[cfg(test)]
-use dotfiles_configurator::configuration::GitHubRepository;
+use dotfiles_configurator::{configuration::GitHubRepository, machine::ElevatedWork};
 
 fn source_named_in_the_working_directory(value: &str) -> Result<ConfigurationSource, String> {
     let working_directory = std::env::current_dir()
@@ -114,6 +117,25 @@ fn version_named(spelled: &str) -> Result<Version, String> {
     Version::try_from(spelled)
 }
 
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+struct ElevatedBatchArguments {
+    #[arg(
+        long = elevation::BATCH,
+        value_parser = batch_named,
+        help = "The entries to settle, as the apply that asked for elevation wrote them."
+    )]
+    batch: ElevatedBatch<()>,
+    #[arg(
+        long = elevation::RESULTS,
+        help = "Where to write what each entry settled to, for the apply that asked to read."
+    )]
+    results: PathBuf,
+}
+
+fn batch_named(written: &str) -> Result<ElevatedBatch<()>, String> {
+    serde_json::from_str(written).map_err(|fault| format!("not an elevated batch: {fault}"))
+}
+
 #[derive(Subcommand, Debug)]
 enum Task {
     #[command(
@@ -122,6 +144,12 @@ enum Task {
     Plan(PlanArguments),
     #[command(about = "Show the change set, ask once, then enact it until a pass changes nothing")]
     Apply(ApplyArguments),
+    #[command(
+        name = elevation::ELEVATED_BATCH,
+        hide = true,
+        about = "Settle the entries an apply was refused for want of elevation, elevated"
+    )]
+    ElevatedBatch(ElevatedBatchArguments),
 }
 
 #[derive(Parser, Debug)]
@@ -192,7 +220,7 @@ async fn run(task: Task) -> Result<Ending> {
             };
             let machine = LocalMachine::new(&report, &github)?;
             #[cfg(target_family = "windows")]
-            machine.note_the_privileges_it_holds()?;
+            machine.note_the_privileges_it_holds();
             let desired_state = match load_after_updating_if_it_must(
                 &arguments, &machine, &report, &github, &operator,
             )
@@ -237,6 +265,11 @@ async fn run(task: Task) -> Result<Ending> {
                     ),
                 ),
             }
+        }
+        Task::ElevatedBatch(arguments) => {
+            let report = RunReport::open(RunKind::Elevated)?;
+            elevation::perform(arguments.batch, &arguments.results, &report).await?;
+            Ok(Ending::Concluded(Conclusion::Settled))
         }
     }
 }
@@ -364,6 +397,10 @@ async fn obtain_a_newer_build(machine: &LocalMachine<'_, '_>) -> Result<()> {
             "{} is running and could not be moved aside to install the newer build",
             path.display()
         ),
+        Placement::Held(reason @ HeldReason::ElevationDeclined) => {
+            bail!("The newer build could not be installed: {reason}")
+        }
+        Placement::Refused(refusal) => bail!("{}", refusal.refusal),
     }
 }
 
@@ -389,6 +426,7 @@ enum Conclusion {
     Converged,
     Unconverged,
     DidNothing,
+    Settled,
 }
 
 impl Conclusion {
@@ -402,7 +440,7 @@ impl Conclusion {
     // ADR 0004, ADR 0013
     fn status(self) -> u8 {
         match self {
-            Conclusion::Converged => 0,
+            Conclusion::Converged | Conclusion::Settled => 0,
             Conclusion::Unconverged => 1,
             Conclusion::DidNothing => 2,
         }
@@ -444,7 +482,9 @@ mod tests {
         .unwrap();
         match parsed.task {
             Task::Apply(apply) => apply.configuration,
-            Task::Plan(_) => panic!("the arguments named plan rather than apply"),
+            Task::Plan(_) | Task::ElevatedBatch(_) => {
+                panic!("the arguments named something other than apply")
+            }
         }
     }
 
@@ -455,7 +495,9 @@ mod tests {
         .unwrap();
         match parsed.task {
             Task::Plan(plan) => plan,
-            Task::Apply(_) => panic!("the arguments named apply rather than plan"),
+            Task::Apply(_) | Task::ElevatedBatch(_) => {
+                panic!("the arguments named something other than plan")
+            }
         }
     }
 
@@ -466,7 +508,9 @@ mod tests {
         .unwrap();
         match parsed.task {
             Task::Apply(apply) => apply,
-            Task::Plan(_) => panic!("the arguments named plan rather than apply"),
+            Task::Plan(_) | Task::ElevatedBatch(_) => {
+                panic!("the arguments named something other than apply")
+            }
         }
     }
 
@@ -607,7 +651,9 @@ mod tests {
         .task
         {
             Task::Apply(apply) => apply,
-            Task::Plan(_) => panic!("the successor was started to plan rather than to apply"),
+            Task::Plan(_) | Task::ElevatedBatch(_) => {
+                panic!("the successor was started for something other than to apply")
+            }
         }
     }
 
@@ -710,6 +756,29 @@ mod tests {
     fn a_converged_machine_exits_zero_and_an_unconverged_one_exits_non_zero() {
         assert_eq!(Conclusion::of(true).status(), 0);
         assert_eq!(Conclusion::of(false).status(), 1);
+    }
+
+    #[test]
+    fn an_elevated_batch_reads_back_the_entries_it_was_started_with() {
+        let batch = ElevatedBatch::of([ElevatedWork::Installer {
+            installer_path: PathBuf::from("SteamSetup.exe"),
+        }]);
+        let written = serde_json::to_string(&batch).unwrap();
+
+        let parsed = Arguments::try_parse_from([
+            "dotfiles_configurator",
+            elevation::ELEVATED_BATCH,
+            &format!("--{}", elevation::BATCH),
+            &written,
+            &format!("--{}", elevation::RESULTS),
+            "results.json",
+        ])
+        .unwrap();
+
+        match parsed.task {
+            Task::ElevatedBatch(arguments) => assert_eq!(arguments.batch, batch),
+            Task::Plan(_) | Task::Apply(_) => panic!("the arguments named another subcommand"),
+        }
     }
 
     #[test]

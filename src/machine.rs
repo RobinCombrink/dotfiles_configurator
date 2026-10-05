@@ -20,15 +20,21 @@ use {
     },
 };
 
+pub mod elevation;
 pub mod environment_reading;
 pub mod invocation;
 pub mod local;
 pub mod release_reading;
 pub mod workspace_reading;
 
-pub use invocation::{
-    DisplacingInvocation, ReadInvocation, RefusedCopy, ReplacementCommands, ReplacingInvocation,
-    ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
+pub use {
+    elevation::{
+        Batched, ElevatedBatch, ElevatedOutcome, ElevatedWork, Elevation, PrivilegeRefusal,
+    },
+    invocation::{
+        DisplacingInvocation, ReadInvocation, RefusedCopy, ReplacementCommands,
+        ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,11 +122,13 @@ impl<Declared> Downloaded<Declared> {
 pub enum Placement {
     Placed,
     Held(HeldReason),
+    Refused(PrivilegeRefusal),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HeldReason {
     BeingExecuted(PathBuf),
+    ElevationDeclined,
 }
 
 impl Display for HeldReason {
@@ -129,6 +137,7 @@ impl Display for HeldReason {
             HeldReason::BeingExecuted(path) => {
                 write!(formatter, "{} is being executed", path.display())
             }
+            HeldReason::ElevationDeclined => formatter.write_str("elevation declined"),
         }
     }
 }
@@ -155,6 +164,8 @@ pub trait ReadMachine {
     fn canonical_path(&self, path: &Path) -> Option<PathBuf>;
 
     fn tool_is_present(&self, tool: Tool) -> bool;
+
+    fn is_elevated(&self) -> bool;
 
     /// The text held at `path`, where `Ok(None)` means nothing is there and an error means
     /// something is but could not be read as text.
@@ -240,7 +251,7 @@ pub trait ReadMachine {
 }
 
 pub trait WriteMachine: ReadMachine {
-    fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<()>;
+    fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<Placement>;
 
     fn write_text_file(&self, path: &Path, contents: &str) -> Result<()>;
 
@@ -268,7 +279,13 @@ pub trait WriteMachine: ReadMachine {
     fn install_application(
         &self,
         downloaded: Downloaded<crate::configuration::Installer>,
-    ) -> impl std::future::Future<Output = Result<()>>;
+    ) -> impl std::future::Future<Output = Result<Placement>>;
+
+    // ADR 0042
+    fn run_elevated(
+        &self,
+        batch: &ElevatedBatch<()>,
+    ) -> impl std::future::Future<Output = Result<Elevation>>;
 
     // ADR 0016
     fn download_released_binary(

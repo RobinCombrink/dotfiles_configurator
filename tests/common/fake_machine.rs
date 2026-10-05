@@ -15,9 +15,10 @@ use {
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
-            CommandOutput, DisplacingInvocation, Downloaded, Exited, HeldReason, Placement,
-            ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, ResolvedCargoSource,
-            WorkspaceBuild, WriteInvocation, WriteMachine,
+            Batched, CommandOutput, DisplacingInvocation, Downloaded, ElevatedBatch,
+            ElevatedOutcome, ElevatedWork, Elevation, Exited, HeldReason, Placement,
+            PrivilegeRefusal, ReadInvocation, ReadMachine, Replacement, ReplacingInvocation,
+            ResolvedCargoSource, WorkspaceBuild, WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
@@ -91,6 +92,11 @@ struct MachineState {
     journal: Vec<Step>,
     failing_downloads: BTreeSet<String>,
     winget_sources_fail_to_update: bool,
+    links_refused_for_want_of_a_privilege: bool,
+    installers_demanding_elevation: BTreeSet<ApplicationName>,
+    elevated: bool,
+    elevation_declined: bool,
+    elevation_prompts: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -452,6 +458,65 @@ impl FakeMachine {
 
     pub fn make_winget_sources_fail_to_update(&self) {
         self.state.borrow_mut().winget_sources_fail_to_update = true;
+    }
+
+    pub fn refuse_links_for_want_of_a_privilege(&self) {
+        self.state
+            .borrow_mut()
+            .links_refused_for_want_of_a_privilege = true;
+    }
+
+    pub fn make_installer_demand_elevation(&self, name: &ApplicationName) {
+        self.state
+            .borrow_mut()
+            .installers_demanding_elevation
+            .insert(name.clone());
+    }
+
+    pub fn start_the_apply_elevated(&self) {
+        self.state.borrow_mut().elevated = true;
+    }
+
+    pub fn decline_elevation(&self) {
+        self.state.borrow_mut().elevation_declined = true;
+    }
+
+    pub fn allow_elevation(&self) {
+        self.state.borrow_mut().elevation_declined = false;
+    }
+
+    pub fn elevation_prompts(&self) -> usize {
+        self.state.borrow().elevation_prompts
+    }
+
+    fn performed_elevated(&self, work: &ElevatedWork) -> ElevatedOutcome {
+        let mut state = self.state.borrow_mut();
+        match work {
+            ElevatedWork::Link {
+                link_path,
+                target_path,
+            } => {
+                state.links.insert(link_path.clone(), target_path.clone());
+                ElevatedOutcome::Converged
+            }
+            ElevatedWork::Installer { installer_path } => {
+                let name = ApplicationName::from(
+                    installer_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .as_ref(),
+                );
+                state.install_attempts.push(name.clone());
+                if state.failing_applications.contains(&name) {
+                    return ElevatedOutcome::Failed {
+                        reason: format!("the installer for {name} exited non-zero"),
+                    };
+                }
+                state.installed_applications.insert(name);
+                ElevatedOutcome::Converged
+            }
+        }
     }
 
     async fn working<Output>(&self, work: String, act: impl FnOnce() -> Output) -> Output {
@@ -964,6 +1029,11 @@ impl FakeMachine {
             journal: _,
             failing_downloads,
             winget_sources_fail_to_update,
+            links_refused_for_want_of_a_privilege,
+            installers_demanding_elevation,
+            elevated,
+            elevation_declined,
+            elevation_prompts: _,
         } = &*state;
         format!(
             "{paths:?}|{links:?}|{text_files:?}|{tools:?}|{installed_applications:?}|\
@@ -977,7 +1047,8 @@ impl FakeMachine {
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
              {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\
              {mcp_servers_claude_refuses_to_add:?}|{failing_downloads:?}|\
-             {winget_sources_fail_to_update:?}"
+             {winget_sources_fail_to_update:?}|{links_refused_for_want_of_a_privilege:?}|\
+             {installers_demanding_elevation:?}|{elevated:?}|{elevation_declined:?}"
         )
     }
 }
@@ -1096,6 +1167,10 @@ impl FakeMachine {
 impl ReadMachine for FakeMachine {
     fn home_directory(&self) -> &Path {
         &self.home_directory
+    }
+
+    fn is_elevated(&self) -> bool {
+        self.state.borrow().elevated
     }
 
     fn superseded_images(&self) -> Vec<PathBuf> {
@@ -1329,7 +1404,7 @@ impl ReadMachine for FakeMachine {
 }
 
 impl WriteMachine for FakeMachine {
-    fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<()> {
+    fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<Placement> {
         self.worked(format!("link {}", link_path.display()));
         let mut state = self.state.borrow_mut();
         if state.paths.contains(link_path) && !state.links.contains_key(link_path) {
@@ -1339,11 +1414,25 @@ impl WriteMachine for FakeMachine {
                 link_path.display()
             );
         }
+        if state.links_refused_for_want_of_a_privilege {
+            return Ok(Placement::Refused(PrivilegeRefusal {
+                work: ElevatedWork::Link {
+                    link_path: link_path.to_path_buf(),
+                    target_path: target_path.to_path_buf(),
+                },
+                refusal: format!(
+                    "Could not link {} to {}: A required privilege is not held by the client. \
+                     (os error 1314)",
+                    link_path.display(),
+                    target_path.display()
+                ),
+            }));
+        }
 
         state
             .links
             .insert(link_path.to_path_buf(), target_path.to_path_buf());
-        Ok(())
+        Ok(Placement::Placed)
     }
 
     fn write_text_file(&self, path: &Path, contents: &str) -> Result<()> {
@@ -1408,10 +1497,53 @@ impl WriteMachine for FakeMachine {
         .await
     }
 
-    async fn install_application(&self, downloaded: Downloaded<Installer>) -> Result<()> {
+    async fn install_application(&self, downloaded: Downloaded<Installer>) -> Result<Placement> {
         let installer = downloaded.declared();
         self.working(format!("install {}", installer.name), || {
-            self.installing_application(installer)
+            let demands_elevation = self
+                .state
+                .borrow()
+                .installers_demanding_elevation
+                .contains(&installer.name);
+            if !demands_elevation {
+                return self
+                    .installing_application(installer)
+                    .map(|()| Placement::Placed);
+            }
+
+            Ok(Placement::Refused(PrivilegeRefusal {
+                work: ElevatedWork::Installer {
+                    installer_path: downloaded.file().to_path_buf(),
+                },
+                refusal: format!(
+                    "Could not run {}: The requested operation requires elevation. (os error 740)",
+                    downloaded.file().display()
+                ),
+            }))
+        })
+        .await
+    }
+
+    async fn run_elevated(&self, batch: &ElevatedBatch<()>) -> Result<Elevation> {
+        self.working("elevated batch".to_owned(), || {
+            let declined = {
+                let mut state = self.state.borrow_mut();
+                state.elevation_prompts += 1;
+                state.elevation_declined
+            };
+            if declined {
+                return Ok(Elevation::Declined);
+            }
+
+            let entries = batch
+                .entries
+                .iter()
+                .map(|Batched { work, .. }| Batched {
+                    work: work.clone(),
+                    outcome: self.performed_elevated(work),
+                })
+                .collect();
+            Ok(Elevation::Performed(ElevatedBatch { entries }))
         })
         .await
     }

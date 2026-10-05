@@ -1638,6 +1638,53 @@ fn resources_reported_as_held(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.outcome().held.len(), expected);
 }
 
+#[given(expr = "Alice's machine refuses links for want of a privilege")]
+fn machine_refuses_links(world: &mut MachineWorld) {
+    world.machine.refuse_links_for_want_of_a_privilege();
+}
+
+#[given(regex = r"^the installer for (.+) demands elevation on Alice's machine$")]
+fn installer_demands_elevation(world: &mut MachineWorld, name: String) {
+    world
+        .machine
+        .make_installer_demand_elevation(&ApplicationName::from(name.as_str()));
+}
+
+#[given(expr = "Alice allows elevation when asked")]
+fn alice_allows_elevation(world: &mut MachineWorld) {
+    world.machine.allow_elevation();
+}
+
+#[given(expr = "Alice declines elevation when asked")]
+fn alice_declines_elevation(world: &mut MachineWorld) {
+    world.machine.decline_elevation();
+}
+
+#[given(expr = "Alice's apply is already elevated")]
+fn apply_is_already_elevated(world: &mut MachineWorld) {
+    world.machine.start_the_apply_elevated();
+}
+
+#[then(expr = "Alice was asked for elevation {int} time(s)")]
+fn alice_was_asked_for_elevation(world: &mut MachineWorld, expected: usize) {
+    assert_eq!(world.machine.elevation_prompts(), expected);
+}
+
+#[then(expr = "Alice's run shows {string} as held because {string}")]
+fn the_run_shows_an_entry_held(world: &mut MachineWorld, name: String, because: String) {
+    let diagnostics = world.diagnostics_shown();
+    let after_the_entry = diagnostics
+        .split_once(&format!(" {name}: held\n"))
+        .map(|(_, after)| after.lines().next().unwrap_or_default().to_owned())
+        .unwrap_or_default();
+
+    assert!(
+        after_the_entry.contains(&because),
+        "{}",
+        world.screen.text()
+    );
+}
+
 #[then(expr = "{int} binary/binaries is/are superseded on Alice's machine")]
 fn binaries_superseded(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.machine.superseded_image_count(), expected);
