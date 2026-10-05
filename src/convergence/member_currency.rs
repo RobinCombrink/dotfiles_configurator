@@ -76,9 +76,10 @@ enum Stamp {
 // forty-character commit and exit 0, and a binary built without the stamp prints its package
 // version instead, as `committed --version` printing `committed 1.1.11` does. Windows 11.
 fn stamp_reported(binary: &BinaryName, output: &CommandOutput) -> Stamp {
-    if !output.succeeded {
+    if !output.exited.succeeded() {
         return Stamp::Unreadable(format!(
-            "`{binary} {VERSION_ARGUMENT}` failed: {}",
+            "`{binary} {VERSION_ARGUMENT}` failed, {}: {}",
+            output.exited,
             output.standard_error.trim()
         ));
     }
@@ -273,13 +274,13 @@ pub fn judged(binaries: impl IntoIterator<Item = (BinaryName, OwnCopy, Resolutio
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, crate::machine::Exited};
 
     const A_COMMIT: &str = "e54928664eb4222b2ea79c7ef56126c5c58c7e01";
 
     fn printed(standard_output: &str) -> CommandOutput {
         CommandOutput {
-            succeeded: true,
+            exited: Exited::Code(0),
             standard_output: standard_output.to_owned(),
             standard_error: String::new(),
         }
@@ -325,7 +326,7 @@ mod tests {
     #[test]
     fn a_binary_whose_version_request_fails_is_unreadable() {
         let failed = CommandOutput {
-            succeeded: false,
+            exited: Exited::Code(2),
             standard_output: format!("stop-gate {A_COMMIT}\n"),
             standard_error: "error: unexpected argument".to_owned(),
         };

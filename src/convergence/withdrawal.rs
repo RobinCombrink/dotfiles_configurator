@@ -176,12 +176,13 @@ async fn remove(withdrawal: &Withdrawal, machine: &impl WriteMachine) -> Result<
     };
 
     let output = machine.attempt_write(&invocation).await?;
-    if output.succeeded {
+    if output.exited.succeeded() {
         return Ok(());
     }
     if !invocation.refused_as_corrupt(&output) {
         bail!(
-            "cargo would not remove {binary}: {}",
+            "cargo would not remove {binary}, {}: {}",
+            output.exited,
             output.standard_error.trim()
         );
     }
@@ -195,10 +196,12 @@ async fn remove(withdrawal: &Withdrawal, machine: &impl WriteMachine) -> Result<
     }
 
     let retried = machine.attempt_write(&invocation).await?;
-    match retried.succeeded {
+    match retried.exited.succeeded() {
         true => Ok(()),
         false => bail!(
-            "cargo would not remove {binary} even with every file its record names in place: {}",
+            "cargo would not remove {binary} even with every file its record names in place, {}: \
+             {}",
+            retried.exited,
             retried.standard_error.trim()
         ),
     }

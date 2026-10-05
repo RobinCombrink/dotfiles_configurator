@@ -15,7 +15,7 @@ use {
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
-            CommandOutput, DisplacingInvocation, Downloaded, Placement, ReadInvocation,
+            CommandOutput, DisplacingInvocation, Downloaded, Exited, Placement, ReadInvocation,
             ReadMachine, Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild,
             WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
@@ -282,7 +282,7 @@ impl FakeMachine {
     fn uninstall_cargo_binary(&self, specification: &str, binary: &BinaryName) -> CommandOutput {
         let mut state = self.state.borrow_mut();
         let refused = |standard_error: String| CommandOutput {
-            succeeded: false,
+            exited: Exited::Code(101),
             standard_output: String::new(),
             standard_error,
         };
@@ -329,7 +329,7 @@ impl FakeMachine {
         }
 
         CommandOutput {
-            succeeded: true,
+            exited: Exited::Code(0),
             standard_output: String::new(),
             standard_error: String::new(),
         }
@@ -531,7 +531,10 @@ impl FakeMachine {
         }
 
         Ok(CommandOutput {
-            succeeded: standard_error.is_empty(),
+            exited: match standard_error.is_empty() {
+                true => Exited::Code(0),
+                false => Exited::Code(1),
+            },
             standard_output: String::new(),
             standard_error,
         })
@@ -548,7 +551,7 @@ impl FakeMachine {
 
         if let Some(destination) = state.executing_binaries.keys().next().cloned() {
             return CommandOutput {
-                succeeded: false,
+                exited: Exited::Code(101),
                 standard_output: String::new(),
                 standard_error: format!(
                     "error: failed to move `{}` to `{}`\n\nCaused by:\n  Access is denied. \
@@ -589,7 +592,7 @@ impl FakeMachine {
         }
 
         CommandOutput {
-            succeeded: true,
+            exited: Exited::Code(0),
             standard_output: String::new(),
             standard_error: String::new(),
         }
@@ -657,7 +660,7 @@ impl FakeMachine {
         self.answer_reading_with(
             invocation,
             CommandOutput {
-                succeeded: false,
+                exited: Exited::Code(1),
                 standard_output: String::new(),
                 standard_error: standard_error.to_owned(),
             },
@@ -1050,6 +1053,8 @@ fn uv_outdated_tool_listing(state: &MachineState) -> String {
 
 const WINGET_FINDS_NO_PACKAGE: &str = "No installed package found matching input criteria.\n";
 
+const WINGET_EXITS_FINDING_NO_PACKAGE: i32 = 0x8A15_0014_u32.cast_signed();
+
 fn winget_listing(packages: &BTreeSet<WingetPackageId>) -> String {
     const PACKAGE_NAME: &str = "A package";
     const VERSION: &str = "1.0.0";
@@ -1150,10 +1155,12 @@ impl ReadMachine for FakeMachine {
         }
 
         let mut standard_error = String::new();
-        let (succeeded, standard_output) = match invocation {
-            ReadInvocation::WingetInstalledPackages => {
-                (true, winget_listing(&self.state.borrow().winget_packages))
-            }
+        let succeeded = Exited::Code(0);
+        let (exited, standard_output) = match invocation {
+            ReadInvocation::WingetInstalledPackages => (
+                succeeded,
+                winget_listing(&self.state.borrow().winget_packages),
+            ),
             ReadInvocation::WingetPackage { id } => {
                 let state = self.state.borrow();
                 match state.winget_packages.contains(id)
@@ -1161,30 +1168,33 @@ impl ReadMachine for FakeMachine {
                         .winget_packages_matched_only_by_identifier
                         .contains(id)
                 {
-                    true => (true, winget_listing(&BTreeSet::from([id.clone()]))),
-                    false => (false, WINGET_FINDS_NO_PACKAGE.to_owned()),
+                    true => (succeeded, winget_listing(&BTreeSet::from([id.clone()]))),
+                    false => (
+                        Exited::Code(WINGET_EXITS_FINDING_NO_PACKAGE),
+                        WINGET_FINDS_NO_PACKAGE.to_owned(),
+                    ),
                 }
             }
             ReadInvocation::CargoInstalledCrates => {
-                (true, cargo_crate_listing(&self.state.borrow()))
+                (succeeded, cargo_crate_listing(&self.state.borrow()))
             }
-            ReadInvocation::UvInstalledTools => (true, uv_tool_listing(&self.state.borrow())),
+            ReadInvocation::UvInstalledTools => (succeeded, uv_tool_listing(&self.state.borrow())),
             ReadInvocation::UvOutdatedTools => {
-                (true, uv_outdated_tool_listing(&self.state.borrow()))
+                (succeeded, uv_outdated_tool_listing(&self.state.borrow()))
             }
             ReadInvocation::ClaudeMcpServer { name } => {
                 match self.state.borrow().claude_mcp_servers.get(name) {
                     None => {
                         standard_error = format!("No MCP server named \"{name}\".");
-                        (false, String::new())
+                        (Exited::Code(1), String::new())
                     }
-                    Some(server) => (true, claude_mcp_get_output(server)),
+                    Some(server) => (succeeded, claude_mcp_get_output(server)),
                 }
             }
         };
 
         Ok(CommandOutput {
-            succeeded,
+            exited,
             standard_output,
             standard_error,
         })
@@ -1311,7 +1321,7 @@ impl ReadMachine for FakeMachine {
         };
 
         Ok(CommandOutput {
-            succeeded: true,
+            exited: Exited::Code(0),
             standard_output: printed.clone(),
             standard_error: String::new(),
         })
@@ -1453,7 +1463,7 @@ impl WriteMachine for FakeMachine {
         let output = self
             .working(work_of(invocation), || self.run_write(invocation))
             .await?;
-        match output.succeeded {
+        match output.exited.succeeded() {
             true => Ok(output),
             false => bail!("{} failed: {}", invocation.tool(), output.standard_error),
         }
@@ -1468,7 +1478,7 @@ impl WriteMachine for FakeMachine {
         let output = self
             .working(work_of(invocation), || self.run_write(invocation))
             .await?;
-        if output.succeeded {
+        if output.exited.succeeded() {
             return Ok(Placement::Placed);
         }
 
@@ -1560,7 +1570,7 @@ impl WriteMachine for FakeMachine {
         self.working(format!("command {}", args.join(" ")), || {
             self.state.borrow_mut().commands_run.push(args.to_vec());
             Ok(CommandOutput {
-                succeeded: true,
+                exited: Exited::Code(0),
                 standard_output: String::new(),
                 standard_error: String::new(),
             })
@@ -1644,7 +1654,7 @@ impl FakeMachine {
 
     fn writing_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
         let output = self.run_cargo(invocation);
-        if output.succeeded {
+        if output.exited.succeeded() {
             return Ok(Placement::Placed);
         }
 
@@ -1663,7 +1673,7 @@ impl FakeMachine {
             .insert(superseded_name(&destination));
         drop(state);
 
-        match self.run_cargo(invocation).succeeded {
+        match self.run_cargo(invocation).exited.succeeded() {
             true => Ok(Placement::Placed),
             false => bail!("cargo failed once the image in its way had been displaced"),
         }

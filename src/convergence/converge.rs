@@ -371,11 +371,12 @@ async fn converge_command(command: &Command, machine: &impl WriteMachine) -> Res
     let output = machine
         .run_declared_command(command.shell, &command.args)
         .await?;
-    match output.succeeded {
+    match output.exited.succeeded() {
         true => Ok(()),
         false => bail!(
-            "`{}` failed:\n{}\n{}",
+            "`{}` failed, {}:\n{}\n{}",
             command.rendered(),
+            output.exited,
             output.standard_output.trim(),
             output.standard_error.trim()
         ),

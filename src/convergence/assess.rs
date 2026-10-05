@@ -15,7 +15,7 @@ use {
         },
         desired_state::{DesiredState, ResolvedResource},
         machine::{
-            ReadInvocation, ReadMachine, environment_reading::SearchPathReading,
+            CommandOutput, ReadInvocation, ReadMachine, environment_reading::SearchPathReading,
             release_reading::ReleaseReading, workspace_reading::WorkspaceReading,
         },
         version::Version,
@@ -271,9 +271,14 @@ fn read_listing(
     }
 
     match machine.read(&invocation) {
-        Ok(output) if output.succeeded => SourceReading::Read(output.standard_output),
+        Ok(output) if output.exited.succeeded() => SourceReading::Read(output.standard_output),
         Ok(output) => SourceReading::Unreadable(
-            format!("{tool} could not be read: {}", output.standard_error.trim()).into(),
+            format!(
+                "{tool} could not be read, {}: {}",
+                output.exited,
+                output.standard_error.trim()
+            )
+            .into(),
         ),
         Err(error) => {
             SourceReading::Unreadable(format!("{tool} could not be read: {error}").into())
@@ -449,10 +454,11 @@ fn installed_version(
         .report_version(installed_path, &binary.version_arguments)
         .map_err(|error| UnreadableReason::from(format!("{error:#}")))?;
 
-    if !output.succeeded {
+    if !output.exited.succeeded() {
         return Err(format!(
-            "`{}` failed: {}",
+            "`{}` failed, {}: {}",
             binary.rendered_version_invocation(),
+            output.exited,
             output.standard_error.trim()
         )
         .into());
@@ -500,13 +506,14 @@ fn assess_winget_package_by_identifier(
         }
     };
 
-    if !output.succeeded {
+    if !output.exited.succeeded() {
         return match output.standard_output.trim() == WINGET_FINDS_NO_PACKAGE {
             true => Assessment::Drifted("winget reports it as not installed".into()),
             false => Assessment::Unassessable(Impediment::ActualStateUnreadable(
                 format!(
-                    "winget could not be asked about {}: {}",
+                    "winget could not be asked about {}, {}: {}",
                     package.id,
+                    output.exited,
                     output.standard_error.trim()
                 )
                 .into(),
@@ -871,8 +878,8 @@ fn assess_claude_mcp_server(server: &ClaudeMcpServer, machine: &impl ReadMachine
         }
     };
 
-    if !output.succeeded {
-        return claude_refusal(&output.standard_error);
+    if !output.exited.succeeded() {
+        return claude_refusal(&output);
     }
 
     match first_difference(server, &output.standard_output) {
@@ -886,11 +893,17 @@ fn assess_claude_mcp_server(server: &ClaudeMcpServer, machine: &impl ReadMachine
 // on Windows 11.
 const NO_SUCH_SERVER: &str = "No MCP server named";
 
-fn claude_refusal(standard_error: &str) -> Assessment {
+fn claude_refusal(output: &CommandOutput) -> Assessment {
+    let standard_error = &output.standard_error;
     match standard_error.trim_start().starts_with(NO_SUCH_SERVER) {
         true => Assessment::Drifted("claude holds no such server".into()),
         false => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            format!("claude could not be read: {}", standard_error.trim()).into(),
+            format!(
+                "claude could not be read, {}: {}",
+                output.exited,
+                standard_error.trim()
+            )
+            .into(),
         )),
     }
 }
@@ -948,7 +961,10 @@ fn assess_command(command: &Command, machine: &impl ReadMachine) -> Assessment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::configuration::{McpScope, McpServerName};
+    use crate::{
+        configuration::{McpScope, McpServerName},
+        machine::Exited,
+    };
 
     // 2026-07-31: taken verbatim from `cargo install --list`.
     const LISTING: &str = concat!(
@@ -1232,12 +1248,20 @@ mod tests {
         );
     }
 
+    fn claude_exiting_one_saying(standard_error: &str) -> CommandOutput {
+        CommandOutput {
+            exited: Exited::Code(1),
+            standard_output: String::new(),
+            standard_error: standard_error.to_owned(),
+        }
+    }
+
     #[test]
     fn a_claude_that_reports_no_server_under_the_name_has_drifted() {
         let refusal = "No MCP server named \"probe-server\". Configured servers: serena, github";
 
         assert_eq!(
-            claude_refusal(refusal),
+            claude_refusal(&claude_exiting_one_saying(refusal)),
             Assessment::Drifted("claude holds no such server".into())
         );
     }
@@ -1245,9 +1269,12 @@ mod tests {
     #[test]
     fn a_claude_that_failed_for_any_other_reason_is_unassessable_rather_than_drifted() {
         assert_eq!(
-            claude_refusal("Invalid API key · Please run /login"),
+            claude_refusal(&claude_exiting_one_saying(
+                "Invalid API key · Please run /login"
+            )),
             Assessment::Unassessable(Impediment::ActualStateUnreadable(
-                "claude could not be read: Invalid API key · Please run /login".into()
+                "claude could not be read, exited with 1: Invalid API key · Please run /login"
+                    .into()
             ))
         );
     }

@@ -8,7 +8,7 @@ use {
         configuration_source::WriteSource,
         github::GitHubAccess,
         machine::{
-            CommandOutput, DisplacingInvocation, Downloaded, Placement, ReadInvocation,
+            CommandOutput, DisplacingInvocation, Downloaded, Exited, Placement, ReadInvocation,
             ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild,
             WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
@@ -140,11 +140,12 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
     async fn run_installer(&self, installer_path: &Path) -> Result<()> {
         let output = stream(installer_path, &[], &[], None, self.report).await?;
 
-        match output.succeeded {
+        match output.exited.succeeded() {
             true => Ok(()),
             false => bail!(
-                "{} failed:\n{}\n{}",
+                "{} failed, {}:\n{}\n{}",
                 installer_path.display(),
+                output.exited,
                 output.standard_output.trim(),
                 output.standard_error.trim()
             ),
@@ -158,7 +159,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
             .collect();
         let output = capture(Path::new(Tool::Git.program()), &arguments, self.report)?;
 
-        match output.succeeded {
+        match output.exited.succeeded() {
             true => Ok(()),
             false => Err(refused(Tool::Git, &arguments, &output)),
         }
@@ -261,9 +262,8 @@ fn capture(program: &Path, arguments: &[String], report: &RunReport) -> Result<C
     let standard_error = decode_output(&output.stderr);
     report.captured_output(&standard_output);
     report.captured_output(&standard_error);
-
     Ok(CommandOutput {
-        succeeded: output.status.success(),
+        exited: Exited::from(output.status),
         standard_output,
         standard_error,
     })
@@ -318,9 +318,8 @@ async fn stream(
         .wait()
         .await
         .with_context(|| format!("Could not wait for {}", program.display()))?;
-
     Ok(CommandOutput {
-        succeeded: status.success(),
+        exited: Exited::from(status),
         standard_output,
         standard_error,
     })
@@ -397,8 +396,9 @@ fn restoring(superseded: &Path, destination: &Path, failure: anyhow::Error) -> a
 
 fn refused(tool: Tool, arguments: &[String], output: &CommandOutput) -> anyhow::Error {
     anyhow!(
-        "{tool} {} failed:\n{}\n{}",
+        "{tool} {} failed, {}:\n{}\n{}",
         arguments.join(" "),
+        output.exited,
         output.standard_output.trim(),
         output.standard_error.trim()
     )
@@ -805,7 +805,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
     async fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
         let arguments = invocation.arguments();
         let output = self.run(invocation.tool(), &arguments, &[]).await?;
-        match output.succeeded {
+        match output.exited.succeeded() {
             true => Ok(output),
             false => Err(refused(invocation.tool(), &arguments, &output)),
         }
@@ -819,7 +819,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
     async fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
         let arguments = invocation.arguments();
         let output = self.run(invocation.tool(), &arguments, &[]).await?;
-        if output.succeeded {
+        if output.exited.succeeded() {
             return Ok(Placement::Placed);
         }
 
@@ -845,7 +845,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
         let environment = invocation.environment(&self.build_cache_directory());
 
         let output = self.run(tool, &arguments, &environment).await?;
-        if output.succeeded {
+        if output.exited.succeeded() {
             return Ok(Placement::Placed);
         }
 
@@ -860,7 +860,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
             .note(&format!("displaced {}", destination.display()));
 
         match self.run(tool, &arguments, &environment).await {
-            Ok(retried) if retried.succeeded => Ok(Placement::Placed),
+            Ok(retried) if retried.exited.succeeded() => Ok(Placement::Placed),
             Ok(retried) => Err(restoring(
                 &superseded,
                 &destination,
@@ -914,7 +914,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
             self.report,
         )
         .await
-        .and_then(|output| match output.succeeded {
+        .and_then(|output| match output.exited.succeeded() {
             true => Ok(()),
             false => Err(refused(Tool::Cargo, &arguments, &output)),
         });
@@ -938,9 +938,10 @@ impl WriteMachine for LocalMachine<'_, '_> {
         let the_name_was_freed = self
             .run(tool, &commands.free_the_name, &[])
             .await?
-            .succeeded;
+            .exited
+            .succeeded();
         let claimed = self.run(tool, &commands.claim_the_name, &[]).await?;
-        if claimed.succeeded {
+        if claimed.exited.succeeded() {
             return Ok(Replacement::Replaced);
         }
 
@@ -1315,11 +1316,44 @@ mod tests {
             .unwrap();
 
         let written = fs::read_to_string(report.log_path()).unwrap();
-        assert!(output.succeeded, "{output:?}");
+        assert!(output.exited.succeeded(), "{output:?}");
         assert!(
             written.contains("first") && written.contains("second"),
             "{written}"
         );
+    }
+
+    fn exiting_with(code: &str) -> (String, Vec<String>) {
+        shell_invocation(
+            A_SHELL_EVERY_MACHINE_HAS,
+            &["exit".to_owned(), code.to_owned()],
+        )
+    }
+
+    #[tokio::test]
+    async fn the_refusal_of_a_streamed_child_names_the_code_it_exited_with() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
+        let (program, arguments) = exiting_with("3");
+
+        let output = stream(Path::new(&program), &arguments, &[], None, &report)
+            .await
+            .unwrap();
+
+        let refusal = format!("{:#}", refused(Tool::Cargo, &arguments, &output));
+        assert!(refusal.contains("exited with 3"), "{refusal}");
+    }
+
+    #[test]
+    fn the_refusal_of_a_captured_child_names_the_code_it_exited_with() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Plan).unwrap();
+        let (program, arguments) = exiting_with("3");
+
+        let output = capture(Path::new(&program), &arguments, &report).unwrap();
+
+        let refusal = format!("{:#}", refused(Tool::Git, &arguments, &output));
+        assert!(refusal.contains("exited with 3"), "{refusal}");
     }
 
     #[tokio::test]
@@ -1495,7 +1529,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(output.succeeded, "{output:?}");
+        assert!(output.exited.succeeded(), "{output:?}");
         assert!(output.standard_output.contains(asked), "{output:?}");
     }
 

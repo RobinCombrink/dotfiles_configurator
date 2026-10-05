@@ -367,7 +367,7 @@ impl WriteInvocation {
     pub fn refused_as_corrupt(&self, output: &CommandOutput) -> bool {
         match self {
             WriteInvocation::UninstallCargoBinary { .. } => {
-                !output.succeeded
+                !output.exited.succeeded()
                     && output.standard_error.contains("corrupt metadata")
                     && output
                         .standard_error
@@ -508,13 +508,16 @@ mod tests {
     use super::*;
     use crate::{
         configuration::{McpScope, RepositoryName, RepositoryOwner},
-        machine::workspace_reading::{Fingerprint, MemberReading, ObjectHash},
+        machine::{
+            Exited,
+            workspace_reading::{Fingerprint, MemberReading, ObjectHash},
+        },
     };
     use std::collections::BTreeMap;
 
     fn cargo_said(standard_error: &str) -> CommandOutput {
         CommandOutput {
-            succeeded: false,
+            exited: Exited::Code(101),
             standard_output: String::new(),
             standard_error: standard_error.to_owned(),
         }

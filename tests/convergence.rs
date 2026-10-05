@@ -35,7 +35,7 @@ use {
         desired_state::DesiredState,
         github::GitHubAccess,
         machine::{
-            CommandOutput, ReadInvocation, ReadMachine, WriteMachine,
+            CommandOutput, Exited, ReadInvocation, ReadMachine, WriteMachine,
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
                 Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
@@ -529,7 +529,7 @@ fn winget_cannot_be_asked_by_identifier(world: &mut MachineWorld, id: String) {
     world.machine.answer_reading_with(
         ReadInvocation::WingetPackage { id: id.into() },
         CommandOutput {
-            succeeded: false,
+            exited: Exited::Code(1),
             standard_output: String::new(),
             standard_error: "Failed when opening source(s); try the 'source reset' command"
                 .to_owned(),
@@ -835,7 +835,7 @@ fn winget_lists_without_columns(world: &mut MachineWorld) {
     world.machine.answer_reading_with(
         ReadInvocation::WingetInstalledPackages,
         CommandOutput {
-            succeeded: true,
+            exited: Exited::Code(0),
             standard_output: "a listing with no header row\n".to_owned(),
             standard_error: String::new(),
         },
