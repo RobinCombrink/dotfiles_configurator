@@ -36,6 +36,35 @@ impl SearchPathReading {
             .iter()
             .any(|entry| path_folding::comparable(entry) == wanted)
     }
+
+    /// The file a name resolves to: the first entry, in search order, that holds a file of that
+    /// name.
+    ///
+    /// ```
+    /// # use dotfiles_configurator::machine::environment_reading::SearchPathReading;
+    /// # use std::path::{Path, PathBuf};
+    /// let reading = SearchPathReading::of([
+    ///     PathBuf::from("C:\\Windows"),
+    ///     PathBuf::from("C:\\tools"),
+    ///     PathBuf::from("C:\\Users\\Alice\\.cargo\\bin"),
+    /// ]);
+    /// let held = [
+    ///     PathBuf::from("C:\\tools\\stop-gate.exe"),
+    ///     PathBuf::from("C:\\Users\\Alice\\.cargo\\bin\\stop-gate.exe"),
+    /// ];
+    ///
+    /// assert_eq!(
+    ///     reading.resolving("stop-gate.exe", |path| held.iter().any(|file| file == path)),
+    ///     Some(PathBuf::from("C:\\tools\\stop-gate.exe"))
+    /// );
+    /// assert_eq!(reading.resolving("sweep.exe", |path| held.iter().any(|file| file == path)), None);
+    /// ```
+    pub fn resolving(&self, file_name: &str, holds: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+        self.entries
+            .iter()
+            .map(|entry| entry.join(file_name))
+            .find(|candidate| holds(candidate))
+    }
 }
 
 /// The directories a raw search path value names, each still exactly as it is stored.

@@ -21,7 +21,7 @@ use {
             environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
-            workspace_reading::{InstalledState, Revision, WorkspaceReading},
+            workspace_reading::{Fingerprint, Revision, WorkspaceReading},
         },
         version::Version,
     },
@@ -68,6 +68,7 @@ struct MachineState {
     unreadable_presence_checks: Vec<PresenceCheck>,
     unreadable_releases: BTreeSet<GitHubRepository>,
     cargo_workspaces: BTreeMap<PathBuf, WorkspaceReading>,
+    earlier_cargo_workspaces: BTreeMap<(PathBuf, Revision), BTreeMap<CrateName, Fingerprint>>,
     workspace_reads: Vec<PathBuf>,
     executing_binaries: BTreeMap<PathBuf, Displacement>,
     superseded_images: BTreeSet<PathBuf>,
@@ -205,6 +206,7 @@ impl Default for FakeMachine {
             format!("dotfiles_configurator {CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED}"),
         );
         machine.hold_user_search_path_entry(machine.binaries_directory());
+        machine.hold_user_search_path_entry(machine.cargo_binaries_directory());
         machine.hold_machine_manifest(MachineClass::Personal);
 
         machine
@@ -219,12 +221,40 @@ impl FakeMachine {
             .insert(repository_path, reading);
     }
 
-    pub fn cargo_workspace_reads(&self) -> Vec<PathBuf> {
-        self.state.borrow().workspace_reads.clone()
+    pub fn hold_cargo_workspace_member_at(
+        &self,
+        repository_path: PathBuf,
+        revision: Revision,
+        crate_name: CrateName,
+        fingerprint: Fingerprint,
+    ) {
+        self.state
+            .borrow_mut()
+            .earlier_cargo_workspaces
+            .entry((repository_path, revision))
+            .or_default()
+            .insert(crate_name, fingerprint);
     }
 
-    pub fn cargo_binaries_directory(&self) -> &Path {
-        &self.cargo_binaries_directory
+    pub fn hold_cargo_binary(&self, name: &str, version_output: String) {
+        self.hold_binary(
+            self.cargo_binaries_directory
+                .join(format!("{name}{}", std::env::consts::EXE_SUFFIX)),
+            version_output,
+        );
+    }
+
+    pub fn remove_cargo_binary(&self, name: &str) {
+        let path = self
+            .cargo_binaries_directory
+            .join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+        let mut state = self.state.borrow_mut();
+        state.paths.remove(&path);
+        state.version_output_by_binary_path.remove(&path);
+    }
+
+    pub fn cargo_workspace_reads(&self) -> Vec<PathBuf> {
+        self.state.borrow().workspace_reads.clone()
     }
 
     pub fn repositories_root(&self) -> &Path {
@@ -432,12 +462,24 @@ impl FakeMachine {
                 .insert(crate_name.clone(), version.clone());
         }
 
-        for reading in state.cargo_workspaces.values_mut() {
-            let Some(member) = reading.members.get_mut(crate_name) else {
-                continue;
-            };
-            member.installed = InstalledState::At(member.desired.clone());
-            member.absent_binaries.clear();
+        let built: Vec<(PathBuf, String)> = state
+            .cargo_workspaces
+            .values()
+            .filter_map(|reading| Some((reading.members.get(crate_name)?, &reading.revision)))
+            .flat_map(|(member, revision)| {
+                member.binaries.iter().map(move |binary| {
+                    (
+                        self.cargo_binaries_directory.join(binary.file_name()),
+                        format!("{binary} {revision}\n"),
+                    )
+                })
+            })
+            .collect();
+        for (path, version_output) in built {
+            state.paths.insert(path.clone());
+            state
+                .version_output_by_binary_path
+                .insert(path, version_output);
         }
 
         CommandOutput {
@@ -790,6 +832,7 @@ impl FakeMachine {
             unreadable_presence_checks,
             unreadable_releases,
             cargo_workspaces,
+            earlier_cargo_workspaces,
             workspace_reads: _,
             executing_binaries,
             superseded_images,
@@ -818,7 +861,7 @@ impl FakeMachine {
              {uv_tools_failing_to_upgrade:?}|{failing_applications:?}|{silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
-             {executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
+             {earlier_cargo_workspaces:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
              {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
              {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\
@@ -1029,11 +1072,7 @@ impl ReadMachine for FakeMachine {
         })
     }
 
-    fn read_cargo_workspace(
-        &self,
-        repository_path: &Path,
-        _installed: &BTreeMap<CrateName, Revision>,
-    ) -> Result<Option<WorkspaceReading>> {
+    fn read_cargo_workspace(&self, repository_path: &Path) -> Result<Option<WorkspaceReading>> {
         let is_cloned = self.path_exists(&repository_path.join(".git"));
 
         let mut state = self.state.borrow_mut();
@@ -1043,6 +1082,35 @@ impl ReadMachine for FakeMachine {
         }
 
         Ok(state.cargo_workspaces.get(repository_path).cloned())
+    }
+
+    fn read_cargo_workspace_at(
+        &self,
+        repository_path: &Path,
+        revision: &Revision,
+    ) -> Result<BTreeMap<CrateName, Fingerprint>> {
+        let state = self.state.borrow();
+        if let Some(reading) = state.cargo_workspaces.get(repository_path)
+            && reading.revision == *revision
+        {
+            return Ok(reading
+                .members
+                .iter()
+                .map(|(crate_name, member)| (crate_name.clone(), member.desired.clone()))
+                .collect());
+        }
+
+        match state
+            .earlier_cargo_workspaces
+            .get(&(repository_path.to_path_buf(), revision.clone()))
+        {
+            Some(members) => Ok(members.clone()),
+            None => bail!("{revision} is not in this clone"),
+        }
+    }
+
+    fn cargo_binaries_directory(&self) -> PathBuf {
+        self.cargo_binaries_directory.clone()
     }
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>> {
@@ -1107,9 +1175,9 @@ impl ReadMachine for FakeMachine {
 
         Ok(SearchPathReading::of(
             state
-                .user_search_path
+                .machine_search_path
                 .iter()
-                .chain(state.machine_search_path.iter())
+                .chain(state.user_search_path.iter())
                 .cloned(),
         ))
     }

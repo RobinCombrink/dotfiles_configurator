@@ -38,7 +38,7 @@ use {
             CommandOutput, ReadInvocation, ReadMachine, WriteMachine,
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
-                Fingerprint, InstalledState, MemberReading, ObjectHash, Revision, WorkspaceReading,
+                Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
         planned_run::PlannedRun,
@@ -62,6 +62,10 @@ use {
     tempfile::TempDir,
     url::Url,
 };
+
+const WORKSPACE_REVISION: &str = "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c";
+const EARLIER_WORKSPACE_REVISION: &str = "1b9e0c1d2f3a4b5c6d7e8f90a1b2c3d4e5f60718";
+const UNKNOWN_REVISION: &str = "0123456789abcdef0123456789abcdef01234567";
 
 #[derive(Debug, World)]
 #[world(init = Self::new)]
@@ -197,7 +201,7 @@ impl MachineWorld {
         self.machine.hold_cargo_workspace(
             dotfiles_repository_path(),
             WorkspaceReading {
-                revision: Revision::from("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c"),
+                revision: Revision::from(WORKSPACE_REVISION),
                 members: self.members.clone(),
             },
         );
@@ -1467,24 +1471,80 @@ fn workspace_holds_crate(world: &mut MachineWorld, crate_name: String) {
         CrateName::from(crate_name.as_str()),
         MemberReading {
             desired: content_named("what the workspace holds now"),
-            installed: InstalledState::NotInstalled,
-            absent_binaries: BTreeSet::new(),
+            binaries: BTreeSet::from([BinaryName::from(crate_name.as_str())]),
         },
     );
 }
 
+fn built_from(world: &mut MachineWorld, crate_name: &str, revision: &str) {
+    let binaries = world.member(crate_name).binaries.clone();
+    for binary in binaries {
+        world
+            .machine
+            .hold_cargo_binary(binary.as_ref(), format!("{binary} {revision}\n"));
+    }
+}
+
 #[given(expr = "cargo installed {string} from the content the workspace holds now")]
 fn installed_from_current_content(world: &mut MachineWorld, crate_name: String) {
-    let member = world.member(&crate_name);
-    member.installed = InstalledState::At(member.desired.clone());
+    built_from(world, &crate_name, WORKSPACE_REVISION);
 }
 
 #[given(expr = "the binary {string} of {string} is gone from where cargo installs it")]
 fn binary_is_gone(world: &mut MachineWorld, binary_name: String, crate_name: String) {
     world
         .member(&crate_name)
-        .absent_binaries
+        .binaries
         .insert(BinaryName::from(binary_name.as_str()));
+    world.machine.remove_cargo_binary(&binary_name);
+}
+
+#[given(expr = "the binary {string} of {string} reports only the version of its package")]
+fn binary_reports_its_package_version(
+    world: &mut MachineWorld,
+    binary_name: String,
+    crate_name: String,
+) {
+    world
+        .member(&crate_name)
+        .binaries
+        .insert(BinaryName::from(binary_name.as_str()));
+    world
+        .machine
+        .hold_cargo_binary(&binary_name, format!("{binary_name} 0.1.0\n"));
+}
+
+#[given(expr = "another {string} comes before cargo's on Alice's search path")]
+fn another_binary_shadows(world: &mut MachineWorld, binary_name: String) {
+    let elsewhere = filesystem_root().join("tools");
+    world
+        .machine
+        .hold_machine_search_path_entry(elsewhere.clone());
+    world.machine.hold_binary(
+        elsewhere.join(BinaryName::from(binary_name.as_str()).file_name()),
+        format!("{binary_name} 1.0.0\n"),
+    );
+}
+
+#[given(expr = "cargo's bin directory is not on Alice's search path")]
+fn cargo_binaries_are_not_on_the_search_path(world: &mut MachineWorld) {
+    world.machine.clear_the_search_path();
+    world
+        .machine
+        .hold_user_search_path_entry(world.machine.binaries_directory());
+}
+
+#[then(expr = "the change set reports a finding for {string} mentioning {string}")]
+fn change_set_reports_a_finding(world: &mut MachineWorld, name: String, text: String) {
+    let change_set = world.change_set();
+    let finding = change_set
+        .found
+        .iter()
+        .find(|found| found.resource.to_string().contains(&name))
+        .map(|found| found.finding.to_string())
+        .unwrap_or_else(|| panic!("nothing was found for {name}:\n{change_set}"));
+
+    assert!(finding.contains(&text), "{finding}");
 }
 
 #[given(expr = "Alice's machine is executing the binary {string}")]
@@ -1526,13 +1586,18 @@ fn cargo_asked_to_install(world: &mut MachineWorld, expected: usize) {
 
 #[given(expr = "cargo installed {string} from content the workspace has since changed")]
 fn installed_from_older_content(world: &mut MachineWorld, crate_name: String) {
-    world.member(&crate_name).installed = InstalledState::At(content_named("what it held before"));
+    world.machine.hold_cargo_workspace_member_at(
+        dotfiles_repository_path(),
+        Revision::from(EARLIER_WORKSPACE_REVISION),
+        CrateName::from(crate_name.as_str()),
+        content_named("what it held before"),
+    );
+    built_from(world, &crate_name, EARLIER_WORKSPACE_REVISION);
 }
 
 #[given(expr = "cargo installed {string} from content the dotfiles repository cannot account for")]
 fn installed_from_an_unreadable_revision(world: &mut MachineWorld, crate_name: String) {
-    world.member(&crate_name).installed =
-        InstalledState::AtAnUnreadableRevision(Revision::from("2ae2ffff"));
+    built_from(world, &crate_name, UNKNOWN_REVISION);
 }
 
 fn content_named(content: &str) -> Fingerprint {

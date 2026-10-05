@@ -9,13 +9,14 @@ use {
     declarations::{Reporting, declaring, dotfiles_repository},
     dotfiles_configurator::{
         configuration::{
-            CargoPackage, CargoSource, CargoWorkspace, CrateName, Package, Resource, WingetPackage,
+            BinaryName, CargoPackage, CargoSource, CargoWorkspace, CrateName, Package, Resource,
+            WingetPackage,
         },
         confirmation::Operator,
         convergence::{ApplyOutcome, Enactment, apply::apply},
         currency::SelfReplacement,
         machine::workspace_reading::{
-            Fingerprint, InstalledState, MemberReading, ObjectHash, Revision, WorkspaceReading,
+            Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
         },
         reporting::RunKind,
     },
@@ -34,22 +35,21 @@ fn content_held_now() -> Fingerprint {
     }
 }
 
-fn never_installed() -> MemberReading {
-    MemberReading {
-        desired: content_held_now(),
-        installed: InstalledState::NotInstalled,
-        absent_binaries: BTreeSet::new(),
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Installed {
+    Never,
+    FromWhatTheWorkspaceHoldsNow,
 }
 
-fn installed_from_what_the_workspace_holds_now() -> MemberReading {
-    MemberReading {
-        installed: InstalledState::At(content_held_now()),
-        ..never_installed()
-    }
+fn never_installed() -> Installed {
+    Installed::Never
 }
 
-fn machine_holding_the_workspace(members: &[(&str, MemberReading)]) -> FakeMachine {
+fn installed_from_what_the_workspace_holds_now() -> Installed {
+    Installed::FromWhatTheWorkspaceHoldsNow
+}
+
+fn machine_holding_the_workspace(members: &[(&str, Installed)]) -> FakeMachine {
     let machine = FakeMachine::default();
     machine.clone_dotfiles_repository();
     machine.hold_cargo_workspace(
@@ -58,10 +58,23 @@ fn machine_holding_the_workspace(members: &[(&str, MemberReading)]) -> FakeMachi
             revision: Revision::from(REVISION),
             members: members
                 .iter()
-                .map(|(name, reading)| (CrateName::from(*name), reading.clone()))
+                .map(|(name, _)| {
+                    (
+                        CrateName::from(*name),
+                        MemberReading {
+                            desired: content_held_now(),
+                            binaries: BTreeSet::from([BinaryName::from(*name)]),
+                        },
+                    )
+                })
                 .collect(),
         },
     );
+    for (name, installed) in members {
+        if *installed == Installed::FromWhatTheWorkspaceHoldsNow {
+            machine.hold_cargo_binary(name, format!("{name} {REVISION}\n"));
+        }
+    }
     machine
 }
 

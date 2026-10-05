@@ -337,15 +337,55 @@ Feature: Planning what a machine needs
     Then the change set reports 1 change
     And the change set mentions "tool-use-statistics"
 
-  Scenario: A workspace crate cargo installed from content the dotfiles repository cannot account for is blocked rather than a change
+  Scenario: A workspace crate cargo installed from content the dotfiles repository cannot account for is a change
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
     And the workspace holds the crate "stop-gate"
     And cargo installed "stop-gate" from content the dotfiles repository cannot account for
     When Alice plans
+    Then the change set reports 1 change
+    And the change set reports 0 blocked resources
+    And the change set mentions "stop-gate"
+
+  Scenario: A workspace crate whose binary does not report the build it was made from is a change
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "session-mining"
+    And cargo installed "session-mining" from the content the workspace holds now
+    And the binary "sweep" of "session-mining" reports only the version of its package
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "sweep"
+
+  Scenario: A workspace crate whose binary another file shadows on the search path is converged and reported
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And another "stop-gate" comes before cargo's on Alice's search path
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports a finding for "stop-gate" mentioning "shadowed"
+
+  Scenario: A shadowed workspace crate whose own binary is behind the repository is still a change
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from content the workspace has since changed
+    And another "stop-gate" comes before cargo's on Alice's search path
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "shadowed"
+
+  Scenario: A workspace crate is blocked while cargo's bin directory is not on the search path
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo's bin directory is not on Alice's search path
+    When Alice plans
     Then the change set reports 0 changes
     And the change set reports 1 blocked resource
-    And the change set mentions "stop-gate"
+    And the change set mentions "cargo's bin directory is missing from PATH"
 
   Scenario: A crate added to the workspace is planned without the configuration changing
     Given Alice declares the cargo workspace in the dotfiles repository

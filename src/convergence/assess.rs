@@ -1,22 +1,21 @@
 use {
     crate::{
         configuration::{
-            Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
-            CrateName, CrateVersion, EnvironmentVariable, GitHubAccount, GitHubRepository,
+            Application, ApplicationSource, BinaryName, CargoPackage, CargoSource, ClaudeMcpServer,
+            Command, CrateName, CrateVersion, EnvironmentVariable, GitHubAccount, GitHubRepository,
             Installer, MachineManifest, Package, Registration, ReleasedBinary, RenderedManifest,
             RepositoryClone, Requirement, Resource, SearchPathEntry, Symlink, UvToolName,
             UvToolPackage, UvToolVersion, Variable, WingetPackage,
         },
         convergence::{
             Assessment, Impediment, ReadSource, SourceReading, UnreadableReason,
+            member_currency::{OwnCopies, OwnCopy, judged, own_copies_of, resolution_of},
             search_path_directory, symlink_location,
         },
         desired_state::{DesiredState, ResolvedResource},
         machine::{
-            ReadInvocation, ReadMachine,
-            environment_reading::SearchPathReading,
-            release_reading::ReleaseReading,
-            workspace_reading::{MemberComparison, Revision, WorkspaceReading},
+            ReadInvocation, ReadMachine, environment_reading::SearchPathReading,
+            release_reading::ReleaseReading, workspace_reading::WorkspaceReading,
         },
         version::Version,
     },
@@ -34,6 +33,7 @@ pub struct SourceReadings {
     uv_tools: SourceReading<String>,
     uv_outdated_tools: SourceReading<String>,
     workspaces: BTreeMap<PathBuf, SourceReading<Option<WorkspaceReading>>>,
+    own_copies: BTreeMap<PathBuf, OwnCopies>,
     releases: BTreeMap<GitHubRepository, SourceReading<Option<ReleaseReading>>>,
     search_path: SourceReading<SearchPathReading>,
 }
@@ -88,25 +88,23 @@ impl SourceReadings {
             releases.insert(repository, reading);
         }
 
-        let cargo_crates = read_listing(
-            cargo_is_needed,
-            ReadInvocation::CargoInstalledCrates,
-            machine,
-        );
-        let installed = match &cargo_crates {
-            SourceReading::Read(listing) => installed_revisions(listing),
-            SourceReading::Unreadable(_) | SourceReading::NotRequested(_) => BTreeMap::new(),
-        };
-
         let mut workspaces = BTreeMap::new();
+        let mut own_copies = BTreeMap::new();
         for workspace in &desired_state.workspaces {
             let repository_path = workspace.clone_directory(&workspace.declared().repository);
-            let reading = match machine.read_cargo_workspace(&repository_path, &installed) {
+            let reading = match machine.read_cargo_workspace(&repository_path) {
                 Ok(reading) => SourceReading::Read(reading),
                 Err(error) => SourceReading::Unreadable(format!("{error:#}").into()),
             };
+            if let SourceReading::Read(Some(reading)) = &reading {
+                own_copies.insert(
+                    repository_path.clone(),
+                    own_copies_of(reading, &repository_path, machine),
+                );
+            }
             workspaces.insert(repository_path, reading);
         }
+        search_path_is_needed |= !desired_state.workspaces.is_empty();
 
         Self {
             winget_packages: read_listing(
@@ -114,10 +112,15 @@ impl SourceReadings {
                 ReadInvocation::WingetInstalledPackages,
                 machine,
             ),
-            cargo_crates,
+            cargo_crates: read_listing(
+                cargo_is_needed,
+                ReadInvocation::CargoInstalledCrates,
+                machine,
+            ),
             uv_tools: read_listing(uv_is_needed, ReadInvocation::UvInstalledTools, machine),
             uv_outdated_tools: read_listing(uv_is_needed, ReadInvocation::UvOutdatedTools, machine),
             workspaces,
+            own_copies,
             releases,
             search_path: match search_path_is_needed {
                 false => SourceReading::NotRequested(ReadSource::SearchPath),
@@ -234,20 +237,19 @@ impl SourceReadings {
             )),
         }
     }
-}
 
-fn installed_revisions(listing: &str) -> BTreeMap<CrateName, Revision> {
-    listing
-        .lines()
-        .filter(|line| !line.starts_with(char::is_whitespace))
-        .filter_map(installed_crate_line)
-        .filter_map(|(name, source)| match source {
-            InstalledFrom::Git { commit, .. } => {
-                Some((CrateName::from(name), Revision::from(commit)))
-            }
-            InstalledFrom::Registry { .. } | InstalledFrom::Path(_) => None,
-        })
-        .collect()
+    // ADR 0040
+    fn own_copies(
+        &self,
+        clone_directory: &Path,
+        crate_name: &CrateName,
+    ) -> Result<&[(BinaryName, OwnCopy)], Impediment> {
+        self.own_copies
+            .get(clone_directory)
+            .and_then(|members| members.get(crate_name))
+            .map(Vec::as_slice)
+            .ok_or_else(|| ReadSource::CargoWorkspace(clone_directory.to_path_buf()).was_not_read())
+    }
 }
 
 fn read_listing(
@@ -276,8 +278,8 @@ pub fn assess(
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Assessment {
-    if let Some(unmet) = first_unmet_requirement(resource, machine) {
-        return Assessment::Unassessable(Impediment::Absent(unmet));
+    if let Err(impediment) = readiness(resource, machine, readings) {
+        return Assessment::Unassessable(impediment);
     }
 
     match resource.declared() {
@@ -314,26 +316,34 @@ pub fn assess(
     }
 }
 
-fn first_unmet_requirement(
+// ADR 0004
+fn readiness(
     resource: &ResolvedResource,
     machine: &impl ReadMachine,
-) -> Option<Requirement> {
-    resource
-        .requirements()
-        .into_iter()
-        .find(|requirement| !requirement_is_met(requirement, resource, machine))
+    readings: &SourceReadings,
+) -> Result<(), Impediment> {
+    for requirement in resource.requirements() {
+        if !requirement_is_met(&requirement, resource, machine, readings)? {
+            return Err(Impediment::Absent(requirement));
+        }
+    }
+    Ok(())
 }
 
 fn requirement_is_met(
     requirement: &Requirement,
     resource: &ResolvedResource,
     machine: &impl ReadMachine,
-) -> bool {
+    readings: &SourceReadings,
+) -> Result<bool, Impediment> {
     match requirement {
-        Requirement::Tool(tool) => machine.tool_is_present(*tool),
+        Requirement::Tool(tool) => Ok(machine.tool_is_present(*tool)),
         Requirement::DotfilesRepository(_) => {
-            machine.path_exists(&resource.files_root().join(".git"))
+            Ok(machine.path_exists(&resource.files_root().join(".git")))
         }
+        Requirement::CargoBinariesOnSearchPath => Ok(readings
+            .search_path()?
+            .carries(&machine.cargo_binaries_directory())),
     }
 }
 
@@ -618,6 +628,7 @@ fn assess_cargo_package(
         CargoSource::Workspace { repository } => assess_workspace_member(
             &package.crate_name,
             &resource.clone_directory(repository),
+            machine,
             readings,
         ),
         CargoSource::Registry { .. } | CargoSource::Path { .. } => {
@@ -626,27 +637,38 @@ fn assess_cargo_package(
     }
 }
 
+// ADR 0040
 fn assess_workspace_member(
     crate_name: &CrateName,
     clone_directory: &Path,
+    machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Assessment {
     let reading = match readings.resolved_workspace(clone_directory) {
         Ok(reading) => reading,
         Err(impediment) => return Assessment::Unassessable(impediment),
     };
-
-    let Some(member) = reading.members.get(crate_name) else {
+    if !reading.members.contains_key(crate_name) {
         return Assessment::Drifted("the workspace no longer holds it".into());
+    }
+
+    let (own_copies, search_path) = match (
+        readings.own_copies(clone_directory, crate_name),
+        readings.search_path(),
+    ) {
+        (Ok(own_copies), Ok(search_path)) => (own_copies, search_path),
+        (Err(impediment), _) | (_, Err(impediment)) => {
+            return Assessment::Unassessable(impediment);
+        }
     };
 
-    match member.compare() {
-        MemberComparison::Matches => Assessment::Converged,
-        MemberComparison::Differs(difference) => Assessment::Drifted(difference.into()),
-        MemberComparison::Unreadable(reason) => {
-            Assessment::Unassessable(Impediment::ActualStateUnreadable(reason.into()))
-        }
-    }
+    judged(own_copies.iter().map(|(binary, own_copy)| {
+        (
+            binary.clone(),
+            own_copy.clone(),
+            resolution_of(binary, search_path, machine),
+        )
+    }))
 }
 
 fn assess_declared_cargo_package(
@@ -1073,30 +1095,6 @@ mod tests {
     #[test]
     fn a_listing_whose_columns_cannot_be_located_is_refused() {
         assert!(winget_lists_package("no columns here\n", "Bitwarden.Bitwarden").is_err());
-    }
-
-    #[test]
-    fn the_commit_a_crate_resolved_to_is_read_out_of_the_listing() {
-        let listing = concat!(
-            "committed v1.1.11:\n",
-            "    committed.exe\n",
-            "stop-gate v0.1.0 (https://github.com/Alice/dotfiles?rev=426d343#2ae2ffff):\n",
-            "    stop-gate.exe\n",
-        );
-
-        let revisions = installed_revisions(listing);
-
-        assert_eq!(
-            revisions.get(&CrateName::from("stop-gate")),
-            Some(&Revision::from("2ae2ffff"))
-        );
-    }
-
-    #[test]
-    fn a_crate_installed_from_the_registry_names_no_commit_to_compare_against() {
-        let listing = "committed v1.1.11:\n    committed.exe\n";
-
-        assert!(installed_revisions(listing).is_empty());
     }
 
     // 2026-09-13: taken verbatim from `claude mcp get probe-server` against a stdio server

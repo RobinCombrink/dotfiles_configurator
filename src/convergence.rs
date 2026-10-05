@@ -12,6 +12,7 @@ pub mod assess;
 mod build_stage;
 pub mod converge;
 pub mod lane;
+pub mod member_currency;
 pub mod resolve;
 pub mod source_reading;
 

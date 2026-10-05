@@ -3,13 +3,10 @@
 use {
     dotfiles_configurator::{
         configuration::{BinaryName, CrateName},
-        machine::{
-            local::workspace,
-            workspace_reading::{InstalledState, Revision},
-        },
+        machine::{local::workspace, workspace_reading::Revision},
     },
     git2::{IndexAddOption, Repository, Signature},
-    std::{collections::BTreeMap, fs, path::Path},
+    std::{fs, path::Path},
 };
 
 struct TemporaryRepository {
@@ -165,35 +162,27 @@ fn workspace_holding_a_binary_and_a_library() -> TemporaryRepository {
     repository
 }
 
-fn installed(crate_name: &str, revision: &Revision) -> BTreeMap<CrateName, Revision> {
-    BTreeMap::from([(CrateName::from(crate_name), revision.clone())])
+fn built_from_what_the_workspace_holds(
+    repository: &TemporaryRepository,
+    crate_name: &str,
+    built_from: &Revision,
+) -> bool {
+    let crate_name = CrateName::from(crate_name);
+    let reading = workspace::read(repository.path()).unwrap().unwrap();
+    let built = workspace::read_at(repository.path(), built_from).unwrap();
+
+    built.get(&crate_name) == Some(&reading.members[&crate_name].desired)
 }
 
-fn installed_binaries(names: &[&str]) -> tempfile::TempDir {
-    let directory = tempfile::tempdir().unwrap();
-    for name in names {
-        let file_name = format!("{name}{}", std::env::consts::EXE_SUFFIX);
-        fs::write(directory.path().join(file_name), []).unwrap();
-    }
-    directory
-}
-
-fn alpha(reading: &dotfiles_configurator::machine::workspace_reading::WorkspaceReading) -> bool {
-    let member = &reading.members[&CrateName::from("alpha")];
-    member.installed == InstalledState::At(member.desired.clone())
+fn alpha(repository: &TemporaryRepository, built_from: &Revision) -> bool {
+    built_from_what_the_workspace_holds(repository, "alpha", built_from)
 }
 
 #[test]
 fn the_desired_revision_is_the_commit_the_tracked_remote_branch_names() {
     let repository = workspace_holding_a_binary_and_a_library();
 
-    let reading = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
+    let reading = workspace::read(repository.path()).unwrap().unwrap();
 
     assert_eq!(reading.revision, repository.head_revision());
 }
@@ -208,13 +197,7 @@ fn a_commit_that_has_not_been_pushed_is_not_what_a_crate_is_installed_from() {
     );
     let unpushed = repository.commit("work in progress");
 
-    let reading = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
+    let reading = workspace::read(repository.path()).unwrap().unwrap();
 
     assert_eq!(reading.revision, pushed);
     assert_ne!(reading.revision, unpushed);
@@ -228,15 +211,7 @@ fn a_commit_touching_nothing_the_crate_is_built_from_leaves_it_converged() {
     repository.commit("unrelated");
     repository.push();
 
-    let reading = workspace::read(
-        repository.path(),
-        &installed("alpha", &installed_from),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
-
-    assert!(alpha(&reading));
+    assert!(alpha(&repository, &installed_from));
 }
 
 fn alpha_through_left_pad_and_pad_core_on_pad_bytes(pad_bytes_version: &str) -> String {
@@ -270,15 +245,7 @@ fn a_new_version_of_a_dependency_several_levels_beneath_it_drifts_it() {
     repository.commit("bump pad-bytes");
     repository.push();
 
-    let reading = workspace::read(
-        repository.path(),
-        &installed("alpha", &installed_from),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
-
-    assert!(!alpha(&reading));
+    assert!(!alpha(&repository, &installed_from));
 }
 
 fn workspace_of_two_tools() -> TemporaryRepository {
@@ -325,15 +292,7 @@ fn a_dependency_added_to_one_tool_leaves_another_tool_converged() {
     repository.commit("delta pads");
     repository.push();
 
-    let reading = workspace::read(
-        repository.path(),
-        &installed("alpha", &installed_from),
-        installed_binaries(&["alpha", "delta"]).path(),
-    )
-    .unwrap()
-    .unwrap();
-
-    assert!(alpha(&reading));
+    assert!(alpha(&repository, &installed_from));
 }
 
 fn tools_converged_once_the_workspace_manifest_reads(
@@ -356,24 +315,9 @@ fn tools_converged_once_the_workspace_manifest_reads(
     repository.commit("the workspace manifest changes");
     repository.push();
 
-    let installed = BTreeMap::from([
-        (CrateName::from("alpha"), installed_from.clone()),
-        (CrateName::from("delta"), installed_from),
-    ]);
-    let reading = workspace::read(
-        repository.path(),
-        &installed,
-        installed_binaries(&["alpha", "delta"]).path(),
-    )
-    .unwrap()
-    .unwrap();
-
     ["alpha", "delta"]
         .iter()
-        .map(|name| {
-            let member = &reading.members[&CrateName::from(*name)];
-            member.installed == InstalledState::At(member.desired.clone())
-        })
+        .map(|name| built_from_what_the_workspace_holds(&repository, name, &installed_from))
         .collect()
 }
 
@@ -403,12 +347,7 @@ fn refusal_of(lock: &str) -> String {
     repository.commit("a lock cargo did not write");
     repository.push();
 
-    let error = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap_err();
+    let error = workspace::read(repository.path()).unwrap_err();
     format!("{error:#}")
 }
 
@@ -455,15 +394,7 @@ fn alpha_once_beta_changes(repository: &TemporaryRepository) -> bool {
     repository.commit("change beta");
     repository.push();
 
-    let reading = workspace::read(
-        repository.path(),
-        &installed("alpha", &installed_from),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
-
-    alpha(&reading)
+    alpha(repository, &installed_from)
 }
 
 #[test]
@@ -532,13 +463,7 @@ fn a_commit_changing_a_crate_only_its_tests_depend_on_leaves_it_converged() {
 fn a_member_that_builds_no_binary_is_not_reported_as_a_member() {
     let repository = workspace_holding_a_binary_and_a_library();
 
-    let reading = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
+    let reading = workspace::read(repository.path()).unwrap().unwrap();
 
     assert!(reading.members.contains_key(&CrateName::from("alpha")));
     assert!(!reading.members.contains_key(&CrateName::from("beta")));
@@ -553,12 +478,7 @@ fn a_branch_that_tracks_no_remote_is_refused_rather_than_read_from_the_local_com
     repository.write("tools/alpha/src/main.rs", "fn main() {}\n");
     repository.commit("never pushed");
 
-    let error = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap_err();
+    let error = workspace::read(repository.path()).unwrap_err();
 
     assert!(
         format!("{error:#}").contains("tracks no remote branch"),
@@ -567,7 +487,7 @@ fn a_branch_that_tracks_no_remote_is_refused_rather_than_read_from_the_local_com
 }
 
 #[test]
-fn the_abbreviated_commit_cargo_lists_still_finds_the_content_it_names() {
+fn an_abbreviated_commit_still_finds_the_content_it_names() {
     let repository = workspace_holding_a_binary_and_a_library();
     let installed_from = repository.head_revision();
     let abbreviated = Revision::from(&installed_from.as_ref()[..9]);
@@ -575,97 +495,24 @@ fn the_abbreviated_commit_cargo_lists_still_finds_the_content_it_names() {
     repository.commit("unrelated");
     repository.push();
 
-    let reading = workspace::read(
-        repository.path(),
-        &installed("alpha", &abbreviated),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
-
-    assert!(alpha(&reading));
+    assert!(alpha(&repository, &abbreviated));
 }
 
 #[test]
-fn a_crate_whose_installed_commit_is_absent_from_the_clone_reads_as_unreadable() {
+fn a_commit_absent_from_the_clone_cannot_be_read() {
     let repository = workspace_holding_a_binary_and_a_library();
     let absent = Revision::from("0123456789012345678901234567890123456789");
 
-    let reading = workspace::read(
-        repository.path(),
-        &installed("alpha", &absent),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
+    let error = workspace::read_at(repository.path(), &absent).unwrap_err();
 
-    assert_eq!(
-        reading.members[&CrateName::from("alpha")].installed,
-        InstalledState::AtAnUnreadableRevision(absent)
+    assert!(
+        format!("{error:#}").contains("0123456789012345678901234567890123456789"),
+        "expected the message to name the commit, got: {error:#}"
     );
 }
 
 #[test]
-fn a_crate_cargo_never_installed_is_not_read_as_one_installed_at_an_unreadable_revision() {
-    let repository = workspace_holding_a_binary_and_a_library();
-
-    let reading = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
-
-    assert_eq!(
-        reading.members[&CrateName::from("alpha")].installed,
-        InstalledState::NotInstalled
-    );
-}
-
-fn absent_binaries_of(
-    reading: &dotfiles_configurator::machine::workspace_reading::WorkspaceReading,
-    crate_name: &str,
-) -> Vec<String> {
-    reading.members[&CrateName::from(crate_name)]
-        .absent_binaries
-        .iter()
-        .map(BinaryName::to_string)
-        .collect()
-}
-
-#[test]
-fn a_member_whose_binary_is_where_cargo_installs_it_is_missing_nothing() {
-    let repository = workspace_holding_a_binary_and_a_library();
-
-    let reading = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
-
-    assert!(absent_binaries_of(&reading, "alpha").is_empty());
-}
-
-#[test]
-fn a_member_whose_binary_is_not_where_cargo_installs_it_is_read_as_missing_it() {
-    let repository = workspace_holding_a_binary_and_a_library();
-
-    let reading = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&[]).path(),
-    )
-    .unwrap()
-    .unwrap();
-
-    assert_eq!(absent_binaries_of(&reading, "alpha"), vec!["alpha"]);
-}
-
-#[test]
-fn a_member_declaring_several_binaries_names_only_the_ones_that_are_gone() {
+fn a_member_is_read_with_every_binary_it_declares() {
     let repository = TemporaryRepository::create();
     repository.write(
         "Cargo.toml",
@@ -686,31 +533,21 @@ fn a_member_declaring_several_binaries_names_only_the_ones_that_are_gone() {
     repository.commit("the workspace");
     repository.push();
 
-    let reading = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["sweep"]).path(),
-    )
-    .unwrap()
-    .unwrap();
+    let reading = workspace::read(repository.path()).unwrap().unwrap();
 
-    assert_eq!(
-        absent_binaries_of(&reading, "mining"),
-        vec!["tool-use-statistics"]
-    );
+    let binaries: Vec<String> = reading.members[&CrateName::from("mining")]
+        .binaries
+        .iter()
+        .map(BinaryName::to_string)
+        .collect();
+    assert_eq!(binaries, vec!["sweep", "tool-use-statistics"]);
 }
 
 #[test]
 fn a_member_holding_no_binaries_directory_is_read_rather_than_refused() {
     let repository = workspace_holding_a_binary_and_a_library();
 
-    let reading = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap()
-    .unwrap();
+    let reading = workspace::read(repository.path()).unwrap().unwrap();
 
     assert!(reading.members.contains_key(&CrateName::from("alpha")));
 }
@@ -722,12 +559,7 @@ fn a_member_whose_binaries_directory_cannot_be_read_as_one_refuses_the_workspace
     repository.commit("a file where the binaries directory belongs");
     repository.push();
 
-    let error = workspace::read(
-        repository.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap_err();
+    let error = workspace::read(repository.path()).unwrap_err();
 
     assert!(
         format!("{error:#}").contains("tools/alpha/src/bin"),
@@ -739,12 +571,7 @@ fn a_member_whose_binaries_directory_cannot_be_read_as_one_refuses_the_workspace
 fn a_directory_holding_no_clone_yet_reports_no_workspace_rather_than_failing() {
     let directory = tempfile::tempdir().unwrap();
 
-    let reading = workspace::read(
-        directory.path(),
-        &BTreeMap::new(),
-        installed_binaries(&["alpha"]).path(),
-    )
-    .unwrap();
+    let reading = workspace::read(directory.path()).unwrap();
 
     assert_eq!(reading, None);
 }

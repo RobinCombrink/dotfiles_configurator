@@ -12,9 +12,9 @@ use {
     },
     dotfiles_configurator::{
         configuration::{
-            Application, CargoPackage, CargoSource, CargoWorkspace, CrateName, GitHubAccount,
-            GitHubRepository, Package, RepositoryName, RepositoryOwner, Resource, UvToolPackage,
-            WingetPackage,
+            Application, BinaryName, CargoPackage, CargoSource, CargoWorkspace, CrateName,
+            GitHubAccount, GitHubRepository, Package, RepositoryName, RepositoryOwner, Resource,
+            UvToolPackage, WingetPackage,
         },
         convergence::plan,
         desired_state::DesiredState,
@@ -22,13 +22,13 @@ use {
             ReadInvocation,
             release_reading::ReleaseReading,
             workspace_reading::{
-                Fingerprint, InstalledState, MemberReading, ObjectHash, Revision, WorkspaceReading,
+                Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
         reporting::RunKind,
         version::Version,
     },
-    fake_machine::FakeMachine,
+    fake_machine::{FakeMachine, filesystem_root},
     std::collections::{BTreeMap, BTreeSet},
 };
 
@@ -172,8 +172,7 @@ fn workspace_holding(crate_names: &[&str]) -> WorkspaceReading {
                             lock_closure: ObjectHash::from("the lock closure"),
                             dependency_subtrees: BTreeMap::new(),
                         },
-                        installed: InstalledState::NotInstalled,
-                        absent_binaries: BTreeSet::new(),
+                        binaries: BTreeSet::from([BinaryName::from(*crate_name)]),
                     },
                 )
             })
@@ -230,6 +229,114 @@ async fn a_configuration_declaring_no_workspace_never_opens_a_repository() {
     .unwrap();
 
     assert!(machine.cargo_workspace_reads().is_empty());
+}
+
+const WORKSPACE_REVISION: &str = "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c";
+const EARLIER_REVISION: &str = "1b9e0c1d2f3a4b5c6d7e8f90a1b2c3d4e5f60718";
+const UNKNOWN_REVISION: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn crate_names_of<'resource>(resources: impl Iterator<Item = &'resource Resource>) -> Vec<String> {
+    resources
+        .filter_map(|resource| match resource {
+            Resource::Package(Package::Cargo(package)) => Some(package.crate_name.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_member_installs_for_an_absent_or_stale_copy_of_its_own_and_a_shadow_is_only_found() {
+    let machine = FakeMachine::default();
+    machine.clone_dotfiles_repository();
+    let workspace = machine.dotfiles_repository_path().to_path_buf();
+    machine.hold_cargo_workspace(
+        workspace.clone(),
+        workspace_holding(&[
+            "absent",
+            "current",
+            "behind",
+            "unrecorded",
+            "unaccounted",
+            "unstamped",
+            "shadowed",
+            "shadowed-and-behind",
+        ]),
+    );
+    machine.hold_cargo_workspace_member_at(
+        workspace.clone(),
+        Revision::from(EARLIER_REVISION),
+        CrateName::from("behind"),
+        Fingerprint {
+            crate_subtree: ObjectHash::from("what behind held before"),
+            workspace_manifest: ObjectHash::from("the workspace manifest"),
+            lock_closure: ObjectHash::from("the lock closure"),
+            dependency_subtrees: BTreeMap::new(),
+        },
+    );
+    for (binary, build) in [
+        ("current", WORKSPACE_REVISION),
+        ("behind", EARLIER_REVISION),
+        ("unrecorded", "unrecorded"),
+        ("unaccounted", UNKNOWN_REVISION),
+        ("unstamped", "0.1.0"),
+        ("shadowed", WORKSPACE_REVISION),
+        ("shadowed-and-behind", EARLIER_REVISION),
+    ] {
+        machine.hold_cargo_binary(binary, format!("{binary} {build}\n"));
+    }
+    let elsewhere = filesystem_root().join("tools");
+    machine.hold_machine_search_path_entry(elsewhere.clone());
+    for binary in ["shadowed", "shadowed-and-behind"] {
+        machine.hold_binary(
+            elsewhere.join(BinaryName::from(binary).file_name()),
+            format!("{binary} 1.0.0\n"),
+        );
+    }
+    let desired_state = declaring(
+        Vec::new(),
+        vec![CargoWorkspace {
+            repository: GitHubRepository {
+                owner: RepositoryOwner::from("Alice"),
+                repository: RepositoryName::from("dotfiles"),
+            },
+        }],
+    );
+
+    let (change_set, _) = plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
+
+    let mut installed = crate_names_of(
+        change_set
+            .changes
+            .iter()
+            .map(|change| change.resource.declared()),
+    );
+    installed.sort();
+    assert_eq!(
+        installed,
+        vec![
+            "absent",
+            "behind",
+            "shadowed-and-behind",
+            "unaccounted",
+            "unrecorded",
+            "unstamped"
+        ]
+    );
+    assert_eq!(
+        crate_names_of(
+            change_set
+                .found
+                .iter()
+                .map(|found| found.resource.declared())
+        ),
+        vec!["shadowed"]
+    );
 }
 
 const RIPGREP: &str = "BurntSushi/ripgrep";

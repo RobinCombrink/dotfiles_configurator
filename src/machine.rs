@@ -8,7 +8,7 @@ use {
         machine::{
             environment_reading::SearchPathReading,
             release_reading::ReleaseReading,
-            workspace_reading::{Revision, WorkspaceReading},
+            workspace_reading::{Fingerprint, Revision, WorkspaceReading},
         },
     },
     anyhow::Result,
@@ -120,11 +120,16 @@ pub trait ReadMachine {
 
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput>;
 
-    fn read_cargo_workspace(
+    fn read_cargo_workspace(&self, repository_path: &Path) -> Result<Option<WorkspaceReading>>;
+
+    // ADR 0040
+    fn read_cargo_workspace_at(
         &self,
         repository_path: &Path,
-        installed: &BTreeMap<CrateName, Revision>,
-    ) -> Result<Option<WorkspaceReading>>;
+        revision: &Revision,
+    ) -> Result<BTreeMap<CrateName, Fingerprint>>;
+
+    fn cargo_binaries_directory(&self) -> PathBuf;
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>>;
 

@@ -474,7 +474,7 @@ mod tests {
     use super::*;
     use crate::{
         configuration::{McpScope, RepositoryName, RepositoryOwner},
-        machine::workspace_reading::{Fingerprint, InstalledState, MemberReading, ObjectHash},
+        machine::workspace_reading::{Fingerprint, MemberReading, ObjectHash},
     };
     use std::collections::BTreeMap;
 
@@ -738,9 +738,8 @@ mod tests {
                     (
                         CrateName::from(*name),
                         MemberReading {
-                            desired: fingerprint.clone(),
-                            installed: InstalledState::At(fingerprint),
-                            absent_binaries: BTreeSet::new(),
+                            desired: fingerprint,
+                            binaries: BTreeSet::new(),
                         },
                     )
                 })

@@ -34,6 +34,8 @@ impl Display for Tool {
 pub enum Requirement {
     Tool(Tool),
     DotfilesRepository(GitHubRepository),
+    // ADR 0040
+    CargoBinariesOnSearchPath,
 }
 
 impl Display for Requirement {
@@ -42,6 +44,9 @@ impl Display for Requirement {
             Requirement::Tool(tool) => write!(formatter, "{tool} is not on the path"),
             Requirement::DotfilesRepository(repository) => {
                 write!(formatter, "{repository} has not been cloned")
+            }
+            Requirement::CargoBinariesOnSearchPath => {
+                formatter.write_str("cargo's bin directory is missing from PATH")
             }
         }
     }

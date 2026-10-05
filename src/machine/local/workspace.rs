@@ -2,9 +2,9 @@ use {
     crate::{
         configuration::{BinaryName, CrateName},
         machine::workspace_reading::{
-            Fingerprint, InferableBinary, InstalledState, MemberManifest, MemberReading,
-            MemberTree, ObjectHash, Revision, WorkspaceReading, inherited_dependency_paths,
-            member_paths, read_member_manifest,
+            Fingerprint, InferableBinary, MemberManifest, MemberReading, MemberTree, ObjectHash,
+            Revision, WorkspaceReading, inherited_dependency_paths, member_paths,
+            read_member_manifest,
         },
     },
     anyhow::{Context, Result, anyhow},
@@ -21,67 +21,48 @@ struct MemberAtRevision {
     binaries: BTreeSet<BinaryName>,
 }
 
-pub fn read(
-    repository_path: &Path,
-    installed: &BTreeMap<CrateName, Revision>,
-    binaries_directory: &Path,
-) -> Result<Option<WorkspaceReading>> {
+pub fn read(repository_path: &Path) -> Result<Option<WorkspaceReading>> {
     if !repository_path.join(".git").exists() {
         return Ok(None);
     }
 
-    let repository = Repository::open(repository_path).with_context(|| {
-        format!(
-            "Could not open the repository at {}",
-            repository_path.display()
-        )
-    })?;
-
+    let repository = open(repository_path)?;
     let revision = tracked_remote_revision(&repository)?;
-    let desired = members_at(&repository, &revision)?;
-
-    let mut by_revision: BTreeMap<Revision, BTreeMap<CrateName, MemberAtRevision>> =
-        BTreeMap::new();
-    for (crate_name, installed_revision) in installed {
-        if !desired.contains_key(crate_name) || by_revision.contains_key(installed_revision) {
-            continue;
-        }
-        if let Ok(members) = members_at(&repository, installed_revision) {
-            by_revision.insert(installed_revision.clone(), members);
-        }
-    }
-
-    let members = desired
+    let members = members_at(&repository, &revision)?
         .into_iter()
-        .map(|(crate_name, desired)| {
-            let installed = match installed.get(&crate_name) {
-                None => InstalledState::NotInstalled,
-                Some(revision) => match by_revision
-                    .get(revision)
-                    .and_then(|members| members.get(&crate_name))
-                {
-                    Some(member) => InstalledState::At(member.fingerprint.clone()),
-                    None => InstalledState::AtAnUnreadableRevision(revision.clone()),
-                },
-            };
-            let absent_binaries = desired
-                .binaries
-                .into_iter()
-                .filter(|binary| !binaries_directory.join(binary.file_name()).exists())
-                .collect();
-
+        .map(|(crate_name, member)| {
             (
                 crate_name,
                 MemberReading {
-                    desired: desired.fingerprint,
-                    installed,
-                    absent_binaries,
+                    desired: member.fingerprint,
+                    binaries: member.binaries,
                 },
             )
         })
         .collect();
 
     Ok(Some(WorkspaceReading { revision, members }))
+}
+
+pub fn read_at(
+    repository_path: &Path,
+    revision: &Revision,
+) -> Result<BTreeMap<CrateName, Fingerprint>> {
+    let repository = open(repository_path)?;
+
+    Ok(members_at(&repository, revision)?
+        .into_iter()
+        .map(|(crate_name, member)| (crate_name, member.fingerprint))
+        .collect())
+}
+
+fn open(repository_path: &Path) -> Result<Repository> {
+    Repository::open(repository_path).with_context(|| {
+        format!(
+            "Could not open the repository at {}",
+            repository_path.display()
+        )
+    })
 }
 
 fn tracked_remote_revision(repository: &Repository) -> Result<Revision> {

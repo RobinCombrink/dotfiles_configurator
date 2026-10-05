@@ -110,9 +110,11 @@ impl Resource {
             Resource::Package(Package::Winget(_)) => vec![Requirement::Tool(Tool::Winget)],
             Resource::Package(Package::UvTool(_)) => vec![Requirement::Tool(Tool::Uv)],
             Resource::Package(Package::Cargo(package)) => match package.source {
-                CargoSource::Workspace { .. } => {
-                    vec![Requirement::Tool(Tool::Cargo), Requirement::Tool(Tool::Git)]
-                }
+                CargoSource::Workspace { .. } => vec![
+                    Requirement::Tool(Tool::Cargo),
+                    Requirement::Tool(Tool::Git),
+                    Requirement::CargoBinariesOnSearchPath,
+                ],
                 CargoSource::Registry { .. } | CargoSource::Path { .. } => {
                     vec![Requirement::Tool(Tool::Cargo)]
                 }

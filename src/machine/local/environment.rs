@@ -38,8 +38,8 @@ const BROADCAST_TIMEOUT: u32 = 5_000; // 5 seconds
 #[cfg(target_family = "windows")]
 pub fn read_search_path() -> Result<SearchPathReading> {
     let mut entries: Vec<PathBuf> = Vec::new();
-    entries.extend(hive_search_path(CURRENT_USER, USER_ENVIRONMENT)?);
     entries.extend(hive_search_path(LOCAL_MACHINE, MACHINE_ENVIRONMENT)?);
+    entries.extend(hive_search_path(CURRENT_USER, USER_ENVIRONMENT)?);
 
     Ok(SearchPathReading::of(entries))
 }

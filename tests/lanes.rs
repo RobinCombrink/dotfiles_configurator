@@ -12,7 +12,7 @@ use {
     },
     dotfiles_configurator::{
         configuration::{
-            Application, ApplicationName, ApplicationSource, CargoPackage, CargoSource,
+            Application, ApplicationName, ApplicationSource, BinaryName, CargoPackage, CargoSource,
             CargoWorkspace, ClaudeMcpServer, Command, CrateName, EnvironmentVariable, Installer,
             McpScope, McpServerName, Package, PresenceCheck, Registration, ReleasedBinary,
             Resource, Shell, Symlink, UvToolPackage, UvToolVersion, Variable, VariableName,
@@ -24,7 +24,7 @@ use {
         machine::{
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
-                Fingerprint, InstalledState, MemberReading, ObjectHash, Revision, WorkspaceReading,
+                Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
         reporting::RunKind,
@@ -121,8 +121,7 @@ fn machine_lacking_every_entry() -> FakeMachine {
                         lock_closure: ObjectHash::from("the lock closure"),
                         dependency_subtrees: BTreeMap::new(),
                     },
-                    installed: InstalledState::NotInstalled,
-                    absent_binaries: BTreeSet::new(),
+                    binaries: BTreeSet::from([BinaryName::from("claude-session")]),
                 },
             )]),
         },

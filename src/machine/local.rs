@@ -15,7 +15,7 @@ use {
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
-            workspace_reading::{Revision, WorkspaceReading},
+            workspace_reading::{Fingerprint, Revision, WorkspaceReading},
         },
         reporting::{Advancing, Entry, RunReport, entry_of_this_task},
         version::Version,
@@ -505,12 +505,20 @@ impl ReadMachine for LocalMachine<'_, '_> {
         )
     }
 
-    fn read_cargo_workspace(
+    fn read_cargo_workspace(&self, repository_path: &Path) -> Result<Option<WorkspaceReading>> {
+        workspace::read(repository_path)
+    }
+
+    fn read_cargo_workspace_at(
         &self,
         repository_path: &Path,
-        installed: &BTreeMap<CrateName, Revision>,
-    ) -> Result<Option<WorkspaceReading>> {
-        workspace::read(repository_path, installed, &self.cargo_binaries_directory)
+        revision: &Revision,
+    ) -> Result<BTreeMap<CrateName, Fingerprint>> {
+        workspace::read_at(repository_path, revision)
+    }
+
+    fn cargo_binaries_directory(&self) -> PathBuf {
+        self.cargo_binaries_directory.clone()
     }
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>> {
