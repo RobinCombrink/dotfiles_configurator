@@ -335,8 +335,10 @@ mod tests {
 
         let arguments = split_as_windows_does(&parameters);
 
-        let reached: ElevatedBatch<()> = serde_json::from_str(&arguments[3]).unwrap();
-        assert_eq!(reached, batch);
+        let reached = arguments
+            .get(3)
+            .and_then(|written| serde_json::from_str::<ElevatedBatch<()>>(written).ok());
+        assert_eq!(reached, Some(batch), "{arguments:?}");
     }
 
     #[cfg(target_family = "windows")]
@@ -350,7 +352,11 @@ mod tests {
 
         let arguments = split_as_windows_does(&parameters);
 
-        assert_eq!(arguments[5], r"C:\Temp\results file.json");
+        assert_eq!(
+            arguments.get(5).map(String::as_str),
+            Some(r"C:\Temp\results file.json"),
+            "{arguments:?}"
+        );
     }
 
     #[cfg(target_family = "windows")]
