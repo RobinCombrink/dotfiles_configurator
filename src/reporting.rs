@@ -705,6 +705,60 @@ mod tests {
         );
     }
 
+    fn watched_for_silence(report: &RunReport, entry: &Entry) -> bool {
+        report
+            .shared
+            .listening()
+            .contains_key(&Speaker::Entry(entry.clone()))
+    }
+
+    #[tokio::test]
+    async fn an_entry_waiting_for_its_lane_is_not_watched_for_silence() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = quiet_report(directory.path(), RunKind::Apply);
+
+        report.converging(&stop_gate(), async {}).await;
+        report.awaiting_its_lane(&stop_gate());
+
+        assert!(!watched_for_silence(&report, &stop_gate()));
+    }
+
+    #[tokio::test]
+    async fn an_entry_resumed_once_its_lane_reaches_it_is_watched_for_silence_again() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = quiet_report(directory.path(), RunKind::Apply);
+        report.converging(&stop_gate(), async {}).await;
+        report.awaiting_its_lane(&stop_gate());
+
+        let watched = report
+            .resuming(&stop_gate(), async {
+                watched_for_silence(&report, &stop_gate())
+            })
+            .await;
+
+        assert!(watched);
+    }
+
+    #[tokio::test]
+    async fn output_captured_once_an_entry_resumes_reaches_the_log_prefixed_with_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = quiet_report(directory.path(), RunKind::Apply);
+        report.converging(&stop_gate(), async {}).await;
+        report.awaiting_its_lane(&stop_gate());
+
+        report
+            .resuming(&stop_gate(), async {
+                report.captured_output("installed stop-gate");
+            })
+            .await;
+        let written = fs::read_to_string(report.log_path()).unwrap();
+
+        assert!(
+            written.contains("[cargo] stop-gate: installed stop-gate"),
+            "{written}"
+        );
+    }
+
     #[test]
     fn a_reported_silence_is_written_down_rather_than_only_shown() {
         let directory = tempfile::tempdir().unwrap();
