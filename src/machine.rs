@@ -210,16 +210,28 @@ pub trait WriteMachine: ReadMachine {
     // ADR 0017
     fn set_environment_variable(&self, name: &VariableName, value: &VariableValue) -> Result<()>;
 
-    fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput>;
+    fn write(
+        &self,
+        invocation: &WriteInvocation,
+    ) -> impl std::future::Future<Output = Result<CommandOutput>>;
 
-    fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement>;
+    fn write_displacing(
+        &self,
+        invocation: &DisplacingInvocation,
+    ) -> impl std::future::Future<Output = Result<Placement>>;
 
     fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>);
 
-    fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()>;
+    fn build_workspace_members(
+        &self,
+        build: &WorkspaceBuild<'_>,
+    ) -> impl std::future::Future<Output = Result<()>>;
 
     // ADR 0033
-    fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement>;
+    fn write_over_running_images(
+        &self,
+        invocation: &WriteInvocation,
+    ) -> impl std::future::Future<Output = Result<Placement>>;
 
     /// Runs both commands of one replacement, in the order the invocation gives them. A refusal
     /// of the second after the first has taken the name away is a `Replacement` rather than an
@@ -227,11 +239,11 @@ pub trait WriteMachine: ReadMachine {
     ///
     /// ```no_run
     /// # use dotfiles_configurator::machine::{Replacement, ReplacingInvocation, WriteMachine};
-    /// # fn register(
+    /// # async fn register(
     /// #     machine: &impl WriteMachine,
     /// #     invocation: &ReplacingInvocation,
     /// # ) -> anyhow::Result<()> {
-    /// match machine.replace(invocation)? {
+    /// match machine.replace(invocation).await? {
     ///     Replacement::Replaced => Ok(()),
     ///     Replacement::RemovedButCouldNotAdd { name, cause } => {
     ///         Err(cause.context(format!("nothing holds the name {name} now")))
@@ -239,9 +251,16 @@ pub trait WriteMachine: ReadMachine {
     /// }
     /// # }
     /// ```
-    fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement>;
+    fn replace(
+        &self,
+        invocation: &ReplacingInvocation,
+    ) -> impl std::future::Future<Output = Result<Replacement>>;
 
     fn sweep_superseded_images(&self);
 
-    fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput>;
+    fn run_declared_command(
+        &self,
+        shell: Shell,
+        args: &[String],
+    ) -> impl std::future::Future<Output = Result<CommandOutput>>;
 }

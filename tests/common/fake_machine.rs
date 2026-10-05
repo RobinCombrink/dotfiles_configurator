@@ -1225,7 +1225,7 @@ impl WriteMachine for FakeMachine {
         Ok(())
     }
 
-    fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
+    async fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
         let output = self.run_write(invocation)?;
         match output.succeeded {
             true => Ok(output),
@@ -1233,7 +1233,7 @@ impl WriteMachine for FakeMachine {
         }
     }
 
-    fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
+    async fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
         let output = self.run_write(invocation)?;
         if output.succeeded {
             return Ok(Placement::Placed);
@@ -1255,7 +1255,7 @@ impl WriteMachine for FakeMachine {
         }
     }
 
-    fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement> {
+    async fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement> {
         let ReplacingInvocation::ClaudeMcpServer { server } = invocation;
         let mut state = self.state.borrow_mut();
         let the_name_was_freed = state.claude_mcp_servers.remove(&server.name).is_some();
@@ -1276,7 +1276,7 @@ impl WriteMachine for FakeMachine {
         Ok(Replacement::Replaced)
     }
 
-    fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
+    async fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
         let output = self.run_cargo(invocation);
         if output.succeeded {
             return Ok(Placement::Placed);
@@ -1310,7 +1310,7 @@ impl WriteMachine for FakeMachine {
             .push(CargoCommand::ReapedBuildsOtherThan(building.clone()));
     }
 
-    fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()> {
+    async fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()> {
         let mut state = self.state.borrow_mut();
         state.cargo_commands.push(CargoCommand::Built {
             clone_directory: build.clone_directory().to_path_buf(),
@@ -1336,7 +1336,7 @@ impl WriteMachine for FakeMachine {
             .retain(|image| still_held.contains(image));
     }
 
-    fn run_declared_command(&self, _shell: Shell, args: &[String]) -> Result<CommandOutput> {
+    async fn run_declared_command(&self, _shell: Shell, args: &[String]) -> Result<CommandOutput> {
         self.state.borrow_mut().commands_run.push(args.to_vec());
         Ok(CommandOutput {
             succeeded: true,

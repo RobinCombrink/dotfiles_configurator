@@ -54,7 +54,7 @@ pub async fn build(builds: &[WorkspaceBuild<'_>], machine: &impl WriteMachine, r
     for build in builds {
         let entry = Entry::workspace_build(build);
         let built = report
-            .converging(&entry, async { machine.build_workspace_members(build) })
+            .converging(&entry, machine.build_workspace_members(build))
             .await;
         let Err(error) = built else {
             report.entry_finished(&entry, EntryOutcome::Converged);

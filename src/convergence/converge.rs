@@ -26,7 +26,7 @@ pub async fn converge(
     let resource = &drifted.resource;
     let closed = match resource.declared() {
         Resource::Package(Package::Cargo(package)) => {
-            return converge_cargo_package(package, resource, machine, readings);
+            return converge_cargo_package(package, resource, machine, readings).await;
         }
         Resource::Repository(clone) => {
             converge_repository(
@@ -49,9 +49,11 @@ pub async fn converge(
                 .await
                 .with_context(|| format!("Could not install {}", binary.installed_name()));
         }
-        Resource::Package(Package::Winget(package)) => converge_winget_package(package, machine),
+        Resource::Package(Package::Winget(package)) => {
+            converge_winget_package(package, machine).await
+        }
         Resource::Package(Package::UvTool(package)) => {
-            return converge_uv_tool(package, machine, readings);
+            return converge_uv_tool(package, machine, readings).await;
         }
         Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => machine
             .set_environment_variable(&variable.name, &variable.value)
@@ -70,9 +72,9 @@ pub async fn converge(
                 .with_context(|| format!("Could not write {}", path.display()))
         }
         Resource::Registration(Registration::ClaudeMcpServer(server)) => {
-            converge_claude_mcp_server(server, machine)
+            converge_claude_mcp_server(server, machine).await
         }
-        Resource::Command(command) => converge_command(command, machine),
+        Resource::Command(command) => converge_command(command, machine).await,
     };
 
     closed.map(|()| Placement::Placed)
@@ -148,10 +150,15 @@ async fn converge_repository(
         .await
 }
 
-fn converge_claude_mcp_server(server: &ClaudeMcpServer, machine: &impl WriteMachine) -> Result<()> {
-    let replacement = machine.replace(&ReplacingInvocation::ClaudeMcpServer {
-        server: Box::new(server.clone()),
-    })?;
+async fn converge_claude_mcp_server(
+    server: &ClaudeMcpServer,
+    machine: &impl WriteMachine,
+) -> Result<()> {
+    let replacement = machine
+        .replace(&ReplacingInvocation::ClaudeMcpServer {
+            server: Box::new(server.clone()),
+        })
+        .await?;
 
     match replacement {
         Replacement::Replaced => Ok(()),
@@ -162,15 +169,19 @@ fn converge_claude_mcp_server(server: &ClaudeMcpServer, machine: &impl WriteMach
     }
 }
 
-fn converge_winget_package(package: &WingetPackage, machine: &impl WriteMachine) -> Result<()> {
+async fn converge_winget_package(
+    package: &WingetPackage,
+    machine: &impl WriteMachine,
+) -> Result<()> {
     machine
         .write(&WriteInvocation::InstallWingetPackage {
             id: package.id.clone(),
         })
+        .await
         .map(|_| ())
 }
 
-fn converge_uv_tool(
+async fn converge_uv_tool(
     package: &UvToolPackage,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
@@ -188,10 +199,10 @@ fn converge_uv_tool(
         },
     };
 
-    machine.write_over_running_images(&invocation)
+    machine.write_over_running_images(&invocation).await
 }
 
-fn converge_cargo_package(
+async fn converge_cargo_package(
     package: &CargoPackage,
     resource: &ResolvedResource,
     machine: &impl WriteMachine,
@@ -223,10 +234,12 @@ fn converge_cargo_package(
         }
     };
 
-    machine.write_displacing(&DisplacingInvocation::InstallCargoCrate {
-        crate_name: package.crate_name.clone(),
-        source,
-    })
+    machine
+        .write_displacing(&DisplacingInvocation::InstallCargoCrate {
+            crate_name: package.crate_name.clone(),
+            source,
+        })
+        .await
 }
 
 fn converge_symlink(
@@ -246,8 +259,10 @@ fn converge_symlink(
     machine.create_link(&link_path, &source_path)
 }
 
-fn converge_command(command: &Command, machine: &impl WriteMachine) -> Result<()> {
-    let output = machine.run_declared_command(command.shell, &command.args)?;
+async fn converge_command(command: &Command, machine: &impl WriteMachine) -> Result<()> {
+    let output = machine
+        .run_declared_command(command.shell, &command.args)
+        .await?;
     match output.succeeded {
         true => Ok(()),
         false => bail!(

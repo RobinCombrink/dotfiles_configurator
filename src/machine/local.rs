@@ -30,11 +30,11 @@ use {
         env,
         ffi::OsStr,
         fs,
-        io::{BufRead, BufReader, Read},
+        io::Read,
         path::{Path, PathBuf},
         process::{Command as ProcessCommand, Stdio},
-        thread,
     },
+    tokio::io::{AsyncBufReadExt, AsyncRead},
     url::Url,
 };
 
@@ -68,7 +68,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
         })
     }
 
-    fn run(
+    async fn run(
         &self,
         tool: Tool,
         arguments: &[String],
@@ -81,6 +81,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
             None,
             self.report,
         )
+        .await
     }
 
     async fn download(&self, url: &Url, destination: &Path) -> Result<()> {
@@ -136,8 +137,8 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
         })
     }
 
-    fn run_installer(&self, installer_path: &Path) -> Result<()> {
-        let output = stream(installer_path, &[], &[], None, self.report)?;
+    async fn run_installer(&self, installer_path: &Path) -> Result<()> {
+        let output = stream(installer_path, &[], &[], None, self.report).await?;
 
         match output.succeeded {
             true => Ok(()),
@@ -269,7 +270,7 @@ fn capture(program: &Path, arguments: &[String], report: &RunReport) -> Result<C
 }
 
 // ADR 0013
-fn stream(
+async fn stream(
     program: &Path,
     arguments: &[String],
     environment: &[(String, String)],
@@ -282,7 +283,7 @@ fn stream(
         &rendered_invocation(program, arguments),
     );
 
-    let mut command = ProcessCommand::new(program);
+    let mut command = tokio::process::Command::new(program);
     if let Some(directory) = working_directory {
         command.current_dir(directory);
     }
@@ -308,17 +309,14 @@ fn stream(
         )
     })?;
 
-    let (standard_output, standard_error) = thread::scope(|scope| {
-        let reading_output = scope.spawn(|| drain(piped_output, report, speaking_for.as_ref()));
-        let reading_error = scope.spawn(|| drain(piped_error, report, speaking_for.as_ref()));
-        (
-            reading_output.join().unwrap_or_default(),
-            reading_error.join().unwrap_or_default(),
-        )
-    });
+    let (standard_output, standard_error) = tokio::join!(
+        drain(piped_output, report, speaking_for.as_ref()),
+        drain(piped_error, report, speaking_for.as_ref())
+    );
 
     let status = child
         .wait()
+        .await
         .with_context(|| format!("Could not wait for {}", program.display()))?;
 
     Ok(CommandOutput {
@@ -328,14 +326,18 @@ fn stream(
     })
 }
 
-fn drain(source: impl Read, report: &RunReport, speaking_for: Option<&Entry>) -> String {
-    let mut reader = BufReader::new(source);
+async fn drain(
+    source: impl AsyncRead + Unpin,
+    report: &RunReport,
+    speaking_for: Option<&Entry>,
+) -> String {
+    let mut reader = tokio::io::BufReader::new(source);
     let mut collected = String::new();
     let mut raw_line = Vec::new();
 
     loop {
         raw_line.clear();
-        match reader.read_until(b'\n', &mut raw_line) {
+        match reader.read_until(b'\n', &mut raw_line).await {
             Ok(0) => return collected,
             Err(error) => {
                 report.note(&format!("stopped reading this child's output: {error}"));
@@ -738,7 +740,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
 
         let installer_path = self.download_directory.join(file_name);
         self.download(&url, &installer_path).await?;
-        self.run_installer(&installer_path)
+        self.run_installer(&installer_path).await
     }
 
     async fn install_released_binary(
@@ -784,18 +786,18 @@ impl WriteMachine for LocalMachine<'_, '_> {
         environment::set_variable(name, value)
     }
 
-    fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
+    async fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
         let arguments = invocation.arguments();
-        let output = self.run(invocation.tool(), &arguments, &[])?;
+        let output = self.run(invocation.tool(), &arguments, &[]).await?;
         match output.succeeded {
             true => Ok(output),
             false => Err(refused(invocation.tool(), &arguments, &output)),
         }
     }
 
-    fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
+    async fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
         let arguments = invocation.arguments();
-        let output = self.run(invocation.tool(), &arguments, &[])?;
+        let output = self.run(invocation.tool(), &arguments, &[]).await?;
         if output.succeeded {
             return Ok(Placement::Placed);
         }
@@ -816,12 +818,12 @@ impl WriteMachine for LocalMachine<'_, '_> {
         }
     }
 
-    fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
+    async fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
         let tool = invocation.tool();
         let arguments = invocation.arguments();
         let environment = invocation.environment(&self.build_cache_directory());
 
-        let output = self.run(tool, &arguments, &environment)?;
+        let output = self.run(tool, &arguments, &environment).await?;
         if output.succeeded {
             return Ok(Placement::Placed);
         }
@@ -836,7 +838,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
         self.report
             .note(&format!("displaced {}", destination.display()));
 
-        match self.run(tool, &arguments, &environment) {
+        match self.run(tool, &arguments, &environment).await {
             Ok(retried) if retried.succeeded => Ok(Placement::Placed),
             Ok(retried) => Err(restoring(
                 &superseded,
@@ -860,7 +862,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
         }
     }
 
-    fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()> {
+    async fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()> {
         let build_cache = self.build_cache_directory();
         let source = build.source_directory(&build_cache);
         let clone_directory = build.clone_directory();
@@ -890,6 +892,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
             Some(&source),
             self.report,
         )
+        .await
         .and_then(|output| match output.succeeded {
             true => Ok(()),
             false => Err(refused(Tool::Cargo, &arguments, &output)),
@@ -907,12 +910,15 @@ impl WriteMachine for LocalMachine<'_, '_> {
         }
     }
 
-    fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement> {
+    async fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement> {
         let tool = invocation.tool();
         let commands = invocation.commands();
 
-        let the_name_was_freed = self.run(tool, &commands.free_the_name, &[])?.succeeded;
-        let claimed = self.run(tool, &commands.claim_the_name, &[])?;
+        let the_name_was_freed = self
+            .run(tool, &commands.free_the_name, &[])
+            .await?
+            .succeeded;
+        let claimed = self.run(tool, &commands.claim_the_name, &[]).await?;
         if claimed.succeeded {
             return Ok(Replacement::Replaced);
         }
@@ -931,9 +937,9 @@ impl WriteMachine for LocalMachine<'_, '_> {
         }
     }
 
-    fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput> {
+    async fn run_declared_command(&self, shell: Shell, args: &[String]) -> Result<CommandOutput> {
         let (program, arguments) = shell_invocation(shell, args);
-        stream(Path::new(&program), &arguments, &[], None, self.report)
+        stream(Path::new(&program), &arguments, &[], None, self.report).await
     }
 }
 
@@ -1277,13 +1283,15 @@ mod tests {
         )
     }
 
-    #[test]
-    fn every_line_a_changing_child_writes_reaches_the_log() {
+    #[tokio::test]
+    async fn every_line_a_changing_child_writes_reaches_the_log() {
         let directory = tempfile::tempdir().unwrap();
         let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
         let (program, arguments) = echoing_two_lines();
 
-        let output = stream(Path::new(&program), &arguments, &[], None, &report).unwrap();
+        let output = stream(Path::new(&program), &arguments, &[], None, &report)
+            .await
+            .unwrap();
 
         let written = fs::read_to_string(report.log_path()).unwrap();
         assert!(output.succeeded, "{output:?}");
@@ -1314,7 +1322,9 @@ mod tests {
 
         report
             .converging(&stop_gate, async {
-                stream(Path::new(&program), &arguments, &[], None, &report).unwrap()
+                stream(Path::new(&program), &arguments, &[], None, &report)
+                    .await
+                    .unwrap()
             })
             .await;
 
@@ -1326,13 +1336,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_streamed_child_still_hands_back_its_output_for_a_failure_message_to_quote() {
+    #[tokio::test]
+    async fn a_streamed_child_still_hands_back_its_output_for_a_failure_message_to_quote() {
         let directory = tempfile::tempdir().unwrap();
         let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
         let (program, arguments) = echoing_two_lines();
 
-        let output = stream(Path::new(&program), &arguments, &[], None, &report).unwrap();
+        let output = stream(Path::new(&program), &arguments, &[], None, &report)
+            .await
+            .unwrap();
 
         assert!(output.standard_output.contains("first"), "{output:?}");
         assert!(output.standard_output.contains("second"), "{output:?}");
@@ -1442,8 +1454,8 @@ mod tests {
     #[cfg(target_family = "unix")]
     const AN_ECHO_OF_CARGO_TARGET_DIR: &str = "echo $CARGO_TARGET_DIR";
 
-    #[test]
-    fn the_environment_a_changing_invocation_asks_for_reaches_the_child_that_runs_it() {
+    #[tokio::test]
+    async fn the_environment_a_changing_invocation_asks_for_reaches_the_child_that_runs_it() {
         let directory = tempfile::tempdir().unwrap();
         let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
         let (program, arguments) = shell_invocation(
@@ -1459,6 +1471,7 @@ mod tests {
             None,
             &report,
         )
+        .await
         .unwrap();
 
         assert!(output.succeeded, "{output:?}");
