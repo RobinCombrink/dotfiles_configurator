@@ -85,6 +85,15 @@ struct MachineState {
     environment_variables: BTreeMap<VariableName, VariableValue>,
     claude_mcp_servers: BTreeMap<McpServerName, ClaudeMcpServer>,
     mcp_servers_claude_refuses_to_add: BTreeSet<McpServerName>,
+    journal: Vec<Step>,
+    failing_downloads: BTreeSet<String>,
+    winget_sources_fail_to_update: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Step {
+    Began(String),
+    Ended(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -301,10 +310,48 @@ impl FakeMachine {
             .insert(name.clone());
     }
 
+    pub fn journal(&self) -> Vec<Step> {
+        self.state.borrow().journal.clone()
+    }
+
+    pub fn make_downloading_fail(&self, name: &str) {
+        self.state
+            .borrow_mut()
+            .failing_downloads
+            .insert(name.to_owned());
+    }
+
+    pub fn make_winget_sources_fail_to_update(&self) {
+        self.state.borrow_mut().winget_sources_fail_to_update = true;
+    }
+
+    async fn working<Output>(&self, work: String, act: impl FnOnce() -> Output) -> Output {
+        self.state
+            .borrow_mut()
+            .journal
+            .push(Step::Began(work.clone()));
+        tokio::task::yield_now().await;
+        let output = act();
+        tokio::task::yield_now().await;
+        self.state.borrow_mut().journal.push(Step::Ended(work));
+        output
+    }
+
+    fn worked(&self, work: String) {
+        let mut state = self.state.borrow_mut();
+        state.journal.push(Step::Began(work.clone()));
+        state.journal.push(Step::Ended(work));
+    }
+
     fn run_write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
         let mut state = self.state.borrow_mut();
         let mut standard_error = String::new();
         match invocation {
+            WriteInvocation::UpdateWingetSources => {
+                if state.winget_sources_fail_to_update {
+                    standard_error = "Failed to update source: winget".to_owned();
+                }
+            }
             WriteInvocation::InstallWingetPackage { id } => {
                 state.winget_packages.insert(id.clone());
             }
@@ -760,6 +807,9 @@ impl FakeMachine {
             environment_variables,
             claude_mcp_servers,
             mcp_servers_claude_refuses_to_add,
+            journal: _,
+            failing_downloads,
+            winget_sources_fail_to_update,
         } = &*state;
         format!(
             "{paths:?}|{links:?}|{text_files:?}|{tools:?}|{installed_applications:?}|\
@@ -772,7 +822,8 @@ impl FakeMachine {
              {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
              {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\
-             {mcp_servers_claude_refuses_to_add:?}"
+             {mcp_servers_claude_refuses_to_add:?}|{failing_downloads:?}|\
+             {winget_sources_fail_to_update:?}"
         )
     }
 }
@@ -1083,6 +1134,7 @@ impl ReadMachine for FakeMachine {
 
 impl WriteMachine for FakeMachine {
     fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<()> {
+        self.worked(format!("link {}", link_path.display()));
         let mut state = self.state.borrow_mut();
         if state.paths.contains(link_path) && !state.links.contains_key(link_path) {
             bail!(
@@ -1113,17 +1165,20 @@ impl WriteMachine for FakeMachine {
         clone_directory: &Path,
         account: &GitHubAccount,
     ) -> Result<()> {
-        let mut state = self.state.borrow_mut();
-        state
-            .clones
-            .push((clone.repository.clone(), account.clone()));
-        materialise_clone(&mut state, clone_directory);
-        if let Some(depth) = clone.depth {
+        self.working(format!("clone {}", clone.repository), || {
+            let mut state = self.state.borrow_mut();
             state
-                .shallow_clones
-                .insert(clone_directory.to_path_buf(), depth);
-        }
-        Ok(())
+                .clones
+                .push((clone.repository.clone(), account.clone()));
+            materialise_clone(&mut state, clone_directory);
+            if let Some(depth) = clone.depth {
+                state
+                    .shallow_clones
+                    .insert(clone_directory.to_path_buf(), depth);
+            }
+            Ok(())
+        })
+        .await
     }
 
     async fn deepen_clone(
@@ -1144,16 +1199,197 @@ impl WriteMachine for FakeMachine {
         installer: &Installer,
         _release_asset: Option<&ReleaseAsset>,
     ) -> Result<Downloaded<Installer>> {
-        Ok(Downloaded::fetched(
-            installer.clone(),
-            home_directory_path()
-                .join("Downloads")
-                .join(installer.name.to_string()),
-        ))
+        let name = installer.name.to_string();
+        self.working(format!("download {name}"), || {
+            if self.state.borrow().failing_downloads.contains(&name) {
+                bail!("the download of {name} was cut off");
+            }
+            Ok(Downloaded::fetched(
+                installer.clone(),
+                home_directory_path().join("Downloads").join(&name),
+            ))
+        })
+        .await
     }
 
     async fn install_application(&self, downloaded: Downloaded<Installer>) -> Result<()> {
         let installer = downloaded.declared();
+        self.working(format!("install {}", installer.name), || {
+            self.installing_application(installer)
+        })
+        .await
+    }
+
+    async fn download_released_binary(
+        &self,
+        binary: &ReleasedBinary,
+        asset: &ReleaseAsset,
+    ) -> Result<Downloaded<ReleasedBinary>> {
+        let name = binary.installed_name().to_string();
+        self.working(format!("download {name}"), || {
+            if self.state.borrow().failing_downloads.contains(&name) {
+                bail!("the download of {name} was cut off");
+            }
+            Ok(Downloaded::fetched(
+                binary.clone(),
+                home_directory_path().join("Downloads").join(&asset.name),
+            ))
+        })
+        .await
+    }
+
+    fn install_released_binary(&self, downloaded: Downloaded<ReleasedBinary>) -> Result<Placement> {
+        let binary = downloaded.declared();
+        self.worked(format!("install {}", binary.installed_name()));
+        self.installing_released_binary(binary)
+    }
+
+    fn put_on_search_path(&self, directory: &Path) -> Result<()> {
+        self.worked(format!("search path {}", directory.display()));
+        let mut state = self.state.borrow_mut();
+        let carried = SearchPathReading::of(state.user_search_path.iter().cloned());
+        if !carried.carries(directory) {
+            state.user_search_path.push(directory.to_path_buf());
+        }
+        Ok(())
+    }
+
+    fn set_environment_variable(&self, name: &VariableName, value: &VariableValue) -> Result<()> {
+        self.worked(format!("set {name}"));
+        self.state
+            .borrow_mut()
+            .environment_variables
+            .insert(name.clone(), value.clone());
+        Ok(())
+    }
+
+    async fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
+        let output = self
+            .working(work_of(invocation), || self.run_write(invocation))
+            .await?;
+        match output.succeeded {
+            true => Ok(output),
+            false => bail!("{} failed: {}", invocation.tool(), output.standard_error),
+        }
+    }
+
+    async fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
+        let output = self
+            .working(work_of(invocation), || self.run_write(invocation))
+            .await?;
+        if output.succeeded {
+            return Ok(Placement::Placed);
+        }
+
+        let Some(copy) = invocation.refused_copy(&output) else {
+            bail!("{} failed: {}", invocation.tool(), output.standard_error);
+        };
+        let identical = self
+            .state
+            .borrow()
+            .uv_running_launchers
+            .get(&copy.destination)
+            == Some(&LauncherCopy::Identical);
+
+        match identical {
+            true => Ok(Placement::Placed),
+            false => Ok(Placement::Held(copy.destination)),
+        }
+    }
+
+    async fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement> {
+        let ReplacingInvocation::ClaudeMcpServer { server } = invocation;
+        self.working(format!("register {}", server.name), || {
+            let mut state = self.state.borrow_mut();
+            let the_name_was_freed = state.claude_mcp_servers.remove(&server.name).is_some();
+
+            if state
+                .mcp_servers_claude_refuses_to_add
+                .contains(&server.name)
+            {
+                return invocation.refused_claim(
+                    the_name_was_freed,
+                    anyhow!("claude refused to add {}", server.name),
+                );
+            }
+
+            state
+                .claude_mcp_servers
+                .insert(server.name.clone(), (**server).clone());
+            Ok(Replacement::Replaced)
+        })
+        .await
+    }
+
+    async fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
+        let DisplacingInvocation::InstallCargoCrate { crate_name, .. } = invocation;
+        self.working(format!("cargo install {crate_name}"), || {
+            self.writing_displacing(invocation)
+        })
+        .await
+    }
+
+    fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>) {
+        self.state
+            .borrow_mut()
+            .cargo_commands
+            .push(CargoCommand::ReapedBuildsOtherThan(building.clone()));
+    }
+
+    async fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()> {
+        self.working("cargo build".to_owned(), || {
+            let mut state = self.state.borrow_mut();
+            state.cargo_commands.push(CargoCommand::Built {
+                clone_directory: build.clone_directory().to_path_buf(),
+                revision: build.revision().clone(),
+                members: build.members().clone(),
+            });
+
+            match state.workspace_builds_fail {
+                true => bail!("cargo could not build {build}"),
+                false => Ok(()),
+            }
+        })
+        .await
+    }
+
+    fn sweep_superseded_images(&self) {
+        let mut state = self.state.borrow_mut();
+        let still_held: BTreeSet<PathBuf> = state
+            .executing_binaries
+            .keys()
+            .map(|path| superseded_name(path))
+            .collect();
+        state
+            .superseded_images
+            .retain(|image| still_held.contains(image));
+    }
+
+    async fn run_declared_command(&self, _shell: Shell, args: &[String]) -> Result<CommandOutput> {
+        self.working(format!("command {}", args.join(" ")), || {
+            self.state.borrow_mut().commands_run.push(args.to_vec());
+            Ok(CommandOutput {
+                succeeded: true,
+                standard_output: String::new(),
+                standard_error: String::new(),
+            })
+        })
+        .await
+    }
+}
+
+fn work_of(invocation: &WriteInvocation) -> String {
+    match invocation {
+        WriteInvocation::UpdateWingetSources => "winget source update".to_owned(),
+        WriteInvocation::InstallWingetPackage { id } => format!("winget install {id}"),
+        WriteInvocation::InstallUvTool { name, .. } | WriteInvocation::UpgradeUvTool { name } => {
+            format!("uv {name}")
+        }
+    }
+}
+
+impl FakeMachine {
+    fn installing_application(&self, installer: &Installer) -> Result<()> {
         let mut state = self.state.borrow_mut();
         state.install_attempts.push(installer.name.clone());
 
@@ -1186,19 +1422,7 @@ impl WriteMachine for FakeMachine {
         Ok(())
     }
 
-    async fn download_released_binary(
-        &self,
-        binary: &ReleasedBinary,
-        asset: &ReleaseAsset,
-    ) -> Result<Downloaded<ReleasedBinary>> {
-        Ok(Downloaded::fetched(
-            binary.clone(),
-            home_directory_path().join("Downloads").join(&asset.name),
-        ))
-    }
-
-    fn install_released_binary(&self, downloaded: Downloaded<ReleasedBinary>) -> Result<Placement> {
-        let binary = downloaded.declared();
+    fn installing_released_binary(&self, binary: &ReleasedBinary) -> Result<Placement> {
         let installed_path = self
             .binaries_directory()
             .join(binary.installed_name().file_name());
@@ -1226,75 +1450,7 @@ impl WriteMachine for FakeMachine {
         Ok(Placement::Placed)
     }
 
-    fn put_on_search_path(&self, directory: &Path) -> Result<()> {
-        let mut state = self.state.borrow_mut();
-        let carried = SearchPathReading::of(state.user_search_path.iter().cloned());
-        if !carried.carries(directory) {
-            state.user_search_path.push(directory.to_path_buf());
-        }
-        Ok(())
-    }
-
-    fn set_environment_variable(&self, name: &VariableName, value: &VariableValue) -> Result<()> {
-        self.state
-            .borrow_mut()
-            .environment_variables
-            .insert(name.clone(), value.clone());
-        Ok(())
-    }
-
-    async fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        let output = self.run_write(invocation)?;
-        match output.succeeded {
-            true => Ok(output),
-            false => bail!("{} failed: {}", invocation.tool(), output.standard_error),
-        }
-    }
-
-    async fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
-        let output = self.run_write(invocation)?;
-        if output.succeeded {
-            return Ok(Placement::Placed);
-        }
-
-        let Some(copy) = invocation.refused_copy(&output) else {
-            bail!("{} failed: {}", invocation.tool(), output.standard_error);
-        };
-        let identical = self
-            .state
-            .borrow()
-            .uv_running_launchers
-            .get(&copy.destination)
-            == Some(&LauncherCopy::Identical);
-
-        match identical {
-            true => Ok(Placement::Placed),
-            false => Ok(Placement::Held(copy.destination)),
-        }
-    }
-
-    async fn replace(&self, invocation: &ReplacingInvocation) -> Result<Replacement> {
-        let ReplacingInvocation::ClaudeMcpServer { server } = invocation;
-        let mut state = self.state.borrow_mut();
-        let the_name_was_freed = state.claude_mcp_servers.remove(&server.name).is_some();
-
-        if state
-            .mcp_servers_claude_refuses_to_add
-            .contains(&server.name)
-        {
-            return invocation.refused_claim(
-                the_name_was_freed,
-                anyhow!("claude refused to add {}", server.name),
-            );
-        }
-
-        state
-            .claude_mcp_servers
-            .insert(server.name.clone(), (**server).clone());
-        Ok(Replacement::Replaced)
-    }
-
-    async fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
+    fn writing_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
         let output = self.run_cargo(invocation);
         if output.succeeded {
             return Ok(Placement::Placed);
@@ -1319,48 +1475,6 @@ impl WriteMachine for FakeMachine {
             true => Ok(Placement::Placed),
             false => bail!("cargo failed once the image in its way had been displaced"),
         }
-    }
-
-    fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>) {
-        self.state
-            .borrow_mut()
-            .cargo_commands
-            .push(CargoCommand::ReapedBuildsOtherThan(building.clone()));
-    }
-
-    async fn build_workspace_members(&self, build: &WorkspaceBuild<'_>) -> Result<()> {
-        let mut state = self.state.borrow_mut();
-        state.cargo_commands.push(CargoCommand::Built {
-            clone_directory: build.clone_directory().to_path_buf(),
-            revision: build.revision().clone(),
-            members: build.members().clone(),
-        });
-
-        match state.workspace_builds_fail {
-            true => bail!("cargo could not build {build}"),
-            false => Ok(()),
-        }
-    }
-
-    fn sweep_superseded_images(&self) {
-        let mut state = self.state.borrow_mut();
-        let still_held: BTreeSet<PathBuf> = state
-            .executing_binaries
-            .keys()
-            .map(|path| superseded_name(path))
-            .collect();
-        state
-            .superseded_images
-            .retain(|image| still_held.contains(image));
-    }
-
-    async fn run_declared_command(&self, _shell: Shell, args: &[String]) -> Result<CommandOutput> {
-        self.state.borrow_mut().commands_run.push(args.to_vec());
-        Ok(CommandOutput {
-            succeeded: true,
-            standard_output: String::new(),
-            standard_error: String::new(),
-        })
     }
 }
 

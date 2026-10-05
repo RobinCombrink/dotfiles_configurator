@@ -4,16 +4,19 @@ use {
         configuration_source::WriteSource,
         confirmation::{Confirm, Confirmation},
         convergence::{
-            Blocked, Change, ChangeSet, Lane, SourceReadings, build_stage, converge::converge, plan,
+            Blocked, Change, ChangeSet, Lane, SourceReadings, build_stage,
+            converge::{Download, Fetched, converge},
+            plan,
         },
         currency::{self, SelfReplacement},
         desired_state::{DesiredState, ResolvedResource},
-        machine::{Placement, WriteMachine},
+        machine::{Placement, WriteInvocation, WriteMachine},
         reporting::{Closing, Entry, EntryOutcome, RunReport},
     },
     anyhow::anyhow,
+    futures::future,
     std::{
-        collections::BTreeSet,
+        collections::{BTreeMap, BTreeSet},
         path::{Path, PathBuf},
     },
 };
@@ -314,6 +317,77 @@ struct Pass {
     replaced_itself: bool,
 }
 
+#[derive(Debug)]
+struct Settled<'change> {
+    position: usize,
+    change: &'change Change,
+    attempted: Attempted,
+}
+
+impl Pass {
+    fn of(
+        mut settled: Vec<Settled<'_>>,
+        handled: BTreeSet<Handled>,
+        replaced_itself: bool,
+    ) -> Self {
+        settled.sort_by_key(|settled| settled.position);
+
+        let mut pass = Pass {
+            handled,
+            replaced_itself,
+            ..Pass::default()
+        };
+        for Settled {
+            change, attempted, ..
+        } in settled
+        {
+            let resource = change.resource.clone();
+            match attempted {
+                Attempted::Converged => pass.converged.push(resource),
+                Attempted::Held(path) => pass.held.push(Held { resource, path }),
+                Attempted::Failed(error) => pass.failed.push(Failure { resource, error }),
+            }
+        }
+        pass
+    }
+}
+
+#[derive(Debug)]
+struct Work<'change> {
+    position: usize,
+    change: &'change Change,
+    fetched: Option<Fetched>,
+}
+
+impl<'change> Work<'change> {
+    fn change(&self) -> &'change Change {
+        self.change
+    }
+
+    async fn run(
+        self,
+        readings: &SourceReadings,
+        machine: &impl WriteMachine,
+        report: &RunReport,
+    ) -> Settled<'change> {
+        let Work {
+            position,
+            change,
+            fetched,
+        } = self;
+        let attempted = match fetched {
+            None => converge_one(change, readings, machine, report).await,
+            Some(fetched) => install_fetched(change, fetched, machine, report).await,
+        };
+
+        Settled {
+            position,
+            change,
+            attempted,
+        }
+    }
+}
+
 async fn attempt(
     change_set: &ChangeSet,
     readings: &SourceReadings,
@@ -322,49 +396,203 @@ async fn attempt(
     handled: &BTreeSet<Handled>,
     self_replacement: &SelfReplacement,
 ) -> Pass {
-    let pending = change_set
+    let mut claimed: BTreeSet<Handled> = BTreeSet::new();
+    let pending: Vec<(usize, &Change)> = change_set
         .changes
         .iter()
-        .filter(|change| !handled.contains(&Handled::of(change, machine.home_directory())));
+        .enumerate()
+        .filter(|(_, change)| {
+            let key = Handled::of(change, machine.home_directory());
+            !handled.contains(&key) && claimed.insert(key)
+        })
+        .collect();
+    let in_lane = |lane: Lane| {
+        pending
+            .iter()
+            .copied()
+            .filter(move |(_, change)| Lane::of(&change.resource) == lane)
+    };
+
+    let mut settled: Vec<Settled> = Vec::new();
+    for (position, change) in in_lane(Lane::Replacement) {
+        let attempted = match refusal_to_replace_again(change, self_replacement) {
+            Some(refusal) => refuse(change, refusal, report),
+            None => converge_one(change, readings, machine, report).await,
+        };
+        let replaced_itself = match attempted {
+            Attempted::Converged => true,
+            Attempted::Held(_) | Attempted::Failed(_) => false,
+        };
+        settled.push(Settled {
+            position,
+            change,
+            attempted,
+        });
+        if replaced_itself {
+            return Pass::of(settled, claimed, true);
+        }
+    }
+
+    for (position, change) in in_lane(Lane::Repositories) {
+        settled.push(Settled {
+            position,
+            change,
+            attempted: converge_one(change, readings, machine, report).await,
+        });
+    }
+
+    let (mut fetched, failed_downloads) =
+        fetch_ahead_of_the_lanes(&pending, readings, machine, report).await;
+    settled.extend(failed_downloads);
+    let mut work_in = |lane: Lane| -> Vec<Work> {
+        in_lane(lane)
+            .filter_map(
+                |(position, change)| match Download::of(change.resource.declared()) {
+                    None => Some(Work {
+                        position,
+                        change,
+                        fetched: None,
+                    }),
+                    Some(_) => fetched.remove(&position).map(|fetched| Work {
+                        position,
+                        change,
+                        fetched: Some(fetched),
+                    }),
+                },
+            )
+            .collect()
+    };
+    let (cargo, install, uv, instant) = (
+        work_in(Lane::Cargo),
+        work_in(Lane::Install),
+        work_in(Lane::Uv),
+        work_in(Lane::Instant),
+    );
+
+    let (cargo, install, uv, instant) = tokio::join!(
+        cargo_lane(cargo, readings, machine, report),
+        install_lane(install, readings, machine, report),
+        in_order(uv, readings, machine, report),
+        in_order(instant, readings, machine, report),
+    );
+    settled.extend(cargo.into_iter().chain(install).chain(uv).chain(instant));
+
+    for (position, change) in in_lane(Lane::Commands) {
+        settled.push(Settled {
+            position,
+            change,
+            attempted: converge_one(change, readings, machine, report).await,
+        });
+    }
+
+    Pass::of(settled, claimed, false)
+}
+
+async fn fetch_ahead_of_the_lanes<'change>(
+    pending: &[(usize, &'change Change)],
+    readings: &SourceReadings,
+    machine: &impl WriteMachine,
+    report: &RunReport,
+) -> (BTreeMap<usize, Fetched>, Vec<Settled<'change>>) {
+    let fetching = pending
+        .iter()
+        .filter(|(_, change)| Lane::of(&change.resource) != Lane::Replacement)
+        .filter_map(|&(position, change)| {
+            let download = Download::of(change.resource.declared())?;
+            Some(async move {
+                let entry = entry_of(change);
+                let fetched = report
+                    .converging(&entry, download.fetched(machine, readings))
+                    .await;
+                (position, change, entry, fetched)
+            })
+        });
+
+    let mut ready = BTreeMap::new();
+    let mut failed = Vec::new();
+    for (position, change, entry, fetched) in future::join_all(fetching).await {
+        match fetched {
+            Ok(fetched) => {
+                report.awaiting_its_lane(&entry);
+                ready.insert(position, fetched);
+            }
+            Err(error) => failed.push(Settled {
+                position,
+                change,
+                attempted: finish(change, &entry, Err(error), report),
+            }),
+        }
+    }
+    (ready, failed)
+}
+
+async fn in_order<'change>(
+    work: Vec<Work<'change>>,
+    readings: &SourceReadings,
+    machine: &impl WriteMachine,
+    report: &RunReport,
+) -> Vec<Settled<'change>> {
+    let mut settled = Vec::new();
+    for item in work {
+        settled.push(item.run(readings, machine, report).await);
+    }
+    settled
+}
+
+async fn cargo_lane<'change>(
+    work: Vec<Work<'change>>,
+    readings: &SourceReadings,
+    machine: &impl WriteMachine,
+    report: &RunReport,
+) -> Vec<Settled<'change>> {
     build_stage::build(
-        &build_stage::workspace_builds(pending, readings),
+        &build_stage::workspace_builds(work.iter().map(Work::change), readings),
         machine,
         report,
     )
     .await;
 
-    let mut pass = Pass::default();
-    for change in &change_set.changes {
-        let key = Handled::of(change, machine.home_directory());
-        if handled.contains(&key) || pass.handled.contains(&key) {
-            continue;
-        }
+    in_order(work, readings, machine, report).await
+}
 
-        let attempted = attempt_one(change, readings, machine, report, self_replacement).await;
-        let replaced_itself = match &attempted {
-            Attempted::Converged => change.resource.replaces_the_running_build(),
-            Attempted::Held(_) | Attempted::Failed(_) => false,
-        };
+async fn install_lane<'change>(
+    work: Vec<Work<'change>>,
+    readings: &SourceReadings,
+    machine: &impl WriteMachine,
+    report: &RunReport,
+) -> Vec<Settled<'change>> {
+    let (installers, winget): (Vec<Work>, Vec<Work>) =
+        work.into_iter().partition(|item| item.fetched.is_some());
 
-        match attempted {
-            Attempted::Converged => pass.converged.push(change.resource.clone()),
-            Attempted::Held(path) => pass.held.push(Held {
-                resource: change.resource.clone(),
-                path,
-            }),
-            Attempted::Failed(error) => pass.failed.push(Failure {
-                resource: change.resource.clone(),
-                error,
-            }),
-        }
-        pass.handled.insert(key);
-
-        if replaced_itself {
-            pass.replaced_itself = true;
-            return pass;
-        }
+    if !winget.is_empty() {
+        update_winget_sources(machine, report).await;
     }
-    pass
+    let mut settled = future::join_all(
+        winget
+            .into_iter()
+            .map(|item| item.run(readings, machine, report)),
+    )
+    .await;
+    settled.extend(in_order(installers, readings, machine, report).await);
+    settled
+}
+
+async fn update_winget_sources(machine: &impl WriteMachine, report: &RunReport) {
+    let entry = Entry::winget_sources();
+    let updated = report
+        .converging(&entry, machine.write(&WriteInvocation::UpdateWingetSources))
+        .await;
+    let Err(error) = updated else {
+        report.entry_finished(&entry, EntryOutcome::Converged);
+        return;
+    };
+
+    let reason = format!(
+        "winget's sources could not be updated, so each install reads the sources winget already \
+         holds: {error:#}"
+    );
+    report.note(&reason);
+    report.entry_finished(&entry, EntryOutcome::Failed { reason });
 }
 
 fn refusal_to_replace_again(
@@ -386,45 +614,71 @@ fn refusal_to_replace_again(
     ))
 }
 
-async fn attempt_one(
+fn entry_of(change: &Change) -> Entry {
+    Entry::new(Lane::of(&change.resource), change.resource.declared())
+}
+
+fn refuse(change: &Change, refusal: anyhow::Error, report: &RunReport) -> Attempted {
+    report.note(&format!("FAILED {}: {refusal:#}", change.resource));
+    report.entry_finished(
+        &entry_of(change),
+        EntryOutcome::Failed {
+            reason: format!("{refusal:#}"),
+        },
+    );
+    Attempted::Failed(refusal)
+}
+
+async fn converge_one(
     change: &Change,
     readings: &SourceReadings,
     machine: &impl WriteMachine,
     report: &RunReport,
-    self_replacement: &SelfReplacement,
 ) -> Attempted {
-    let entry = Entry::new(Lane::of(&change.resource), change.resource.declared());
-    if let Some(refusal) = refusal_to_replace_again(change, self_replacement) {
-        report.note(&format!("FAILED {}: {refusal:#}", change.resource));
-        report.entry_finished(
-            &entry,
-            EntryOutcome::Failed {
-                reason: format!("{refusal:#}"),
-            },
-        );
-        return Attempted::Failed(refusal);
-    }
-
+    let entry = entry_of(change);
     let outcome = report
-        .converging(&entry, converge(change, machine, readings))
+        .converging(&entry, Box::pin(converge(change, machine, readings)))
         .await;
 
+    finish(change, &entry, outcome, report)
+}
+
+async fn install_fetched(
+    change: &Change,
+    fetched: Fetched,
+    machine: &impl WriteMachine,
+    report: &RunReport,
+) -> Attempted {
+    let entry = entry_of(change);
+    let outcome = report
+        .resuming(&entry, Box::pin(fetched.installed(machine)))
+        .await;
+
+    finish(change, &entry, outcome, report)
+}
+
+fn finish(
+    change: &Change,
+    entry: &Entry,
+    outcome: anyhow::Result<Placement>,
+    report: &RunReport,
+) -> Attempted {
     match outcome {
         Ok(Placement::Placed) => {
             report.note(&format!("converged {}", change.resource));
-            report.entry_finished(&entry, EntryOutcome::Converged);
+            report.entry_finished(entry, EntryOutcome::Converged);
             Attempted::Converged
         }
         Ok(Placement::Held(path)) => {
             let reason = format!("{} is being executed", path.display());
             report.note(&format!("HELD {}: {reason}", change.resource));
-            report.entry_finished(&entry, EntryOutcome::Held { reason });
+            report.entry_finished(entry, EntryOutcome::Held { reason });
             Attempted::Held(path)
         }
         Err(error) => {
             let reason = format!("{error:#}");
             report.note(&format!("FAILED {}: {reason}", change.resource));
-            report.entry_finished(&entry, EntryOutcome::Failed { reason });
+            report.entry_finished(entry, EntryOutcome::Failed { reason });
             Attempted::Failed(error)
         }
     }

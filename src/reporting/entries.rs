@@ -29,6 +29,7 @@ pub struct Entry {
 enum Subject {
     Resource(ResourceKind),
     WorkspaceBuild { workspace: String },
+    WingetSources,
 }
 
 impl Display for Subject {
@@ -36,6 +37,7 @@ impl Display for Subject {
         match self {
             Subject::Resource(kind) => Display::fmt(kind, formatter),
             Subject::WorkspaceBuild { .. } => formatter.write_str("workspace build"),
+            Subject::WingetSources => formatter.write_str("source update"),
         }
     }
 }
@@ -56,6 +58,14 @@ impl Entry {
                 workspace: workspace.to_string(),
             },
             name: "build".to_owned(),
+        }
+    }
+
+    pub fn winget_sources() -> Self {
+        Self {
+            lane: Lane::Install,
+            subject: Subject::WingetSources,
+            name: "winget sources".to_owned(),
         }
     }
 
@@ -97,6 +107,7 @@ impl Verb {
             Subject::Resource(ResourceKind::Registration) => ("registering", "registered"),
             Subject::Resource(ResourceKind::Command) => ("running", "ran"),
             Subject::WorkspaceBuild { .. } => ("building", "built"),
+            Subject::WingetSources => ("updating", "updated"),
         };
         Self { present, past }
     }

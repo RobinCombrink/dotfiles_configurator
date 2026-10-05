@@ -38,12 +38,18 @@ pub async fn converge(
             .await
         }
         Resource::Application(Application::Installer(installer)) => {
-            let downloaded = download_installer(installer, machine, readings).await?;
-            install_application(downloaded, machine).await
+            return Download::Installer(installer)
+                .fetched(machine, readings)
+                .await?
+                .installed(machine)
+                .await;
         }
         Resource::Application(Application::ReleasedBinary(binary)) => {
-            let downloaded = download_released_binary(binary, machine, readings).await?;
-            return install_released_binary(downloaded, machine);
+            return Download::ReleasedBinary(binary)
+                .fetched(machine, readings)
+                .await?
+                .installed(machine)
+                .await;
         }
         Resource::Package(Package::Winget(package)) => {
             converge_winget_package(package, machine).await
@@ -76,6 +82,63 @@ pub async fn converge(
     closed.map(|()| Placement::Placed)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Download<'resource> {
+    Installer(&'resource Installer),
+    ReleasedBinary(&'resource ReleasedBinary),
+}
+
+#[derive(Debug)]
+pub enum Fetched {
+    Installer(Downloaded<Installer>),
+    ReleasedBinary(Downloaded<ReleasedBinary>),
+}
+
+impl<'resource> Download<'resource> {
+    pub fn of(resource: &'resource Resource) -> Option<Self> {
+        match resource {
+            Resource::Application(Application::Installer(installer)) => {
+                Some(Download::Installer(installer))
+            }
+            Resource::Application(Application::ReleasedBinary(binary)) => {
+                Some(Download::ReleasedBinary(binary))
+            }
+            Resource::Repository(_)
+            | Resource::Package(_)
+            | Resource::EnvironmentVariable(_)
+            | Resource::Symlink(_)
+            | Resource::Registration(_)
+            | Resource::Command(_) => None,
+        }
+    }
+
+    pub async fn fetched(
+        self,
+        machine: &impl WriteMachine,
+        readings: &SourceReadings,
+    ) -> Result<Fetched> {
+        match self {
+            Download::Installer(installer) => download_installer(installer, machine, readings)
+                .await
+                .map(Fetched::Installer),
+            Download::ReleasedBinary(binary) => download_released_binary(binary, machine, readings)
+                .await
+                .map(Fetched::ReleasedBinary),
+        }
+    }
+}
+
+impl Fetched {
+    pub async fn installed(self, machine: &impl WriteMachine) -> Result<Placement> {
+        match self {
+            Fetched::Installer(downloaded) => install_application(downloaded, machine)
+                .await
+                .map(|()| Placement::Placed),
+            Fetched::ReleasedBinary(downloaded) => install_released_binary(downloaded, machine),
+        }
+    }
+}
+
 fn resolved_release_asset<'readings>(
     installer: &Installer,
     readings: &'readings SourceReadings,
@@ -104,7 +167,7 @@ fn resolved_release_asset<'readings>(
     Ok(Some(matched))
 }
 
-pub(crate) async fn download_installer(
+async fn download_installer(
     installer: &Installer,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
@@ -116,7 +179,7 @@ pub(crate) async fn download_installer(
         .with_context(|| format!("Could not install {}", installer.name))
 }
 
-pub(crate) async fn install_application(
+async fn install_application(
     downloaded: Downloaded<Installer>,
     machine: &impl WriteMachine,
 ) -> Result<()> {
@@ -127,7 +190,7 @@ pub(crate) async fn install_application(
         .with_context(|| format!("Could not install {name}"))
 }
 
-pub(crate) async fn download_released_binary(
+async fn download_released_binary(
     binary: &ReleasedBinary,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
@@ -159,7 +222,7 @@ async fn download_release(
         .with_context(|| format!("Could not install {}", binary.installed_name()))
 }
 
-pub(crate) fn install_released_binary(
+fn install_released_binary(
     downloaded: Downloaded<ReleasedBinary>,
     machine: &impl WriteMachine,
 ) -> Result<Placement> {

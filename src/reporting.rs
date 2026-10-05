@@ -228,6 +228,24 @@ impl RunReport {
         SPEAKING_FOR.scope(entry.clone(), work).await
     }
 
+    pub fn awaiting_its_lane(&self, entry: &Entry) {
+        self.note(&format!("{entry}: waiting for its lane"));
+        self.shared
+            .no_longer_listening_to(&Speaker::Entry(entry.clone()));
+    }
+
+    pub async fn resuming<Output>(
+        &self,
+        entry: &Entry,
+        work: impl Future<Output = Output>,
+    ) -> Output {
+        self.note(&format!("{entry}: resumed"));
+        self.shared
+            .listening_to(Speaker::Entry(entry.clone()), entry.to_string());
+
+        SPEAKING_FOR.scope(entry.clone(), work).await
+    }
+
     pub fn entry_finished(&self, entry: &Entry, outcome: EntryOutcome) {
         self.shared
             .no_longer_listening_to(&Speaker::Entry(entry.clone()));

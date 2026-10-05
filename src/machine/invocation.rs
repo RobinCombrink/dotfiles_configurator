@@ -87,6 +87,7 @@ impl ReadInvocation {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteInvocation {
+    UpdateWingetSources,
     InstallWingetPackage {
         id: WingetPackageId,
     },
@@ -309,7 +310,9 @@ fn cargo_environment(build_directory: Option<&Path>) -> Vec<(String, String)> {
 impl WriteInvocation {
     pub fn tool(&self) -> Tool {
         match self {
-            WriteInvocation::InstallWingetPackage { .. } => Tool::Winget,
+            WriteInvocation::UpdateWingetSources | WriteInvocation::InstallWingetPackage { .. } => {
+                Tool::Winget
+            }
             WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => {
                 Tool::Uv
             }
@@ -318,6 +321,7 @@ impl WriteInvocation {
 
     pub fn arguments(&self) -> Vec<String> {
         match self {
+            WriteInvocation::UpdateWingetSources => vec!["source".to_owned(), "update".to_owned()],
             WriteInvocation::InstallWingetPackage { id } => vec![
                 "install".to_owned(),
                 "--exact".to_owned(),
@@ -348,7 +352,9 @@ impl WriteInvocation {
     // running launcher cannot be renamed aside either. uv 0.10.12 on Windows 11.
     pub fn refused_copy(&self, output: &CommandOutput) -> Option<RefusedCopy> {
         match self {
-            WriteInvocation::InstallWingetPackage { .. } => None,
+            WriteInvocation::UpdateWingetSources | WriteInvocation::InstallWingetPackage { .. } => {
+                None
+            }
             WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => output
                 .standard_error
                 .lines()
