@@ -8,9 +8,9 @@ use {
         configuration_source::WriteSource,
         github::GitHubAccess,
         machine::{
-            CommandOutput, DisplacingInvocation, Downloaded, Exited, Placement, ReadInvocation,
-            ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild,
-            WriteInvocation, WriteMachine,
+            CommandOutput, DisplacingInvocation, Downloaded, Exited, HeldReason, Placement,
+            ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool,
+            WorkspaceBuild, WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -789,7 +789,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
             return Ok(Placement::Placed);
         };
         let Ok(superseded) = displace(&installed_path) else {
-            return Ok(Placement::Held(installed_path));
+            return Ok(Placement::Held(HeldReason::BeingExecuted(installed_path)));
         };
 
         place_executable(&installed_path, &contents)
@@ -844,7 +844,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
                 ));
                 Ok(Placement::Placed)
             }
-            false => Ok(Placement::Held(copy.destination)),
+            false => Ok(Placement::Held(HeldReason::BeingExecuted(copy.destination))),
         }
     }
 
@@ -863,7 +863,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
         };
 
         let Ok(superseded) = displace(&destination) else {
-            return Ok(Placement::Held(destination));
+            return Ok(Placement::Held(HeldReason::BeingExecuted(destination)));
         };
         self.report
             .note(&format!("displaced {}", destination.display()));

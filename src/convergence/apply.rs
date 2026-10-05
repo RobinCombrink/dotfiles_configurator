@@ -11,14 +11,14 @@ use {
         },
         currency::{self, SelfReplacement},
         desired_state::{DesiredState, ResolvedResource},
-        machine::{Placement, WriteInvocation, WriteMachine},
+        machine::{HeldReason, Placement, WriteInvocation, WriteMachine},
         reporting::{Closing, Entry, EntryOutcome, RunReport},
     },
     anyhow::anyhow,
     futures::future,
     std::{
         collections::{BTreeMap, BTreeSet},
-        path::{Path, PathBuf},
+        path::Path,
     },
 };
 
@@ -31,7 +31,7 @@ pub struct Failure {
 #[derive(Debug)]
 pub struct Held {
     pub resource: ResolvedResource,
-    pub path: PathBuf,
+    pub reason: HeldReason,
 }
 
 #[derive(Debug)]
@@ -318,7 +318,7 @@ impl Handled {
 #[derive(Debug)]
 enum Attempted {
     Converged,
-    Held(PathBuf),
+    Held(HeldReason),
     Failed(anyhow::Error),
 }
 
@@ -359,7 +359,7 @@ impl Pass {
             let resource = change.resource.clone();
             match attempted {
                 Attempted::Converged => pass.converged.push(resource),
-                Attempted::Held(path) => pass.held.push(Held { resource, path }),
+                Attempted::Held(reason) => pass.held.push(Held { resource, reason }),
                 Attempted::Failed(error) => pass.failed.push(Failure { resource, error }),
             }
         }
@@ -697,11 +697,15 @@ fn finish(
             report.entry_finished(entry, EntryOutcome::Converged);
             Attempted::Converged
         }
-        Ok(Placement::Held(path)) => {
-            let reason = format!("{} is being executed", path.display());
+        Ok(Placement::Held(reason)) => {
             report.note(&format!("HELD {}: {reason}", change.resource));
-            report.entry_finished(entry, EntryOutcome::Held { reason });
-            Attempted::Held(path)
+            report.entry_finished(
+                entry,
+                EntryOutcome::Held {
+                    reason: reason.clone(),
+                },
+            );
+            Attempted::Held(reason)
         }
         Err(error) => {
             let reason = format!("{error:#}");

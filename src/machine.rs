@@ -115,7 +115,22 @@ impl<Declared> Downloaded<Declared> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Placement {
     Placed,
-    Held(PathBuf),
+    Held(HeldReason),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeldReason {
+    BeingExecuted(PathBuf),
+}
+
+impl Display for HeldReason {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HeldReason::BeingExecuted(path) => {
+                write!(formatter, "{} is being executed", path.display())
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

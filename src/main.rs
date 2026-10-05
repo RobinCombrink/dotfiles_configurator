@@ -16,7 +16,7 @@ use {
         },
         desired_state::DesiredState,
         github::GitHubAccess,
-        machine::{Placement, ReadMachine, local::LocalMachine},
+        machine::{HeldReason, Placement, ReadMachine, local::LocalMachine},
         planned_run::PlannedRun,
         reporting::{RunKind, RunReport},
         version::Version,
@@ -358,7 +358,7 @@ async fn obtain_a_newer_build(machine: &LocalMachine<'_, '_>) -> Result<()> {
 
     match install_release(&binary, &released, machine).await? {
         Placement::Placed => Ok(()),
-        Placement::Held(path) => bail!(
+        Placement::Held(HeldReason::BeingExecuted(path)) => bail!(
             "{} is running and could not be moved aside to install the newer build",
             path.display()
         ),

@@ -15,9 +15,9 @@ use {
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
-            CommandOutput, DisplacingInvocation, Downloaded, Exited, Placement, ReadInvocation,
-            ReadMachine, Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild,
-            WriteInvocation, WriteMachine,
+            CommandOutput, DisplacingInvocation, Downloaded, Exited, HeldReason, Placement,
+            ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, ResolvedCargoSource,
+            WorkspaceBuild, WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
@@ -1494,7 +1494,7 @@ impl WriteMachine for FakeMachine {
 
         match identical {
             true => Ok(Placement::Placed),
-            false => Ok(Placement::Held(copy.destination)),
+            false => Ok(Placement::Held(HeldReason::BeingExecuted(copy.destination))),
         }
     }
 
@@ -1631,7 +1631,7 @@ impl FakeMachine {
         let mut state = self.state.borrow_mut();
 
         if state.executing_binaries.get(&installed_path) == Some(&Displacement::Refused) {
-            return Ok(Placement::Held(installed_path));
+            return Ok(Placement::Held(HeldReason::BeingExecuted(installed_path)));
         }
         let was_executing = state.executing_binaries.remove(&installed_path).is_some();
 
@@ -1664,7 +1664,7 @@ impl FakeMachine {
 
         let mut state = self.state.borrow_mut();
         if state.executing_binaries.get(&destination) == Some(&Displacement::Refused) {
-            return Ok(Placement::Held(destination));
+            return Ok(Placement::Held(HeldReason::BeingExecuted(destination)));
         }
 
         state.executing_binaries.remove(&destination);

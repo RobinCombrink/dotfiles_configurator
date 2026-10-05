@@ -2,6 +2,7 @@ use {
     crate::{
         configuration::{Resource, ResourceKind},
         convergence::Lane,
+        machine::HeldReason,
     },
     indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle},
     std::{
@@ -187,7 +188,7 @@ impl EntryStatus {
 pub enum EntryOutcome {
     Converged,
     Failed { reason: String },
-    Held { reason: String },
+    Held { reason: HeldReason },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,7 +205,7 @@ impl From<EntryOutcome> for Ending {
         match outcome {
             EntryOutcome::Converged => Ending::Converged,
             EntryOutcome::Failed { reason } => Ending::Failed(reason),
-            EntryOutcome::Held { reason } => Ending::Held(reason),
+            EntryOutcome::Held { reason } => Ending::Held(reason.to_string()),
         }
     }
 }
@@ -754,7 +755,7 @@ mod tests {
         presentation.finished(
             &ripgrep,
             EntryOutcome::Held {
-                reason: "rg.exe is being executed".to_owned(),
+                reason: HeldReason::BeingExecuted("rg.exe".into()),
             },
             at(100),
         );
