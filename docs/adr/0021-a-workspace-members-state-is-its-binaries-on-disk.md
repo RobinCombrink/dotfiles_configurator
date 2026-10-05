@@ -1,5 +1,5 @@
 ---
-status: accepted, its drift rule superseded by [ADR 0040](0040-a-workspace-members-currency-is-read-from-the-build-its-binaries-report.md)
+status: accepted, its drift rule superseded by [ADR 0040](0040-a-workspace-members-currency-is-read-from-the-build-its-binaries-report.md) and its consequence for a binary a member stops declaring by [ADR 0041](0041-a-binary-a-workspace-member-stops-declaring-is-removed.md)
 ---
 
 # A workspace member's actual state is its binaries on disk

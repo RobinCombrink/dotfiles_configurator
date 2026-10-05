@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, with the readable-ownership exception [ADR 0041](0041-a-binary-a-workspace-member-stops-declaring-is-removed.md) records
 ---
 
 # Convergence is additive

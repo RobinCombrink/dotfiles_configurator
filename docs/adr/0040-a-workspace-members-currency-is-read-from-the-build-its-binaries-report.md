@@ -52,6 +52,6 @@ repair.
   once more at each distinct commit those binaries report other than the checkout's.
 - **A binary built without the stamp is reinstalled once**, and from then on reports its build.
 - **Cargo's install record no longer decides whether a member installs.** It still names which
-  binaries a member's earlier installs left behind.
+  binaries a member's earlier installs left behind, which ADR 0041 removes.
 - **Every member is unassessable where the registry cannot be read**, since that is where the
   search path comes from. That is every machine that is not Windows.
