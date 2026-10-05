@@ -7,6 +7,7 @@ use {
             Blocked, Change, ChangeSet, Lane, SourceReadings, build_stage,
             converge::{Download, Fetched, converge},
             plan,
+            withdrawal::{Withdrawal, Withdrawn, withdraw},
         },
         currency::{self, SelfReplacement},
         desired_state::{DesiredState, ResolvedResource},
@@ -40,6 +41,8 @@ pub struct ApplyOutcome {
     pub held: Vec<Held>,
     pub blocked: Vec<Blocked>,
     pub unverified: Vec<Change>,
+    pub removed: Vec<Withdrawal>,
+    pub unremoved: Vec<Withdrawal>,
     pub notices: Vec<Notice>,
     pub migrated: Vec<Migration>,
     pub passes: usize,
@@ -51,6 +54,7 @@ impl ApplyOutcome {
             && self.held.is_empty()
             && self.blocked.is_empty()
             && self.unverified.is_empty()
+            && self.unremoved.is_empty()
     }
 }
 
@@ -60,8 +64,9 @@ impl ApplyOutcome {
             |resource: &ResolvedResource| Entry::new(Lane::of(resource), resource.declared());
         Closing {
             converged: self.converged.len(),
-            failed: self.failed.len(),
+            failed: self.failed.len() + self.unremoved.len(),
             held: self.held.len(),
+            removed: self.removed.len(),
             blocked: self
                 .blocked
                 .iter()
@@ -86,7 +91,7 @@ impl ApplyOutcome {
 
 #[derive(Debug)]
 pub enum Enactment {
-    Enacted(ApplyOutcome),
+    Enacted(Box<ApplyOutcome>),
     Declined,
     ReplacedItself,
 }
@@ -121,6 +126,8 @@ pub async fn apply(
     let mut failed: Vec<Failure> = Vec::new();
     let mut held: Vec<Held> = Vec::new();
     let mut handled: BTreeSet<Handled> = BTreeSet::new();
+    let mut removed: Vec<Withdrawal> = Vec::new();
+    let mut attempted_withdrawals: BTreeSet<Withdrawal> = BTreeSet::new();
     let mut passes = 0;
 
     for migration in &desired_state.migrations {
@@ -142,6 +149,7 @@ pub async fn apply(
             machine,
             report,
             &handled,
+            &attempted_withdrawals,
             self_replacement,
         )
         .await;
@@ -160,6 +168,8 @@ pub async fn apply(
                 held,
                 blocked: Vec::new(),
                 unverified: Vec::new(),
+                removed,
+                unremoved: Vec::new(),
                 notices: Vec::new(),
                 migrated: desired_state.migrations.clone(),
                 passes,
@@ -172,7 +182,9 @@ pub async fn apply(
             return Ok(Enactment::ReplacedItself);
         }
 
-        let productive = !pass.converged.is_empty();
+        let productive = !pass.converged.is_empty() || !pass.withdrawn.removed.is_empty();
+        attempted_withdrawals.extend(pass.withdrawn.attempted);
+        removed.extend(pass.withdrawn.removed);
         handled.extend(pass.handled);
         converged.extend(pass.converged);
         failed.extend(pass.failed);
@@ -201,12 +213,14 @@ pub async fn apply(
         held,
         blocked: change_set.blocked,
         unverified,
+        removed,
+        unremoved: change_set.withdrawals,
         notices,
         migrated: desired_state.migrations.clone(),
         passes,
     };
     report.conclude(outcome.closing());
-    Ok(Enactment::Enacted(outcome))
+    Ok(Enactment::Enacted(Box::new(outcome)))
 }
 
 // ADR 0017
@@ -314,6 +328,7 @@ struct Pass {
     failed: Vec<Failure>,
     held: Vec<Held>,
     handled: BTreeSet<Handled>,
+    withdrawn: Withdrawn,
     replaced_itself: bool,
 }
 
@@ -394,6 +409,7 @@ async fn attempt(
     machine: &impl WriteMachine,
     report: &RunReport,
     handled: &BTreeSet<Handled>,
+    attempted_withdrawals: &BTreeSet<Withdrawal>,
     self_replacement: &SelfReplacement,
 ) -> Pass {
     let mut claimed: BTreeSet<Handled> = BTreeSet::new();
@@ -469,8 +485,14 @@ async fn attempt(
         work_in(Lane::Instant),
     );
 
-    let (cargo, install, uv, instant) = tokio::join!(
-        cargo_lane(cargo, readings, machine, report),
+    let withdrawals: Vec<&Withdrawal> = change_set
+        .withdrawals
+        .iter()
+        .filter(|withdrawal| !attempted_withdrawals.contains(withdrawal))
+        .collect();
+
+    let ((cargo, withdrawn), install, uv, instant) = tokio::join!(
+        cargo_lane(cargo, withdrawals, readings, machine, report),
         install_lane(install, readings, machine, report),
         in_order(uv, readings, machine, report),
         in_order(instant, readings, machine, report),
@@ -485,7 +507,10 @@ async fn attempt(
         });
     }
 
-    Pass::of(settled, claimed, false)
+    Pass {
+        withdrawn,
+        ..Pass::of(settled, claimed, false)
+    }
 }
 
 async fn fetch_ahead_of_the_lanes<'change>(
@@ -539,12 +564,14 @@ async fn in_order<'change>(
     settled
 }
 
+// ADR 0041
 async fn cargo_lane<'change>(
     work: Vec<Work<'change>>,
+    withdrawals: Vec<&Withdrawal>,
     readings: &SourceReadings,
     machine: &impl WriteMachine,
     report: &RunReport,
-) -> Vec<Settled<'change>> {
+) -> (Vec<Settled<'change>>, Withdrawn) {
     build_stage::build(
         &build_stage::workspace_builds(work.iter().map(Work::change), readings),
         machine,
@@ -552,7 +579,8 @@ async fn cargo_lane<'change>(
     )
     .await;
 
-    in_order(work, readings, machine, report).await
+    let settled = in_order(work, readings, machine, report).await;
+    (settled, withdraw(withdrawals, machine, report).await)
 }
 
 async fn install_lane<'change>(

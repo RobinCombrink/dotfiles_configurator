@@ -15,6 +15,7 @@ pub mod lane;
 pub mod member_currency;
 pub mod resolve;
 pub mod source_reading;
+pub mod withdrawal;
 
 pub use {
     apply::{ApplyOutcome, Enactment},
@@ -23,6 +24,7 @@ pub use {
     lane::Lane,
     resolve::resolve,
     source_reading::{ReadSource, SourceReading, UnreadableReason},
+    withdrawal::{Withdrawal, withdrawals},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +137,7 @@ pub struct Found {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangeSet {
     pub changes: Vec<Change>,
+    pub withdrawals: Vec<Withdrawal>,
     pub blocked: Vec<Blocked>,
     pub converged: Vec<ResolvedResource>,
     pub found: Vec<Found>,
@@ -144,12 +147,12 @@ pub struct ChangeSet {
 
 impl ChangeSet {
     pub fn is_converged(&self) -> bool {
-        self.changes.is_empty() && self.blocked.is_empty()
+        self.changes.is_empty() && self.withdrawals.is_empty() && self.blocked.is_empty()
     }
 
     // ADR 0013
     pub fn would_enact_something(&self) -> bool {
-        !self.changes.is_empty() || !self.migrations.is_empty()
+        !self.changes.is_empty() || !self.withdrawals.is_empty() || !self.migrations.is_empty()
     }
 }
 
@@ -217,6 +220,7 @@ pub async fn plan(
     Ok((
         ChangeSet {
             changes,
+            withdrawals: planned_withdrawals(desired_state, &readings),
             blocked,
             converged,
             found,
@@ -227,6 +231,22 @@ pub async fn plan(
     ))
 }
 
+// ADR 0041
+fn planned_withdrawals(desired_state: &DesiredState, readings: &SourceReadings) -> Vec<Withdrawal> {
+    let Ok(records) = readings.install_records() else {
+        return Vec::new();
+    };
+    let workspaces = desired_state.workspaces.iter().filter_map(|workspace| {
+        let repository = &workspace.declared().repository;
+        let reading = readings
+            .workspace(&workspace.clone_directory(repository))
+            .ok()??;
+        Some((repository, reading))
+    });
+
+    withdrawals(workspaces, &records)
+}
+
 impl Display for ChangeSet {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for change in &self.changes {
@@ -235,6 +255,9 @@ impl Display for ChangeSet {
                 "  change  {} ({})",
                 change.resource, change.reason
             )?;
+        }
+        for withdrawal in &self.withdrawals {
+            writeln!(formatter, "  remove  {withdrawal}")?;
         }
         for blocked in &self.blocked {
             writeln!(
@@ -258,8 +281,9 @@ impl Display for ChangeSet {
         }
         write!(
             formatter,
-            "\n{} to change, {} blocked, {} already converged, {} to migrate",
+            "\n{} to change, {} to remove, {} blocked, {} already converged, {} to migrate",
             self.changes.len(),
+            self.withdrawals.len(),
             self.blocked.len(),
             self.converged.len(),
             self.migrations.len()

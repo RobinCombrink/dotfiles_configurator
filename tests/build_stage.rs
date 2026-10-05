@@ -105,7 +105,7 @@ async fn applying_reported_to(
     .unwrap();
 
     match enactment {
-        Enactment::Enacted(outcome) => outcome,
+        Enactment::Enacted(outcome) => *outcome,
         Enactment::Declined | Enactment::ReplacedItself => {
             panic!("the apply did not enact its change set")
         }

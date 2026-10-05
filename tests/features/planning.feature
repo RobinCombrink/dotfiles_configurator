@@ -377,6 +377,28 @@ Feature: Planning what a machine needs
     Then the change set reports 1 change
     And the change set mentions "shadowed"
 
+  Scenario: A binary an earlier install of a workspace crate left behind is planned for removal
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "session-mining"
+    And cargo installed "session-mining" from the content the workspace holds now
+    And an earlier install of "session-mining" left the binary "session-census" behind
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 binary to remove
+    And the change set mentions "session-census"
+    And the change set does not report the machine as converged
+
+  Scenario: A binary installed from another repository under a workspace crate's name is not planned for removal
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "session-mining"
+    And cargo installed "session-mining" from the content the workspace holds now
+    And cargo holds the binary "session-census" of "session-mining" installed from another repository
+    When Alice plans
+    Then the change set reports 0 binaries to remove
+    And the change set reports the machine as converged
+
   Scenario: A workspace crate is blocked while cargo's bin directory is not on the search path
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine

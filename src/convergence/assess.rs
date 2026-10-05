@@ -11,6 +11,7 @@ use {
             Assessment, Impediment, ReadSource, SourceReading, UnreadableReason,
             member_currency::{OwnCopies, OwnCopy, judged, own_copies_of, resolution_of},
             search_path_directory, symlink_location,
+            withdrawal::{InstallRecord, install_records},
         },
         desired_state::{DesiredState, ResolvedResource},
         machine::{
@@ -236,6 +237,13 @@ impl SourceReadings {
                 .into(),
             )),
         }
+    }
+
+    // ADR 0041
+    pub fn install_records(&self) -> Result<Vec<InstallRecord>, Impediment> {
+        self.cargo_crates
+            .read()
+            .map(|listing| install_records(listing))
     }
 
     // ADR 0040
@@ -650,6 +658,9 @@ fn assess_workspace_member(
     };
     if !reading.members.contains_key(crate_name) {
         return Assessment::Drifted("the workspace no longer holds it".into());
+    }
+    if let Err(impediment) = readings.install_records() {
+        return Assessment::Unassessable(impediment);
     }
 
     let (own_copies, search_path) = match (

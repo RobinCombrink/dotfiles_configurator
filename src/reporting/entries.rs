@@ -30,6 +30,7 @@ enum Subject {
     Resource(ResourceKind),
     WorkspaceBuild { workspace: String },
     WingetSources,
+    Removal,
 }
 
 impl Display for Subject {
@@ -38,6 +39,7 @@ impl Display for Subject {
             Subject::Resource(kind) => Display::fmt(kind, formatter),
             Subject::WorkspaceBuild { .. } => formatter.write_str("workspace build"),
             Subject::WingetSources => formatter.write_str("source update"),
+            Subject::Removal => formatter.write_str("removal"),
         }
     }
 }
@@ -66,6 +68,15 @@ impl Entry {
             lane: Lane::Install,
             subject: Subject::WingetSources,
             name: "winget sources".to_owned(),
+        }
+    }
+
+    // ADR 0041
+    pub fn removal(binary: impl Display) -> Self {
+        Self {
+            lane: Lane::Cargo,
+            subject: Subject::Removal,
+            name: binary.to_string(),
         }
     }
 
@@ -108,6 +119,7 @@ impl Verb {
             Subject::Resource(ResourceKind::Command) => ("running", "ran"),
             Subject::WorkspaceBuild { .. } => ("building", "built"),
             Subject::WingetSources => ("updating", "updated"),
+            Subject::Removal => ("removing", "removed"),
         };
         Self { present, past }
     }
@@ -216,6 +228,7 @@ pub struct Closing {
     pub held: usize,
     pub blocked: Vec<(Entry, String)>,
     pub did_not_take: Vec<(Entry, String)>,
+    pub removed: usize,
     pub migrated: Vec<String>,
     pub notices: Vec<String>,
     pub passes: usize,
@@ -407,13 +420,14 @@ impl Display for Tally<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{} converged, {} failed, {} held, {} still blocked, {} did not take, {} migrated, \
-             over {} pass(es) in {}",
+            "{} converged, {} failed, {} held, {} still blocked, {} did not take, {} removed, \
+             {} migrated, over {} pass(es) in {}",
             self.closing.converged,
             self.closing.failed,
             self.closing.held,
             self.closing.blocked.len(),
             self.closing.did_not_take.len(),
+            self.closing.removed,
             self.closing.migrated.len(),
             self.closing.passes,
             Elapsed(self.duration)
@@ -776,8 +790,8 @@ mod tests {
              [cargo] cargo-llvm-cov: blocked\n\
              \x20 cargo is not on the path\n\
              notice open a new shell\n\
-             1 converged, 1 failed, 1 held, 1 still blocked, 0 did not take, 0 migrated, \
-             over 2 pass(es) in 1m40s\n"
+             1 converged, 1 failed, 1 held, 1 still blocked, 0 did not take, 0 removed, \
+             0 migrated, over 2 pass(es) in 1m40s\n"
         );
     }
 
@@ -808,8 +822,8 @@ mod tests {
              diagnostics\n\
              [cargo] stop-gate: did not take\n\
              \x20 still at 0.1.0\n\
-             1 converged, 0 failed, 0 held, 0 still blocked, 1 did not take, 0 migrated, \
-             over 1 pass(es) in 0s\n"
+             1 converged, 0 failed, 0 held, 0 still blocked, 1 did not take, 0 removed, \
+             0 migrated, over 1 pass(es) in 0s\n"
         );
     }
 
@@ -841,8 +855,8 @@ mod tests {
 
         assert_eq!(
             transcript.text(),
-            "0 converged, 0 failed, 0 held, 0 still blocked, 0 did not take, 0 migrated, \
-             over 1 pass(es) in 0s\n"
+            "0 converged, 0 failed, 0 held, 0 still blocked, 0 did not take, 0 removed, \
+             0 migrated, over 1 pass(es) in 0s\n"
         );
     }
 

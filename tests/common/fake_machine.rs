@@ -6,8 +6,8 @@ use {
     anyhow::{Result, anyhow, bail},
     dotfiles_configurator::{
         configuration::{
-            Answer, ApplicationName, ApplicationSource, ClaudeMcpServer, CloneDepth, CrateName,
-            CrateVersion, GitHubAccount, GitHubRepository, Installer, MachineClass,
+            Answer, ApplicationName, ApplicationSource, BinaryName, ClaudeMcpServer, CloneDepth,
+            CrateName, CrateVersion, GitHubAccount, GitHubRepository, Installer, MachineClass,
             MachineManifest, McpServerName, Migration, PresenceCheck, PythonInterpreter,
             ReleasedBinary, RepositoryClone, Shell, Tool, UvToolName, UvToolVersion, VariableName,
             VariableValue, WingetPackageId,
@@ -69,6 +69,7 @@ struct MachineState {
     unreadable_releases: BTreeSet<GitHubRepository>,
     cargo_workspaces: BTreeMap<PathBuf, WorkspaceReading>,
     earlier_cargo_workspaces: BTreeMap<(PathBuf, Revision), BTreeMap<CrateName, Fingerprint>>,
+    install_records: Vec<InstallRecord>,
     workspace_reads: Vec<PathBuf>,
     executing_binaries: BTreeMap<PathBuf, Displacement>,
     superseded_images: BTreeSet<PathBuf>,
@@ -106,6 +107,20 @@ pub enum CargoCommand {
         members: BTreeSet<CrateName>,
     },
     Installed(CrateName),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InstallRecord {
+    crate_name: CrateName,
+    source: String,
+    commit: Revision,
+    binaries: Vec<BinaryName>,
+}
+
+impl InstallRecord {
+    fn specification(&self) -> String {
+        format!("git+{}#{}@0.1.0", self.source, self.crate_name)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -234,6 +249,82 @@ impl FakeMachine {
             .entry((repository_path, revision))
             .or_default()
             .insert(crate_name, fingerprint);
+    }
+
+    pub fn hold_install_record(
+        &self,
+        crate_name: &CrateName,
+        repository: &GitHubRepository,
+        commit: &Revision,
+        binaries: &[BinaryName],
+    ) {
+        self.state.borrow_mut().install_records.push(InstallRecord {
+            crate_name: crate_name.clone(),
+            source: format!("https://Alice@github.com/{repository}?rev={commit}"),
+            commit: commit.clone(),
+            binaries: binaries.to_vec(),
+        });
+    }
+
+    pub fn cargo_records_the_binary(&self, binary: &BinaryName) -> bool {
+        self.state
+            .borrow()
+            .install_records
+            .iter()
+            .any(|record| record.binaries.contains(binary))
+    }
+
+    fn uninstall_cargo_binary(&self, specification: &str, binary: &BinaryName) -> CommandOutput {
+        let mut state = self.state.borrow_mut();
+        let refused = |standard_error: String| CommandOutput {
+            succeeded: false,
+            standard_output: String::new(),
+            standard_error,
+        };
+
+        let Some(position) = state
+            .install_records
+            .iter()
+            .position(|record| record.specification() == specification)
+        else {
+            return refused(format!(
+                "error: package ID specification `{specification}` did not match any packages"
+            ));
+        };
+        let files: Vec<PathBuf> = state.install_records[position]
+            .binaries
+            .iter()
+            .map(|recorded| self.cargo_binaries_directory.join(recorded.file_name()))
+            .collect();
+        if let Some(absent) = files.iter().find(|file| !state.paths.contains(*file)) {
+            return refused(format!(
+                "error: corrupt metadata, `{}` does not exist when it should",
+                absent.display()
+            ));
+        }
+        if !state.install_records[position].binaries.contains(binary) {
+            return refused(format!(
+                "error: binary `{}` not installed as part of `{specification}`",
+                binary.file_name()
+            ));
+        }
+
+        let file = self.cargo_binaries_directory.join(binary.file_name());
+        state.paths.remove(&file);
+        state.text_files.remove(&file);
+        state.version_output_by_binary_path.remove(&file);
+        state.install_records[position]
+            .binaries
+            .retain(|recorded| recorded != binary);
+        if state.install_records[position].binaries.is_empty() {
+            state.install_records.remove(position);
+        }
+
+        CommandOutput {
+            succeeded: true,
+            standard_output: String::new(),
+            standard_error: String::new(),
+        }
     }
 
     pub fn hold_cargo_binary(&self, name: &str, version_output: String) {
@@ -381,6 +472,13 @@ impl FakeMachine {
                 if state.winget_sources_fail_to_update {
                     standard_error = "Failed to update source: winget".to_owned();
                 }
+            }
+            WriteInvocation::UninstallCargoBinary {
+                specification,
+                binary,
+            } => {
+                drop(state);
+                return Ok(self.uninstall_cargo_binary(specification, binary));
             }
             WriteInvocation::InstallWingetPackage { id } => {
                 state.winget_packages.insert(id.clone());
@@ -833,6 +931,7 @@ impl FakeMachine {
             unreadable_releases,
             cargo_workspaces,
             earlier_cargo_workspaces,
+            install_records,
             workspace_reads: _,
             executing_binaries,
             superseded_images,
@@ -861,7 +960,7 @@ impl FakeMachine {
              {uv_tools_failing_to_upgrade:?}|{failing_applications:?}|{silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
-             {earlier_cargo_workspaces:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
+             {earlier_cargo_workspaces:?}|{install_records:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
              {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
              {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\
@@ -901,13 +1000,23 @@ fn claude_mcp_get_output(server: &ClaudeMcpServer) -> String {
 }
 
 fn cargo_crate_listing(state: &MachineState) -> String {
-    state
-        .registry_crates
-        .iter()
-        .map(|(crate_name, installed)| {
-            format!("{crate_name} v{installed}:\n    {crate_name}.exe\n")
-        })
-        .collect()
+    let registry = state.registry_crates.iter().map(|(crate_name, installed)| {
+        format!("{crate_name} v{installed}:\n    {crate_name}.exe\n")
+    });
+    let from_git = state.install_records.iter().map(|record| {
+        let mut listed = format!(
+            "{} v0.1.0 ({}#{}):\n",
+            record.crate_name,
+            record.source,
+            &record.commit.as_ref()[..8]
+        );
+        for binary in &record.binaries {
+            listed.push_str(&format!("    {}\n", binary.file_name()));
+        }
+        listed
+    });
+
+    registry.chain(from_git).collect()
 }
 
 fn uv_tool_listing(state: &MachineState) -> String {
@@ -1341,6 +1450,11 @@ impl WriteMachine for FakeMachine {
         }
     }
 
+    async fn attempt_write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
+        self.working(work_of(invocation), || self.run_write(invocation))
+            .await
+    }
+
     async fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
         let output = self
             .working(work_of(invocation), || self.run_write(invocation))
@@ -1453,6 +1567,7 @@ fn work_of(invocation: &WriteInvocation) -> String {
         WriteInvocation::InstallUvTool { name, .. } | WriteInvocation::UpgradeUvTool { name } => {
             format!("uv {name}")
         }
+        WriteInvocation::UninstallCargoBinary { binary, .. } => format!("cargo uninstall {binary}"),
     }
 }
 

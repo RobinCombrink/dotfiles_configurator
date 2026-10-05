@@ -811,6 +811,11 @@ impl WriteMachine for LocalMachine<'_, '_> {
         }
     }
 
+    async fn attempt_write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
+        self.run(invocation.tool(), &invocation.arguments(), &[])
+            .await
+    }
+
     async fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {
         let arguments = invocation.arguments();
         let output = self.run(invocation.tool(), &arguments, &[]).await?;

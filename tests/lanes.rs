@@ -168,7 +168,7 @@ async fn applying_also(machine: &FakeMachine, also_declared: Vec<Resource>) -> A
     .unwrap();
 
     match enactment {
-        Enactment::Enacted(outcome) => outcome,
+        Enactment::Enacted(outcome) => *outcome,
         Enactment::Declined | Enactment::ReplacedItself => {
             panic!("the apply did not enact its change set")
         }

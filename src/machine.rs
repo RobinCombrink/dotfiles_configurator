@@ -251,6 +251,12 @@ pub trait WriteMachine: ReadMachine {
         invocation: &WriteInvocation,
     ) -> impl std::future::Future<Output = Result<CommandOutput>>;
 
+    // ADR 0041
+    fn attempt_write(
+        &self,
+        invocation: &WriteInvocation,
+    ) -> impl std::future::Future<Output = Result<CommandOutput>>;
+
     fn write_displacing(
         &self,
         invocation: &DisplacingInvocation,

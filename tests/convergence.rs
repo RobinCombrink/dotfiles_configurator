@@ -1526,6 +1526,65 @@ fn another_binary_shadows(world: &mut MachineWorld, binary_name: String) {
     );
 }
 
+#[given(expr = "an earlier install of {string} left the binary {string} behind")]
+fn an_earlier_install_left_a_binary(world: &mut MachineWorld, crate_name: String, binary: String) {
+    world.machine.hold_install_record(
+        &CrateName::from(crate_name.as_str()),
+        &dotfiles_repository(),
+        &Revision::from(EARLIER_WORKSPACE_REVISION),
+        &[BinaryName::from(binary.as_str())],
+    );
+    world
+        .machine
+        .hold_cargo_binary(&binary, format!("{binary} {EARLIER_WORKSPACE_REVISION}\n"));
+}
+
+#[given(expr = "cargo holds the binary {string} of {string} installed from another repository")]
+fn cargo_holds_a_binary_from_elsewhere(
+    world: &mut MachineWorld,
+    binary: String,
+    crate_name: String,
+) {
+    world.machine.hold_install_record(
+        &CrateName::from(crate_name.as_str()),
+        &named_repository("Bob/tools"),
+        &Revision::from(EARLIER_WORKSPACE_REVISION),
+        &[BinaryName::from(binary.as_str())],
+    );
+    world
+        .machine
+        .hold_cargo_binary(&binary, format!("{binary} {EARLIER_WORKSPACE_REVISION}\n"));
+}
+
+#[given(expr = "the file of the binary {string} is gone from where cargo installs it")]
+fn the_file_of_a_binary_is_gone(world: &mut MachineWorld, binary: String) {
+    world.machine.remove_cargo_binary(&binary);
+}
+
+#[then(expr = "the change set reports {int} binary/binaries to remove")]
+fn change_set_reports_removals(world: &mut MachineWorld, expected: usize) {
+    assert_eq!(world.change_set().withdrawals.len(), expected);
+}
+
+#[then(expr = "cargo no longer holds the binary {string} on Alice's machine")]
+fn cargo_no_longer_holds(world: &mut MachineWorld, binary: String) {
+    let binary = BinaryName::from(binary.as_str());
+    let file = world
+        .machine
+        .cargo_binaries_directory()
+        .join(binary.file_name());
+
+    assert!(
+        !world.machine.path_exists(&file),
+        "{} is still there",
+        file.display()
+    );
+    assert!(
+        !world.machine.cargo_records_the_binary(&binary),
+        "cargo still records {binary}"
+    );
+}
+
 #[given(expr = "cargo's bin directory is not on Alice's search path")]
 fn cargo_binaries_are_not_on_the_search_path(world: &mut MachineWorld) {
     world.machine.clear_the_search_path();

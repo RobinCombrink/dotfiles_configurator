@@ -1,7 +1,7 @@
 use {
     crate::{
         configuration::{
-            ClaudeMcpServer, CrateName, CrateVersion, GitHubAccount, GitHubRepository,
+            BinaryName, ClaudeMcpServer, CrateName, CrateVersion, GitHubAccount, GitHubRepository,
             McpServerName, PythonInterpreter, Tool, UvToolName, WingetPackageId,
         },
         machine::{
@@ -97,6 +97,11 @@ pub enum WriteInvocation {
     },
     UpgradeUvTool {
         name: UvToolName,
+    },
+    // ADR 0041
+    UninstallCargoBinary {
+        specification: String,
+        binary: BinaryName,
     },
 }
 
@@ -316,6 +321,7 @@ impl WriteInvocation {
             WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => {
                 Tool::Uv
             }
+            WriteInvocation::UninstallCargoBinary { .. } => Tool::Cargo,
         }
     }
 
@@ -343,6 +349,34 @@ impl WriteInvocation {
             WriteInvocation::UpgradeUvTool { name } => {
                 vec!["tool".to_owned(), "upgrade".to_owned(), name.to_string()]
             }
+            WriteInvocation::UninstallCargoBinary {
+                specification,
+                binary,
+            } => vec![
+                "uninstall".to_owned(),
+                "--bin".to_owned(),
+                binary.to_string(),
+                specification.clone(),
+            ],
+        }
+    }
+
+    // 2026-10-05: `cargo uninstall` refuses a record naming a binary whose file is gone with
+    // "error: corrupt metadata, `<path>` does not exist when it should" on its standard error,
+    // exiting 101, and removes nothing. cargo 1.99.0 on Windows 11.
+    pub fn refused_as_corrupt(&self, output: &CommandOutput) -> bool {
+        match self {
+            WriteInvocation::UninstallCargoBinary { .. } => {
+                !output.succeeded
+                    && output.standard_error.contains("corrupt metadata")
+                    && output
+                        .standard_error
+                        .contains("does not exist when it should")
+            }
+            WriteInvocation::UpdateWingetSources
+            | WriteInvocation::InstallWingetPackage { .. }
+            | WriteInvocation::InstallUvTool { .. }
+            | WriteInvocation::UpgradeUvTool { .. } => false,
         }
     }
 
@@ -352,9 +386,9 @@ impl WriteInvocation {
     // running launcher cannot be renamed aside either. uv 0.10.12 on Windows 11.
     pub fn refused_copy(&self, output: &CommandOutput) -> Option<RefusedCopy> {
         match self {
-            WriteInvocation::UpdateWingetSources | WriteInvocation::InstallWingetPackage { .. } => {
-                None
-            }
+            WriteInvocation::UpdateWingetSources
+            | WriteInvocation::InstallWingetPackage { .. }
+            | WriteInvocation::UninstallCargoBinary { .. } => None,
             WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => output
                 .standard_error
                 .lines()
@@ -978,5 +1012,44 @@ mod tests {
                 .arguments()
                 .contains(&"--no-offline".to_owned())
         );
+    }
+
+    fn uninstalling_session_census() -> WriteInvocation {
+        WriteInvocation::UninstallCargoBinary {
+            specification: "git+https://Alice@github.com/Alice/dotfiles?rev=0c532c68bd883d1e6b002ad5bb1f40aa2ed70f66#session-mining@0.1.0".to_owned(),
+            binary: BinaryName::from("session-census"),
+        }
+    }
+
+    #[test]
+    fn a_binary_is_uninstalled_out_of_the_one_record_its_specification_names() {
+        assert_eq!(
+            uninstalling_session_census().arguments(),
+            vec![
+                "uninstall",
+                "--bin",
+                "session-census",
+                "git+https://Alice@github.com/Alice/dotfiles?rev=0c532c68bd883d1e6b002ad5bb1f40aa2ed70f66#session-mining@0.1.0",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_uninstall_refused_because_a_recorded_file_is_gone_is_read_as_a_corrupt_record() {
+        let output = cargo_said(
+            "error: corrupt metadata, `C:\\Users\\Alice\\.cargo\\bin\\session-census.exe` does \
+             not exist when it should\n",
+        );
+
+        assert!(uninstalling_session_census().refused_as_corrupt(&output));
+    }
+
+    #[test]
+    fn an_uninstall_refused_for_any_other_reason_is_not_read_as_a_corrupt_record() {
+        let output = cargo_said(
+            "error: package ID specification `session-mining@0.1.0` did not match any packages\n",
+        );
+
+        assert!(!uninstalling_session_census().refused_as_corrupt(&output));
     }
 }

@@ -339,6 +339,48 @@ async fn a_member_installs_for_an_absent_or_stale_copy_of_its_own_and_a_shadow_i
     );
 }
 
+#[tokio::test]
+async fn a_member_is_blocked_while_cargo_cannot_list_what_it_has_installed() {
+    let machine = FakeMachine::default();
+    machine.clone_dotfiles_repository();
+    machine.hold_cargo_workspace(
+        machine.dotfiles_repository_path().to_path_buf(),
+        workspace_holding(&["stop-gate"]),
+    );
+    machine.hold_cargo_binary("stop-gate", format!("stop-gate {WORKSPACE_REVISION}\n"));
+    machine.make_reading_fail(
+        ReadInvocation::CargoInstalledCrates,
+        "error: failed to parse the install record",
+    );
+    let desired_state = declaring(
+        Vec::new(),
+        vec![CargoWorkspace {
+            repository: GitHubRepository {
+                owner: RepositoryOwner::from("Alice"),
+                repository: RepositoryName::from("dotfiles"),
+            },
+        }],
+    );
+
+    let (change_set, _) = plan(
+        &desired_state,
+        &machine,
+        Reporting::opening(RunKind::Plan).report(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        crate_names_of(
+            change_set
+                .blocked
+                .iter()
+                .map(|blocked| blocked.resource.declared())
+        ),
+        vec!["stop-gate"]
+    );
+}
+
 const RIPGREP: &str = "BurntSushi/ripgrep";
 
 fn released_binary(entry: &str) -> Resource {
