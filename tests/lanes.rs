@@ -373,7 +373,7 @@ async fn the_configurators_own_installers_begin_only_once_every_winget_install_h
 }
 
 #[tokio::test]
-async fn a_download_that_fails_fails_its_own_entry_and_no_other() {
+async fn a_download_that_fails_fails_its_entry_without_installing_it() {
     let machine = machine_lacking_every_entry();
     machine.make_downloading_fail("Neovim");
 
@@ -386,6 +386,22 @@ async fn a_download_that_fails_fails_its_own_entry_and_no_other() {
         .collect();
     assert_eq!(failed, vec![neovim()]);
     assert!(!Journal(machine.journal()).holds("install Neovim"));
+}
+
+#[tokio::test]
+async fn a_download_that_fails_still_lets_every_other_download_install() {
+    let machine = machine_lacking_every_entry();
+    machine.make_downloading_fail("Neovim");
+
+    let outcome = applying(&machine).await;
+
+    assert!(
+        outcome
+            .converged
+            .iter()
+            .any(|resource| *resource.declared() == released_ripgrep()),
+        "{outcome:#?}"
+    );
 }
 
 #[tokio::test]
