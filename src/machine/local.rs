@@ -262,8 +262,11 @@ fn capture(program: &Path, arguments: &[String], report: &RunReport) -> Result<C
     let standard_error = decode_output(&output.stderr);
     report.captured_output(&standard_output);
     report.captured_output(&standard_error);
+    let exited = Exited::from(output.status);
+    report.note(&format!("{} {exited}", program.display()));
+
     Ok(CommandOutput {
-        exited: Exited::from(output.status),
+        exited,
         standard_output,
         standard_error,
     })
@@ -318,8 +321,14 @@ async fn stream(
         .wait()
         .await
         .with_context(|| format!("Could not wait for {}", program.display()))?;
+    let exited = Exited::from(status);
+    report.child_line(
+        speaking_for.as_ref(),
+        &format!("{} {exited}", program.display()),
+    );
+
     Ok(CommandOutput {
-        exited: Exited::from(status),
+        exited,
         standard_output,
         standard_error,
     })
@@ -1328,6 +1337,58 @@ mod tests {
             A_SHELL_EVERY_MACHINE_HAS,
             &["exit".to_owned(), code.to_owned()],
         )
+    }
+
+    #[tokio::test]
+    async fn a_streamed_child_that_fails_has_its_exit_code_written_to_the_log() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
+        let (program, arguments) = exiting_with("3");
+
+        stream(Path::new(&program), &arguments, &[], None, &report)
+            .await
+            .unwrap();
+
+        let written = fs::read_to_string(report.log_path()).unwrap();
+        assert!(written.contains("exited with 3"), "{written}");
+    }
+
+    #[tokio::test]
+    async fn a_streamed_child_that_succeeds_has_its_exit_code_written_to_the_log() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
+        let (program, arguments) = exiting_with("0");
+
+        stream(Path::new(&program), &arguments, &[], None, &report)
+            .await
+            .unwrap();
+
+        let written = fs::read_to_string(report.log_path()).unwrap();
+        assert!(written.contains("exited with 0"), "{written}");
+    }
+
+    #[test]
+    fn a_captured_child_that_fails_has_its_exit_code_written_to_the_log() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Plan).unwrap();
+        let (program, arguments) = exiting_with("3");
+
+        capture(Path::new(&program), &arguments, &report).unwrap();
+
+        let written = fs::read_to_string(report.log_path()).unwrap();
+        assert!(written.contains("exited with 3"), "{written}");
+    }
+
+    #[test]
+    fn a_captured_child_that_succeeds_has_its_exit_code_written_to_the_log() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Plan).unwrap();
+        let (program, arguments) = exiting_with("0");
+
+        capture(Path::new(&program), &arguments, &report).unwrap();
+
+        let written = fs::read_to_string(report.log_path()).unwrap();
+        assert!(written.contains("exited with 0"), "{written}");
     }
 
     #[tokio::test]
