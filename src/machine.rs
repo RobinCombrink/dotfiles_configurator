@@ -54,6 +54,26 @@ pub fn partial_download_path(destination: &Path) -> PathBuf {
     destination.with_file_name(name)
 }
 
+#[derive(Debug)]
+pub struct Downloaded<Declared> {
+    declared: Declared,
+    file: PathBuf,
+}
+
+impl<Declared> Downloaded<Declared> {
+    pub fn fetched(declared: Declared, file: PathBuf) -> Self {
+        Self { declared, file }
+    }
+
+    pub fn declared(&self) -> &Declared {
+        &self.declared
+    }
+
+    pub fn file(&self) -> &Path {
+        &self.file
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Placement {
     Placed,
@@ -181,18 +201,29 @@ pub trait WriteMachine: ReadMachine {
         account: &GitHubAccount,
     ) -> impl std::future::Future<Output = Result<()>>;
 
-    fn install_application(
+    fn download_installer(
         &self,
         installer: &crate::configuration::Installer,
         release_asset: Option<&release_reading::ReleaseAsset>,
+    ) -> impl std::future::Future<Output = Result<Downloaded<crate::configuration::Installer>>>;
+
+    fn install_application(
+        &self,
+        downloaded: Downloaded<crate::configuration::Installer>,
     ) -> impl std::future::Future<Output = Result<()>>;
+
+    // ADR 0016
+    fn download_released_binary(
+        &self,
+        binary: &crate::configuration::ReleasedBinary,
+        asset: &release_reading::ReleaseAsset,
+    ) -> impl std::future::Future<Output = Result<Downloaded<crate::configuration::ReleasedBinary>>>;
 
     // ADR 0016
     fn install_released_binary(
         &self,
-        binary: &crate::configuration::ReleasedBinary,
-        asset: &release_reading::ReleaseAsset,
-    ) -> impl std::future::Future<Output = Result<Placement>>;
+        downloaded: Downloaded<crate::configuration::ReleasedBinary>,
+    ) -> Result<Placement>;
 
     /// Makes the search path carry a directory. The postcondition is membership, so calling it for
     /// a directory the path already carries changes nothing — which is what keeps two resources

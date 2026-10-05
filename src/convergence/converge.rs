@@ -9,8 +9,8 @@ use {
         convergence::{Change, SourceReadings, search_path_directory, symlink_location},
         desired_state::ResolvedResource,
         machine::{
-            DisplacingInvocation, Placement, Replacement, ReplacingInvocation, ResolvedCargoSource,
-            WriteInvocation, WriteMachine,
+            DisplacingInvocation, Downloaded, Placement, Replacement, ReplacingInvocation,
+            ResolvedCargoSource, WriteInvocation, WriteMachine,
             release_reading::{ReleaseAsset, ReleaseReading},
         },
     },
@@ -38,16 +38,12 @@ pub async fn converge(
             .await
         }
         Resource::Application(Application::Installer(installer)) => {
-            let release_asset = resolved_release_asset(installer, readings)?;
-            machine
-                .install_application(installer, release_asset)
-                .await
-                .with_context(|| format!("Could not install {}", installer.name))
+            let downloaded = download_installer(installer, machine, readings).await?;
+            install_application(downloaded, machine).await
         }
         Resource::Application(Application::ReleasedBinary(binary)) => {
-            return converge_released_binary(binary, machine, readings)
-                .await
-                .with_context(|| format!("Could not install {}", binary.installed_name()));
+            let downloaded = download_released_binary(binary, machine, readings).await?;
+            return install_released_binary(downloaded, machine);
         }
         Resource::Package(Package::Winget(package)) => {
             converge_winget_package(package, machine).await
@@ -108,17 +104,69 @@ fn resolved_release_asset<'readings>(
     Ok(Some(matched))
 }
 
-async fn converge_released_binary(
+pub(crate) async fn download_installer(
+    installer: &Installer,
+    machine: &impl WriteMachine,
+    readings: &SourceReadings,
+) -> Result<Downloaded<Installer>> {
+    let release_asset = resolved_release_asset(installer, readings)?;
+    machine
+        .download_installer(installer, release_asset)
+        .await
+        .with_context(|| format!("Could not install {}", installer.name))
+}
+
+pub(crate) async fn install_application(
+    downloaded: Downloaded<Installer>,
+    machine: &impl WriteMachine,
+) -> Result<()> {
+    let name = downloaded.declared().name.clone();
+    machine
+        .install_application(downloaded)
+        .await
+        .with_context(|| format!("Could not install {name}"))
+}
+
+pub(crate) async fn download_released_binary(
     binary: &ReleasedBinary,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
-) -> Result<Placement> {
+) -> Result<Downloaded<ReleasedBinary>> {
     let released = readings
         .release_of(&binary.repository)
-        .map_err(|impediment| anyhow!("{impediment}"))?
-        .ok_or_else(|| anyhow!("{} has published no release", binary.repository))?;
+        .map_err(|impediment| anyhow!("{impediment}"))
+        .and_then(|released| {
+            released.ok_or_else(|| anyhow!("{} has published no release", binary.repository))
+        })
+        .with_context(|| format!("Could not install {}", binary.installed_name()))?;
 
-    install_release(binary, released, machine).await
+    download_release(binary, released, machine).await
+}
+
+async fn download_release(
+    binary: &ReleasedBinary,
+    release: &ReleaseReading,
+    machine: &impl WriteMachine,
+) -> Result<Downloaded<ReleasedBinary>> {
+    let asset = release
+        .asset_matching(&binary.asset)
+        .map_err(|refusal| anyhow!("{refusal}"))
+        .with_context(|| format!("Could not install {}", binary.installed_name()))?;
+
+    machine
+        .download_released_binary(binary, asset)
+        .await
+        .with_context(|| format!("Could not install {}", binary.installed_name()))
+}
+
+pub(crate) fn install_released_binary(
+    downloaded: Downloaded<ReleasedBinary>,
+    machine: &impl WriteMachine,
+) -> Result<Placement> {
+    let installed_name = downloaded.declared().installed_name();
+    machine
+        .install_released_binary(downloaded)
+        .with_context(|| format!("Could not install {installed_name}"))
 }
 
 pub async fn install_release(
@@ -126,11 +174,8 @@ pub async fn install_release(
     release: &ReleaseReading,
     machine: &impl WriteMachine,
 ) -> Result<Placement> {
-    let asset = release
-        .asset_matching(&binary.asset)
-        .map_err(|refusal| anyhow!("{refusal}"))?;
-
-    machine.install_released_binary(binary, asset).await
+    let downloaded = download_release(binary, release, machine).await?;
+    install_released_binary(downloaded, machine)
 }
 
 async fn converge_repository(

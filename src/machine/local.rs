@@ -8,8 +8,8 @@ use {
         configuration_source::WriteSource,
         github::GitHubAccess,
         machine::{
-            CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
-            Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild,
+            CommandOutput, DisplacingInvocation, Downloaded, Placement, ReadInvocation,
+            ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild,
             WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             partial_download_path,
@@ -716,11 +716,11 @@ impl WriteMachine for LocalMachine<'_, '_> {
         deepened
     }
 
-    async fn install_application(
+    async fn download_installer(
         &self,
         installer: &Installer,
         release_asset: Option<&ReleaseAsset>,
-    ) -> Result<()> {
+    ) -> Result<Downloaded<Installer>> {
         let (url, file_name) = match (&installer.source, release_asset) {
             (
                 ApplicationSource::Uri {
@@ -740,18 +740,26 @@ impl WriteMachine for LocalMachine<'_, '_> {
 
         let installer_path = self.download_directory.join(file_name);
         self.download(&url, &installer_path).await?;
-        self.run_installer(&installer_path).await
+        Ok(Downloaded::fetched(installer.clone(), installer_path))
     }
 
-    async fn install_released_binary(
+    async fn install_application(&self, downloaded: Downloaded<Installer>) -> Result<()> {
+        self.run_installer(downloaded.file()).await
+    }
+
+    async fn download_released_binary(
         &self,
         binary: &ReleasedBinary,
         asset: &ReleaseAsset,
-    ) -> Result<Placement> {
+    ) -> Result<Downloaded<ReleasedBinary>> {
         let archive_path = self.download_directory.join(&asset.name);
         self.download(&asset.download_url, &archive_path).await?;
+        Ok(Downloaded::fetched(binary.clone(), archive_path))
+    }
 
-        let contents = read_archive_entry(&archive_path, &binary.entry)?;
+    fn install_released_binary(&self, downloaded: Downloaded<ReleasedBinary>) -> Result<Placement> {
+        let binary = downloaded.declared();
+        let contents = read_archive_entry(downloaded.file(), &binary.entry)?;
         let installed_path = self
             .binaries_directory()
             .join(binary.installed_name().file_name());

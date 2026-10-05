@@ -15,9 +15,9 @@ use {
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
-            CommandOutput, DisplacingInvocation, Placement, ReadInvocation, ReadMachine,
-            Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
-            WriteMachine,
+            CommandOutput, DisplacingInvocation, Downloaded, Placement, ReadInvocation,
+            ReadMachine, Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild,
+            WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
@@ -1139,11 +1139,21 @@ impl WriteMachine for FakeMachine {
         Ok(())
     }
 
-    async fn install_application(
+    async fn download_installer(
         &self,
         installer: &Installer,
         _release_asset: Option<&ReleaseAsset>,
-    ) -> Result<()> {
+    ) -> Result<Downloaded<Installer>> {
+        Ok(Downloaded::fetched(
+            installer.clone(),
+            home_directory_path()
+                .join("Downloads")
+                .join(installer.name.to_string()),
+        ))
+    }
+
+    async fn install_application(&self, downloaded: Downloaded<Installer>) -> Result<()> {
+        let installer = downloaded.declared();
         let mut state = self.state.borrow_mut();
         state.install_attempts.push(installer.name.clone());
 
@@ -1176,11 +1186,19 @@ impl WriteMachine for FakeMachine {
         Ok(())
     }
 
-    async fn install_released_binary(
+    async fn download_released_binary(
         &self,
         binary: &ReleasedBinary,
-        _asset: &ReleaseAsset,
-    ) -> Result<Placement> {
+        asset: &ReleaseAsset,
+    ) -> Result<Downloaded<ReleasedBinary>> {
+        Ok(Downloaded::fetched(
+            binary.clone(),
+            home_directory_path().join("Downloads").join(&asset.name),
+        ))
+    }
+
+    fn install_released_binary(&self, downloaded: Downloaded<ReleasedBinary>) -> Result<Placement> {
+        let binary = downloaded.declared();
         let installed_path = self
             .binaries_directory()
             .join(binary.installed_name().file_name());
