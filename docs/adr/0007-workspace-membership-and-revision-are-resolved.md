@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, its consequence for an installed commit the clone cannot resolve superseded by [ADR 0040](0040-a-workspace-members-currency-is-read-from-the-build-its-binaries-report.md)
 ---
 
 # Workspace membership and revision are resolved, not declared
