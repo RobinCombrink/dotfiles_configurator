@@ -49,13 +49,13 @@ impl SearchPathReading {
     ///     PathBuf::from("C:\\Users\\Alice\\.cargo\\bin"),
     /// ]);
     /// let held = [
-    ///     PathBuf::from("C:\\tools\\stop-gate.exe"),
-    ///     PathBuf::from("C:\\Users\\Alice\\.cargo\\bin\\stop-gate.exe"),
+    ///     Path::new("C:\\tools").join("stop-gate.exe"),
+    ///     Path::new("C:\\Users\\Alice\\.cargo\\bin").join("stop-gate.exe"),
     /// ];
     ///
     /// assert_eq!(
     ///     reading.resolving("stop-gate.exe", |path| held.iter().any(|file| file == path)),
-    ///     Some(PathBuf::from("C:\\tools\\stop-gate.exe"))
+    ///     Some(Path::new("C:\\tools").join("stop-gate.exe"))
     /// );
     /// assert_eq!(reading.resolving("sweep.exe", |path| held.iter().any(|file| file == path)), None);
     /// ```
