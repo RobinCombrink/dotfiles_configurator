@@ -191,6 +191,8 @@ async fn run(task: Task) -> Result<Ending> {
                 }
             };
             let machine = LocalMachine::new(&report, &github)?;
+            #[cfg(target_family = "windows")]
+            machine.note_the_privileges_it_holds()?;
             let desired_state = match load_after_updating_if_it_must(
                 &arguments, &machine, &report, &github, &operator,
             )

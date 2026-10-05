@@ -30,7 +30,7 @@ const MACHINE_ENVIRONMENT: &str = r"SYSTEM\CurrentControlSet\Control\Session Man
 const SEARCH_PATH: &str = "Path";
 
 #[cfg(target_family = "windows")]
-const VALUE_NOT_FOUND: i32 = 0x8007_0002u32 as i32; // HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)
+pub(super) const VALUE_NOT_FOUND: i32 = 0x8007_0002u32 as i32; // HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)
 
 #[cfg(target_family = "windows")]
 const BROADCAST_TIMEOUT: u32 = 5_000; // 5 seconds

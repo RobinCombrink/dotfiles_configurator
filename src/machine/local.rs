@@ -39,6 +39,8 @@ use {
 };
 
 pub mod environment;
+#[cfg(target_family = "windows")]
+pub mod privileges;
 pub mod workspace;
 
 const NOTHING_PUBLISHED: u16 = 404;
@@ -66,6 +68,15 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
             http_client: Client::default(),
             report,
         })
+    }
+
+    #[cfg(target_family = "windows")]
+    pub fn note_the_privileges_it_holds(&self) -> Result<()> {
+        let elevated = privileges::this_process_is_elevated()?;
+        for line in privileges::opening_lines(elevated, &privileges::developer_mode_is_on()) {
+            self.report.note(&line);
+        }
+        Ok(())
     }
 
     async fn run(
