@@ -122,6 +122,7 @@ fn uv_tool(name: &str) -> Resource {
     Resource::Package(Package::UvTool(UvToolPackage {
         name: name.into(),
         python: None,
+        version: PackageCurrency::Latest,
     }))
 }
 

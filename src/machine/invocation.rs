@@ -2,7 +2,8 @@ use {
     crate::{
         configuration::{
             BinaryName, ClaudeMcpServer, CrateName, CrateVersion, GitHubAccount, GitHubRepository,
-            McpServerName, PythonInterpreter, Tool, UvToolName, WingetPackageId, WingetVersion,
+            McpServerName, PythonInterpreter, Tool, UvToolName, UvToolVersion, WingetPackageId,
+            WingetVersion,
         },
         machine::{
             CommandOutput, Exited, HeldReason, Replacement,
@@ -108,6 +109,7 @@ pub enum WriteInvocation {
     InstallUvTool {
         name: UvToolName,
         python: Option<PythonInterpreter>,
+        version: Option<UvToolVersion>,
     },
     UpgradeUvTool {
         name: UvToolName,
@@ -372,13 +374,22 @@ impl WriteInvocation {
                 "--disable-interactivity".to_owned(),
                 "--accept-package-agreements".to_owned(),
             ],
-            WriteInvocation::InstallUvTool { name, python } => {
+            // 2026-10-06: `uv tool install cowsay==6.0` over cowsay 6.1, and `cowsay==6.1` over
+            // 6.0, each replaced the installed version and exited 0. uv 0.10.12 on Windows 11.
+            WriteInvocation::InstallUvTool {
+                name,
+                python,
+                version,
+            } => {
                 let mut arguments = vec!["tool".to_owned(), "install".to_owned()];
                 if let Some(python) = python {
                     arguments.push("--python".to_owned());
                     arguments.push(python.to_string());
                 }
-                arguments.push(name.to_string());
+                arguments.push(match version {
+                    None => name.to_string(),
+                    Some(version) => format!("{name}=={version}"),
+                });
                 arguments
             }
             WriteInvocation::UpgradeUvTool { name } => {
@@ -1043,6 +1054,7 @@ mod tests {
         let installing = WriteInvocation::InstallUvTool {
             name: UvToolName::from("serena-agent"),
             python: Some(PythonInterpreter::from("3.13")),
+            version: None,
         };
 
         assert_eq!(
@@ -1056,11 +1068,26 @@ mod tests {
         let installing = WriteInvocation::InstallUvTool {
             name: UvToolName::from("serena-agent"),
             python: None,
+            version: None,
         };
 
         assert_eq!(
             installing.arguments(),
             vec!["tool", "install", "serena-agent"]
+        );
+    }
+
+    #[test]
+    fn a_uv_tool_kept_at_one_version_is_installed_at_exactly_that_version() {
+        let installing = WriteInvocation::InstallUvTool {
+            name: UvToolName::from("serena-agent"),
+            python: None,
+            version: Some(UvToolVersion::from("1.5.3")),
+        };
+
+        assert_eq!(
+            installing.arguments(),
+            vec!["tool", "install", "serena-agent==1.5.3"]
         );
     }
 

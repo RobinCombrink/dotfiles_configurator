@@ -5,8 +5,8 @@ use {
             estate::Estates,
             names::{
                 ApplicationName, BinaryName, CrateName, CrateVersion, GitHubAccount, McpServerName,
-                PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, VariableName,
-                VariableValue, WingetPackageId, WingetVersion,
+                PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, UvToolVersion,
+                VariableName, VariableValue, WingetPackageId, WingetVersion,
             },
             package_currency::PackageCurrency,
             presence_check::PresenceCheck,
@@ -540,12 +540,18 @@ pub struct WingetPackage {
 #[schemars(
     description = "A Python package uv installs as a tool in an environment of its own, kept at \
                    the newest\n\
-                   version that resolves."
+                   version that resolves unless it declares one version."
 )]
 pub struct UvToolPackage {
     pub name: UvToolName,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub python: Option<PythonInterpreter>,
+    #[serde(default, skip_serializing_if = "PackageCurrency::is_latest")]
+    #[schemars(
+        description = "The one version uv keeps the tool at. Absent, the tool is kept at the \
+                       newest version that resolves."
+    )]
+    pub version: PackageCurrency<UvToolVersion>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

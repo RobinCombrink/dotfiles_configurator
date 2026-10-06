@@ -848,7 +848,7 @@
       "type": "string"
     },
     "UvToolPackage": {
-      "description": "A Python package uv installs as a tool in an environment of its own, kept at the newest\nversion that resolves.",
+      "description": "A Python package uv installs as a tool in an environment of its own, kept at the newest\nversion that resolves unless it declares one version.",
       "type": "object",
       "properties": {
         "name": {
@@ -862,6 +862,13 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "version": {
+          "description": "The one version uv keeps the tool at. Absent, the tool is kept at the newest version that resolves.",
+          "type": [
+            "string",
+            "null"
           ]
         }
       },

@@ -563,6 +563,7 @@ mod tests {
             Resource::Package(Package::UvTool(UvToolPackage {
                 name: UvToolName::from("serena-agent"),
                 python: None,
+                version: PackageCurrency::Latest,
             }))
         );
     }

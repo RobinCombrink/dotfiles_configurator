@@ -84,6 +84,7 @@ fn one_entry_of_every_kind() -> Vec<Resource> {
         Resource::Package(Package::UvTool(UvToolPackage {
             name: "ruff".into(),
             python: None,
+            version: PackageCurrency::Latest,
         })),
         released_ripgrep(),
         Resource::EnvironmentVariable(EnvironmentVariable::Variable(Variable {
@@ -443,6 +444,7 @@ async fn an_entry_that_fails_in_one_lane_lets_every_other_lane_finish() {
     let unpublished = Resource::Package(Package::UvTool(UvToolPackage {
         name: "unpublished".into(),
         python: None,
+        version: PackageCurrency::Latest,
     }));
 
     let outcome = applying_also(&machine_lacking_every_entry(), vec![unpublished.clone()]).await;

@@ -580,7 +580,22 @@ impl FakeMachine {
                     }
                 }
             }
-            WriteInvocation::InstallUvTool { name, python } => {
+            WriteInvocation::InstallUvTool {
+                name,
+                python,
+                version: Some(version),
+            } => {
+                state.uv_tools.insert(name.clone(), version.clone());
+                state
+                    .uv_tool_interpreters
+                    .entry(name.clone())
+                    .or_insert_with(|| python.clone());
+            }
+            WriteInvocation::InstallUvTool {
+                name,
+                python,
+                version: None,
+            } => {
                 if !state.uv_tools.contains_key(name) {
                     let Some(newest) = state.uv_newest_versions.get(name).cloned() else {
                         bail!("no version of {name} resolves");

@@ -239,6 +239,22 @@ Feature: Planning what a machine needs
     And the change set mentions "1.5.3"
     And the change set mentions "1.7.0"
 
+  Scenario: A uv tool declaring a version is converged at it whatever newer version resolves
+    Given Alice declares the uv tool "serena-agent" at "1.5.3"
+    And uv holds "serena-agent" at "1.5.3" on Alice's machine
+    And the newest version of "serena-agent" that resolves is "1.7.0"
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A uv tool at another version than declared is a change naming both versions
+    Given Alice declares the uv tool "serena-agent" at "1.5.3"
+    And uv holds "serena-agent" at "1.7.0" on Alice's machine
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "1.5.3"
+    And the change set mentions "1.7.0"
+
   Scenario: A uv tool uv does not hold is reported as a change
     Given Alice declares the uv tool "serena-agent"
     And the newest version of "serena-agent" that resolves is "1.7.0"

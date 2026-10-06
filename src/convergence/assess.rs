@@ -757,13 +757,21 @@ fn assess_uv_tool(package: &UvToolPackage, readings: &SourceReadings) -> Assessm
         Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
-    match readings.newer_uv_tool(&package.name) {
-        Ok(None) => Assessment::Converged,
-        Ok(Some(latest)) => Assessment::Drifted(
-            format!("{installed} is installed, and the newest version that resolves is {latest}")
-                .into(),
+    match &package.version {
+        PackageCurrency::Exactly(declared) if installed == *declared => Assessment::Converged,
+        PackageCurrency::Exactly(declared) => Assessment::Drifted(
+            format!("{installed} is installed, and the version declared is {declared}").into(),
         ),
-        Err(impediment) => Assessment::Unassessable(impediment),
+        PackageCurrency::Latest => match readings.newer_uv_tool(&package.name) {
+            Ok(None) => Assessment::Converged,
+            Ok(Some(latest)) => Assessment::Drifted(
+                format!(
+                    "{installed} is installed, and the newest version that resolves is {latest}"
+                )
+                .into(),
+            ),
+            Err(impediment) => Assessment::Unassessable(impediment),
+        },
     }
 }
 

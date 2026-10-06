@@ -575,23 +575,39 @@ fn winget_cannot_be_asked_by_identifier(world: &mut MachineWorld, id: String) {
     );
 }
 
-fn declare_uv_tool(world: &mut MachineWorld, name: String, python: Option<PythonInterpreter>) {
+fn declare_uv_tool(
+    world: &mut MachineWorld,
+    name: String,
+    python: Option<PythonInterpreter>,
+    version: PackageCurrency<UvToolVersion>,
+) {
     world
         .resources
         .push(Resource::Package(Package::UvTool(UvToolPackage {
             name: name.into(),
             python,
+            version,
         })));
 }
 
 #[given(expr = "Alice declares the uv tool {string}")]
 fn declare_uv_tool_with_any_interpreter(world: &mut MachineWorld, name: String) {
-    declare_uv_tool(world, name, None);
+    declare_uv_tool(world, name, None, PackageCurrency::Latest);
 }
 
 #[given(expr = "Alice declares the uv tool {string} built with Python {string}")]
 fn declare_uv_tool_built_with(world: &mut MachineWorld, name: String, python: String) {
-    declare_uv_tool(world, name, Some(python.into()));
+    declare_uv_tool(world, name, Some(python.into()), PackageCurrency::Latest);
+}
+
+#[given(expr = "Alice declares the uv tool {string} at {string}")]
+fn declare_pinned_uv_tool(world: &mut MachineWorld, name: String, version: String) {
+    declare_uv_tool(
+        world,
+        name,
+        None,
+        PackageCurrency::Exactly(UvToolVersion::from(version)),
+    );
 }
 
 #[given(expr = "uv holds {string} at {string} on Alice's machine")]
