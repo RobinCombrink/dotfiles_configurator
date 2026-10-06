@@ -35,7 +35,10 @@ use {
 };
 
 #[cfg(test)]
-use dotfiles_configurator::{configuration::GitHubRepository, machine::ElevatedWork};
+use dotfiles_configurator::{
+    configuration::GitHubRepository,
+    machine::{ContentDigest, ElevatedWork},
+};
 
 fn source_named_in_the_working_directory(value: &str) -> Result<ConfigurationSource, String> {
     let working_directory = std::env::current_dir()
@@ -762,6 +765,7 @@ mod tests {
     fn an_elevated_batch_reads_back_the_entries_it_was_started_with() {
         let batch = ElevatedBatch::of([ElevatedWork::Installer {
             installer_path: PathBuf::from("SteamSetup.exe"),
+            digest: ContentDigest::of(&b"Steam's installer"[..]).unwrap(),
         }]);
         let written = serde_json::to_string(&batch).unwrap();
 

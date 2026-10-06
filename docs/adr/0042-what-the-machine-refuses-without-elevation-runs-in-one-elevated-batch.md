@@ -34,6 +34,12 @@ prompt. The batch and its results are one serde type shared by both sides: the e
 settles each entry on its own and writes every entry's outcome to a results file the parent names,
 so one entry's failure decides no other's, and the next pass reads the machine again regardless.
 
+An installer still runs from its download path, which the user can write, so the batch carries the
+installer's SHA-256, recorded by the parent when it collects the refusal. The elevated side opens
+the installer with sharing that denies write and delete, hashes it through that handle, and starts
+it while still holding the handle, so the file it verified is the file Windows runs. A mismatch
+fails that entry and no other.
+
 A declined prompt is `ShellExecuteExW` failing with `ERROR_CANCELLED` (1223), and holds every entry
 of the batch with "elevation declined". An apply that is already elevated never relaunches: a link
 it is still refused is reported failed with the os error it was refused with. On other platforms

@@ -1,19 +1,26 @@
 use {
     super::{place_link, run_installer_at},
     crate::{
-        machine::{Batched, ElevatedBatch, ElevatedOutcome, ElevatedWork},
+        machine::{Batched, ContentDigest, ElevatedBatch, ElevatedOutcome, ElevatedWork},
         reporting::RunReport,
     },
-    anyhow::{Context, Result},
+    anyhow::{Context, Result, bail},
     std::{fs, path::Path},
 };
 #[cfg(target_family = "windows")]
 use {
     crate::machine::{Elevation, Exited},
-    anyhow::bail,
-    std::{env, ffi::OsStr, iter::once, os::windows::ffi::OsStrExt, path::PathBuf, process},
+    std::{
+        env,
+        ffi::OsStr,
+        iter::once,
+        os::windows::{ffi::OsStrExt, fs::OpenOptionsExt},
+        path::PathBuf,
+        process,
+    },
     windows_sys::Win32::{
         Foundation::{CloseHandle, ERROR_CANCELLED, WAIT_FAILED},
+        Storage::FileSystem::FILE_SHARE_READ,
         System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject},
         UI::{
             Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW},
@@ -51,10 +58,35 @@ async fn performed(work: &ElevatedWork, report: &RunReport) -> Result<()> {
             link_path,
             target_path,
         } => place_link(link_path, target_path),
-        ElevatedWork::Installer { installer_path } => {
+        ElevatedWork::Installer {
+            installer_path,
+            digest,
+        } => {
+            let _held = opened_unchanged(installer_path, *digest)?;
             run_installer_at(installer_path, report).await
         }
     }
+}
+
+fn opened_unchanged(installer_path: &Path, collected: ContentDigest) -> Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(target_family = "windows")]
+    options.share_mode(FILE_SHARE_READ);
+    let mut installer = options
+        .open(installer_path)
+        .with_context(|| format!("Could not open {}", installer_path.display()))?;
+
+    let found = ContentDigest::of(&mut installer)
+        .with_context(|| format!("Could not read {}", installer_path.display()))?;
+    if found != collected {
+        bail!(
+            "{} has changed since it was refused unelevated: it was {collected}, and is now \
+             {found}, so it is not run",
+            installer_path.display()
+        );
+    }
+    Ok(installer)
 }
 
 // 2026-10-05: the longest command line ShellExecute's default verb accepted on the personal
@@ -235,7 +267,7 @@ fn launch_elevated(executable: &Path, parameters: &str) -> Result<Launched> {
 mod tests {
     #[cfg(target_family = "windows")]
     use windows_sys::Win32::{Foundation::LocalFree, UI::Shell::CommandLineToArgvW};
-    use {super::*, crate::reporting::RunKind};
+    use {super::*, crate::reporting::RunKind, std::path::PathBuf};
 
     #[tokio::test]
     async fn an_entry_the_elevated_side_cannot_settle_decides_nothing_for_the_one_beside_it() {
@@ -269,6 +301,30 @@ mod tests {
             }),
             Some(&ElevatedOutcome::Converged)
         );
+    }
+
+    fn an_installer_collected_in(directory: &Path) -> (PathBuf, ContentDigest) {
+        let installer = directory.join("SteamSetup.exe");
+        fs::write(&installer, "Steam's installer").unwrap();
+        let collected = ContentDigest::of(fs::File::open(&installer).unwrap()).unwrap();
+        (installer, collected)
+    }
+
+    #[test]
+    fn an_installer_changed_since_it_was_collected_is_refused_rather_than_run() {
+        let directory = tempfile::tempdir().unwrap();
+        let (installer, collected) = an_installer_collected_in(directory.path());
+        fs::write(&installer, "Mallory's installer").unwrap();
+
+        assert!(opened_unchanged(&installer, collected).is_err());
+    }
+
+    #[test]
+    fn an_installer_unchanged_since_it_was_collected_is_let_through_to_run() {
+        let directory = tempfile::tempdir().unwrap();
+        let (installer, collected) = an_installer_collected_in(directory.path());
+
+        assert!(opened_unchanged(&installer, collected).is_ok());
     }
 
     #[cfg(target_family = "windows")]
@@ -322,6 +378,7 @@ mod tests {
             },
             ElevatedWork::Installer {
                 installer_path: PathBuf::from(r"C:\Users\Alice Smith\Downloads\SteamSetup.exe"),
+                digest: ContentDigest::of(&b"Steam's installer"[..]).unwrap(),
             },
         ])
     }

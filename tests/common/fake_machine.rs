@@ -15,7 +15,7 @@ use {
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
-            Batched, CommandOutput, DisplacingInvocation, Downloaded, ElevatedBatch,
+            Batched, CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
             ElevatedOutcome, ElevatedWork, Elevation, Exited, HeldReason, Placement,
             PrivilegeRefusal, ReadInvocation, ReadMachine, Replacement, ReplacingInvocation,
             ResolvedCargoSource, WorkspaceBuild, WriteInvocation, WriteMachine,
@@ -499,7 +499,7 @@ impl FakeMachine {
                 state.links.insert(link_path.clone(), target_path.clone());
                 ElevatedOutcome::Converged
             }
-            ElevatedWork::Installer { installer_path } => {
+            ElevatedWork::Installer { installer_path, .. } => {
                 let name = ApplicationName::from(
                     installer_path
                         .file_name()
@@ -1514,6 +1514,7 @@ impl WriteMachine for FakeMachine {
             Ok(Placement::Refused(PrivilegeRefusal {
                 work: ElevatedWork::Installer {
                     installer_path: downloaded.file().to_path_buf(),
+                    digest: ContentDigest::of(installer.name.to_string().as_bytes())?,
                 },
                 refusal: format!(
                     "Could not run {}: The requested operation requires elevation. (os error 740)",

@@ -1,7 +1,9 @@
 use {
     serde::{Deserialize, Serialize},
+    sha2::{Digest, Sha256},
     std::{
         fmt::{self, Display},
+        io::{self, Read},
         path::PathBuf,
     },
 };
@@ -14,6 +16,7 @@ pub enum ElevatedWork {
     },
     Installer {
         installer_path: PathBuf,
+        digest: ContentDigest,
     },
 }
 
@@ -29,10 +32,37 @@ impl Display for ElevatedWork {
                 link_path.display(),
                 target_path.display()
             ),
-            ElevatedWork::Installer { installer_path } => {
+            ElevatedWork::Installer { installer_path, .. } => {
                 write!(formatter, "run {}", installer_path.display())
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentDigest([u8; 32]);
+
+impl ContentDigest {
+    pub fn of(mut contents: impl Read) -> io::Result<Self> {
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0; 64 * 1024];
+        loop {
+            match contents.read(&mut buffer) {
+                Ok(0) => return Ok(Self(hasher.finalize().into())),
+                Ok(read) => hasher.update(&buffer[..read]),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+impl Display for ContentDigest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SHA-256 ")?;
+        self.0
+            .iter()
+            .try_for_each(|byte| write!(formatter, "{byte:02x}"))
     }
 }
 

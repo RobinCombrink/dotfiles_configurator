@@ -8,10 +8,10 @@ use {
         configuration_source::WriteSource,
         github::GitHubAccess,
         machine::{
-            CommandOutput, DisplacingInvocation, Downloaded, ElevatedBatch, ElevatedWork,
-            Elevation, Exited, HeldReason, Placement, PrivilegeRefusal, ReadInvocation,
-            ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild,
-            WriteInvocation, WriteMachine,
+            CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
+            ElevatedWork, Elevation, Exited, HeldReason, Placement, PrivilegeRefusal,
+            ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool,
+            WorkspaceBuild, WriteInvocation, WriteMachine,
             environment_reading::SearchPathReading,
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -154,9 +154,13 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
         match run_installer_at(installer_path, self.report).await {
             Ok(()) => Ok(Placement::Placed),
             Err(error) if refused_for_want_of(&error, Want::Elevation) => {
+                let digest = fs::File::open(installer_path)
+                    .and_then(ContentDigest::of)
+                    .with_context(|| format!("Could not read {}", installer_path.display()))?;
                 Ok(Placement::Refused(PrivilegeRefusal {
                     work: ElevatedWork::Installer {
                         installer_path: installer_path.to_path_buf(),
+                        digest,
                     },
                     refusal: format!("{error:#}"),
                 }))

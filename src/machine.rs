@@ -29,7 +29,8 @@ pub mod workspace_reading;
 
 pub use {
     elevation::{
-        Batched, ElevatedBatch, ElevatedOutcome, ElevatedWork, Elevation, PrivilegeRefusal,
+        Batched, ContentDigest, ElevatedBatch, ElevatedOutcome, ElevatedWork, Elevation,
+        PrivilegeRefusal,
     },
     invocation::{
         DisplacingInvocation, ReadInvocation, RefusedCopy, ReplacementCommands,
