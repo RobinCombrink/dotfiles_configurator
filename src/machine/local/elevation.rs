@@ -5,7 +5,7 @@ use {
         reporting::RunReport,
     },
     anyhow::{Context, Result, bail},
-    std::{fs, path::Path},
+    std::{fs, io::Write, path::Path},
 };
 #[cfg(target_family = "windows")]
 use {
@@ -35,6 +35,17 @@ pub const RESULTS: &str = "results";
 
 // ADR 0042
 pub async fn perform(batch: ElevatedBatch<()>, results: &Path, report: &RunReport) -> Result<()> {
+    let mut results_file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(results)
+        .with_context(|| {
+            format!(
+                "Could not create {}, which must not exist before the elevated batch writes it",
+                results.display()
+            )
+        })?;
+
     let mut entries = Vec::new();
     for Batched { work, .. } in batch.entries {
         let outcome = match performed(&work, report).await {
@@ -49,7 +60,9 @@ pub async fn perform(batch: ElevatedBatch<()>, results: &Path, report: &RunRepor
 
     let settled = serde_json::to_string(&ElevatedBatch { entries })
         .context("Could not write down what the elevated batch settled")?;
-    fs::write(results, settled).with_context(|| format!("Could not write {}", results.display()))
+    results_file
+        .write_all(settled.as_bytes())
+        .with_context(|| format!("Could not write {}", results.display()))
 }
 
 async fn performed(work: &ElevatedWork, report: &RunReport) -> Result<()> {
@@ -125,17 +138,28 @@ pub async fn run_elevated(batch: &ElevatedBatch<()>, report: &RunReport) -> Resu
     };
     report.note(&format!("{} {exited}", executable.display()));
 
-    let written = fs::read_to_string(&results);
-    let _ = fs::remove_file(&results);
+    settled_by(exited, &results).map(Elevation::Performed)
+}
+
+#[cfg(target_family = "windows")]
+fn settled_by(exited: Exited, results: &Path) -> Result<ElevatedBatch<ElevatedOutcome>> {
+    if !exited.succeeded() {
+        bail!(
+            "The elevated batch {exited}, so {} is not read as what it settled",
+            results.display()
+        );
+    }
+
+    let written = fs::read_to_string(results);
+    let _ = fs::remove_file(results);
     let written = written.with_context(|| {
         format!(
             "The elevated batch {exited} without writing {}",
             results.display()
         )
     })?;
-    let settled = serde_json::from_str(&written)
-        .with_context(|| format!("{} is not what an elevated batch writes", results.display()))?;
-    Ok(Elevation::Performed(settled))
+    serde_json::from_str(&written)
+        .with_context(|| format!("{} is not what an elevated batch writes", results.display()))
 }
 
 #[cfg(target_family = "windows")]
@@ -301,6 +325,59 @@ mod tests {
             }),
             Some(&ElevatedOutcome::Converged)
         );
+    }
+
+    #[tokio::test]
+    async fn a_results_file_already_in_place_is_refused_and_left_as_it_was() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(&directory.path().join("logs"), RunKind::Elevated).unwrap();
+        let target = directory.path().join("gitconfig");
+        fs::write(&target, "[user]").unwrap();
+        let batch = ElevatedBatch::of([ElevatedWork::Link {
+            link_path: directory.path().join(".gitconfig"),
+            target_path: target,
+        }]);
+        let results = directory.path().join("results.json");
+        fs::write(&results, "Mallory's results").unwrap();
+
+        let refused = perform(batch, &results, &report).await;
+
+        assert!(refused.is_err());
+        assert_eq!(fs::read_to_string(&results).unwrap(), "Mallory's results");
+    }
+
+    #[cfg(target_family = "windows")]
+    fn a_results_file_settling_in(directory: &Path) -> PathBuf {
+        let results = directory.join("results.json");
+        let settled = ElevatedBatch {
+            entries: vec![Batched {
+                work: ElevatedWork::Link {
+                    link_path: PathBuf::from(r"C:\Users\Alice\.gitconfig"),
+                    target_path: PathBuf::from(r"C:\Repositories\dotfiles\gitconfig"),
+                },
+                outcome: ElevatedOutcome::Converged,
+            }],
+        };
+        fs::write(&results, serde_json::to_string(&settled).unwrap()).unwrap();
+        results
+    }
+
+    #[cfg(target_family = "windows")]
+    #[test]
+    fn a_batch_that_exited_non_zero_is_not_believed_whatever_its_results_file_says() {
+        let directory = tempfile::tempdir().unwrap();
+        let results = a_results_file_settling_in(directory.path());
+
+        assert!(settled_by(Exited::Code(1), &results).is_err());
+    }
+
+    #[cfg(target_family = "windows")]
+    #[test]
+    fn a_batch_that_exited_zero_is_read_from_its_results_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let results = a_results_file_settling_in(directory.path());
+
+        assert!(settled_by(Exited::Code(0), &results).is_ok());
     }
 
     fn an_installer_collected_in(directory: &Path) -> (PathBuf, ContentDigest) {

@@ -33,6 +33,10 @@ line accepts fails every entry in it loudly rather than splitting, since a split
 prompt. The batch and its results are one serde type shared by both sides: the elevated side
 settles each entry on its own and writes every entry's outcome to a results file the parent names,
 so one entry's failure decides no other's, and the next pass reads the machine again regardless.
+The elevated side creates that results file before it runs any entry, and only where nothing is at
+its path, a link included, so a file a same-user process placed there first fails the batch
+before anything runs elevated, and is left as it was. The parent reads the results file only from
+a batch that exited zero, and otherwise fails every entry.
 
 An installer still runs from its download path, which the user can write, so the batch carries the
 installer's SHA-256, recorded by the parent when it collects the refusal. The elevated side opens
