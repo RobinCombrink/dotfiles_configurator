@@ -184,6 +184,35 @@ Feature: Applying a change set
     Then winget holds "mvdan.shfmt" at "3.13.1" on Alice's machine
     And the machine is reported as converged
 
+  Scenario: A winget package whose upgrade cannot replace it while it runs is held rather than failed
+    Given Alice declares the winget package "mvdan.shfmt"
+    And winget holds "mvdan.shfmt" at "3.13.1" on Alice's machine
+    And winget offers "mvdan.shfmt" at "3.14.1"
+    And winget cannot replace "mvdan.shfmt" while Alice's machine is running it
+    When Alice applies
+    Then 1 resource is reported as held
+    And 0 resources are reported as failed
+    And winget holds "mvdan.shfmt" at "3.13.1" on Alice's machine
+    And the machine is not reported as converged
+
+  Scenario: A winget package whose publisher upgrades it is held rather than failed
+    Given Alice declares the winget package "Google.AndroidStudio"
+    And winget holds "Google.AndroidStudio" at "2025.1.2.11" on Alice's machine
+    And winget offers "Google.AndroidStudio" at "2025.1.3.7"
+    And winget refuses to upgrade "Google.AndroidStudio" because its publisher upgrades it
+    When Alice applies
+    Then 1 resource is reported as held
+    And 0 resources are reported as failed
+
+  Scenario: A winget package whose upgrade fails for any other reason is reported as failed
+    Given Alice declares the winget package "mvdan.shfmt"
+    And winget holds "mvdan.shfmt" at "3.13.1" on Alice's machine
+    And winget offers "mvdan.shfmt" at "3.14.1"
+    And winget fails to upgrade "mvdan.shfmt" on Alice's machine
+    When Alice applies
+    Then 1 resource is reported as failed
+    And 0 resources are reported as held
+
   Scenario: A resource that cannot be read leaves the machine reported as unconverged
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget is absent from Alice's machine

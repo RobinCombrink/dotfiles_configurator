@@ -5,7 +5,7 @@ use {
             McpServerName, PythonInterpreter, Tool, UvToolName, WingetPackageId, WingetVersion,
         },
         machine::{
-            CommandOutput, Replacement,
+            CommandOutput, Exited, HeldReason, Replacement,
             workspace_reading::{Revision, WorkspaceReading},
         },
     },
@@ -432,6 +432,63 @@ impl WriteInvocation {
                 .find_map(copy_refused_by_a_running_image),
         }
     }
+
+    pub fn held_by(&self, output: &CommandOutput) -> Option<HeldReason> {
+        match self {
+            WriteInvocation::InstallWingetPackage { .. }
+            | WriteInvocation::UpgradeWingetPackage { .. } => winget_held_by(output),
+            WriteInvocation::UpdateWingetSources
+            | WriteInvocation::InstallUvTool { .. }
+            | WriteInvocation::UpgradeUvTool { .. }
+            | WriteInvocation::UninstallCargoBinary { .. } => None,
+        }
+    }
+}
+
+// 2026-10-06: `winget upgrade --id mvdan.shfmt --exact --silent` with shfmt.exe running exited
+// 0x8A150052, printing `remove: Access is denied.: "<path of shfmt.exe>"`, and left the running
+// process and the installed version as they were; the same upgrade with nothing running exited 0.
+// winget v1.29.380 on Windows 11.
+const WINGET_PORTABLE_INSTALL_FAILED: i32 = 0x8A15_0052_u32.cast_signed();
+const ACCESS_DENIED: &str = "Access is denied";
+
+// 2026-10-06: `winget error` names 0x8A150101 APPINSTALLER_CLI_ERROR_INSTALL_PACKAGE_IN_USE and
+// 0x8A150111 APPINSTALLER_CLI_ERROR_INSTALL_PACKAGE_IN_USE_BY_APPLICATION. winget v1.29.380.
+const WINGET_PACKAGE_IN_USE: [i32; 2] =
+    [0x8A15_0101_u32.cast_signed(), 0x8A15_0111_u32.cast_signed()];
+
+const WINGET_REFUSES_TO_UPGRADE: &str = "cannot be upgraded using winget";
+
+fn winget_held_by(output: &CommandOutput) -> Option<HeldReason> {
+    let said = format!("{}\n{}", output.standard_output, output.standard_error);
+    if said.to_lowercase().contains(WINGET_REFUSES_TO_UPGRADE) {
+        return Some(HeldReason::UpgradedByItsPublisher);
+    }
+
+    let Exited::Code(code) = output.exited else {
+        return None;
+    };
+    if WINGET_PACKAGE_IN_USE.contains(&code) {
+        return Some(HeldReason::ReportedInUse(format!(
+            "winget {}: {}",
+            output.exited,
+            last_line_of(&said)
+        )));
+    }
+    if code == WINGET_PORTABLE_INSTALL_FAILED {
+        return said
+            .lines()
+            .find(|line| line.contains(ACCESS_DENIED))
+            .map(|line| HeldReason::ReportedInUse(line.trim().to_owned()));
+    }
+    None
+}
+
+fn last_line_of(said: &str) -> &str {
+    said.lines()
+        .map(str::trim)
+        .rfind(|line| !line.is_empty())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1134,6 +1191,81 @@ mod tests {
                 "--disable-interactivity",
             ]
         );
+    }
+
+    fn winget_said(code: u32, standard_output: &str) -> CommandOutput {
+        CommandOutput {
+            exited: Exited::Code(code.cast_signed()),
+            standard_output: standard_output.to_owned(),
+            standard_error: String::new(),
+        }
+    }
+
+    fn upgrading_shfmt() -> WriteInvocation {
+        WriteInvocation::UpgradeWingetPackage { id: shfmt() }
+    }
+
+    // 2026-10-06: taken verbatim from `winget upgrade --id mvdan.shfmt --exact --silent
+    // --disable-interactivity --accept-package-agreements` with shfmt.exe running, under winget
+    // v1.29.380 on Windows 11, with the progress lines left out.
+    const WINGET_REFUSED_A_RUNNING_PORTABLE: &str = concat!(
+        "Found shfmt [mvdan.shfmt] Version 3.14.1\n",
+        "This application is licensed to you by its owner.\n",
+        "Microsoft is not responsible for, nor does it grant any licenses to, third-party packages.\n",
+        "Downloading https://github.com/mvdan/sh/releases/download/v3.14.1/shfmt_v3.14.1_windows_amd64.exe\n",
+        "Successfully verified installer hash\n",
+        "Starting package install...\n",
+        "An unexpected error occurred while executing the command: \n",
+        "remove: Access is denied.: \"C:\\Users\\Alice\\AppData\\Local\\Microsoft\\WinGet\\Packages\\mvdan.shfmt_Microsoft.Winget.Source_8wekyb3d8bbwe\\shfmt.exe\"\n",
+        "Installer failed with exit code: 0x8a150003 : Executing command failed\n",
+    );
+
+    #[test]
+    fn an_upgrade_refused_over_a_running_portable_package_is_held_naming_the_file() {
+        let held =
+            upgrading_shfmt().held_by(&winget_said(0x8A15_0052, WINGET_REFUSED_A_RUNNING_PORTABLE));
+
+        let Some(HeldReason::ReportedInUse(reported)) = held else {
+            panic!("expected the upgrade to be held as in use, got {held:?}");
+        };
+        assert!(reported.contains("shfmt.exe"), "{reported}");
+    }
+
+    #[test]
+    fn an_upgrade_winget_reports_as_blocked_by_a_running_application_is_held() {
+        let held = upgrading_shfmt().held_by(&winget_said(
+            0x8A15_0101,
+            "Application is currently running. Exit the application then try again.\n",
+        ));
+
+        assert_eq!(
+            held,
+            Some(HeldReason::ReportedInUse(
+                "winget exited with 0x8A150101: Application is currently running. Exit the \
+                 application then try again."
+                    .to_owned()
+            ))
+        );
+    }
+
+    #[test]
+    fn an_upgrade_winget_refuses_because_the_publisher_upgrades_the_package_is_held() {
+        let held = upgrading_shfmt().held_by(&winget_said(
+            1,
+            "The package cannot be upgraded using WinGet\n",
+        ));
+
+        assert_eq!(held, Some(HeldReason::UpgradedByItsPublisher));
+    }
+
+    #[test]
+    fn a_portable_install_failing_for_any_reason_but_a_denied_file_is_not_held() {
+        let held = upgrading_shfmt().held_by(&winget_said(
+            0x8A15_0052,
+            "Installer hash does not match; this cannot be overridden when running as admin\n",
+        ));
+
+        assert_eq!(held, None);
     }
 
     #[test]

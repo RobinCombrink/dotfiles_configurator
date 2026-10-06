@@ -131,6 +131,8 @@ pub enum Placement {
 pub enum HeldReason {
     BeingExecuted(PathBuf),
     ElevationDeclined,
+    ReportedInUse(String),
+    UpgradedByItsPublisher,
 }
 
 impl Display for HeldReason {
@@ -140,6 +142,10 @@ impl Display for HeldReason {
                 write!(formatter, "{} is being executed", path.display())
             }
             HeldReason::ElevationDeclined => formatter.write_str("elevation declined"),
+            HeldReason::ReportedInUse(reported) => write!(formatter, "in use: {reported}"),
+            HeldReason::UpgradedByItsPublisher => {
+                formatter.write_str("its publisher upgrades it rather than winget")
+            }
         }
     }
 }

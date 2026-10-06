@@ -52,7 +52,7 @@ pub async fn converge(
                 .await;
         }
         Resource::Package(Package::Winget(package)) => {
-            converge_winget_package(package, machine, readings).await
+            return converge_winget_package(package, machine, readings).await;
         }
         Resource::Package(Package::UvTool(package)) => {
             return converge_uv_tool(package, machine, readings).await;
@@ -279,7 +279,7 @@ async fn converge_winget_package(
     package: &WingetPackage,
     machine: &impl WriteMachine,
     readings: &SourceReadings,
-) -> Result<()> {
+) -> Result<Placement> {
     let invocation = match &package.version {
         PackageCurrency::Exactly(version) => WriteInvocation::InstallWingetPackage {
             id: package.id.clone(),
@@ -299,7 +299,21 @@ async fn converge_winget_package(
         },
     };
 
-    machine.write(&invocation).await.map(|_| ())
+    let output = machine.attempt_write(&invocation).await?;
+    if output.exited.succeeded() {
+        return Ok(Placement::Placed);
+    }
+    if let Some(reason) = invocation.held_by(&output) {
+        return Ok(Placement::Held(reason));
+    }
+
+    bail!(
+        "winget {} failed, {}:\n{}\n{}",
+        invocation.arguments().join(" "),
+        output.exited,
+        output.standard_output.trim(),
+        output.standard_error.trim()
+    )
 }
 
 async fn converge_uv_tool(

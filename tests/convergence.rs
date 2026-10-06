@@ -868,6 +868,48 @@ fn winget_cannot_be_read(world: &mut MachineWorld) {
     );
 }
 
+fn winget_refuses_to_upgrade(world: &mut MachineWorld, id: String, code: u32, said: &str) {
+    world.machine.refuse_winget_upgrade(
+        &id.into(),
+        CommandOutput {
+            exited: Exited::Code(code.cast_signed()),
+            standard_output: said.to_owned(),
+            standard_error: String::new(),
+        },
+    );
+}
+
+#[given(expr = "winget cannot replace {string} while Alice's machine is running it")]
+fn winget_cannot_replace_a_running_package(world: &mut MachineWorld, id: String) {
+    let said = format!(
+        "Starting package install...\nAn unexpected error occurred while executing the \
+         command: \nremove: Access is denied.: \"C:\\Users\\Alice\\AppData\\Local\\Microsoft\\\
+         WinGet\\Packages\\{id}\\shfmt.exe\"\nInstaller failed with exit code: 0x8a150003 : \
+         Executing command failed\n"
+    );
+    winget_refuses_to_upgrade(world, id, 0x8A15_0052, &said);
+}
+
+#[given(expr = "winget refuses to upgrade {string} because its publisher upgrades it")]
+fn winget_refuses_to_upgrade_for_its_publisher(world: &mut MachineWorld, id: String) {
+    winget_refuses_to_upgrade(
+        world,
+        id,
+        1,
+        "The package cannot be upgraded using WinGet\n",
+    );
+}
+
+#[given(expr = "winget fails to upgrade {string} on Alice's machine")]
+fn winget_fails_to_upgrade(world: &mut MachineWorld, id: String) {
+    winget_refuses_to_upgrade(
+        world,
+        id,
+        0x8A15_0003,
+        "An unexpected error occurred while executing the command: \n",
+    );
+}
+
 #[given(expr = "winget cannot list what it would upgrade on Alice's machine")]
 fn winget_cannot_list_upgrades(world: &mut MachineWorld) {
     world.machine.answer_reading_with(

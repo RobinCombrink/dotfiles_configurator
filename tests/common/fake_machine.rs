@@ -54,6 +54,7 @@ struct MachineState {
     winget_packages_matched_only_by_identifier: BTreeSet<WingetPackageId>,
     winget_versions: BTreeMap<WingetPackageId, WingetVersion>,
     winget_offers: BTreeMap<WingetPackageId, WingetVersion>,
+    winget_upgrade_refusals: BTreeMap<WingetPackageId, CommandOutput>,
     uv_tools: BTreeMap<UvToolName, UvToolVersion>,
     uv_newest_versions: BTreeMap<UvToolName, UvToolVersion>,
     uv_tool_interpreters: BTreeMap<UvToolName, Option<PythonInterpreter>>,
@@ -567,6 +568,9 @@ impl FakeMachine {
                 }
             }
             WriteInvocation::UpgradeWingetPackage { id } => {
+                if let Some(refusal) = state.winget_upgrade_refusals.get(id) {
+                    return Ok(refusal.clone());
+                }
                 match state.winget_offers.get(id).cloned() {
                     Some(offered) if state.winget_packages.contains(id) => {
                         state.winget_versions.insert(id.clone(), offered);
@@ -888,6 +892,13 @@ impl FakeMachine {
             .insert(id.clone(), version.clone());
     }
 
+    pub fn refuse_winget_upgrade(&self, id: &WingetPackageId, refusal: CommandOutput) {
+        self.state
+            .borrow_mut()
+            .winget_upgrade_refusals
+            .insert(id.clone(), refusal);
+    }
+
     pub fn winget_package_version(&self, id: &WingetPackageId) -> Option<WingetVersion> {
         let state = self.state.borrow();
         state.winget_packages.contains(id).then(|| {
@@ -1046,6 +1057,7 @@ impl FakeMachine {
             winget_packages_matched_only_by_identifier,
             winget_versions,
             winget_offers,
+            winget_upgrade_refusals,
             uv_tools,
             uv_newest_versions,
             uv_tool_interpreters,
@@ -1097,7 +1109,7 @@ impl FakeMachine {
         format!(
             "{paths:?}|{links:?}|{text_files:?}|{tools:?}|{installed_applications:?}|\
              {winget_packages:?}|{winget_packages_matched_only_by_identifier:?}|\
-             {winget_versions:?}|{winget_offers:?}|{uv_tools:?}|\
+             {winget_versions:?}|{winget_offers:?}|{winget_upgrade_refusals:?}|{uv_tools:?}|\
              {uv_newest_versions:?}|{uv_tool_interpreters:?}|{uv_running_launchers:?}|\
              {uv_tools_failing_to_upgrade:?}|{failing_applications:?}|{silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\

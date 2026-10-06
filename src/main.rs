@@ -375,7 +375,11 @@ async fn obtain_a_newer_build(machine: &LocalMachine<'_, '_>) -> Result<()> {
             "{} is running and could not be moved aside to install the newer build",
             path.display()
         ),
-        Placement::Held(reason @ HeldReason::ElevationDeclined) => {
+        Placement::Held(
+            reason @ (HeldReason::ElevationDeclined
+            | HeldReason::ReportedInUse(_)
+            | HeldReason::UpgradedByItsPublisher),
+        ) => {
             bail!("The newer build could not be installed: {reason}")
         }
         Placement::Refused(refusal) => bail!("{}", refusal.refusal),
