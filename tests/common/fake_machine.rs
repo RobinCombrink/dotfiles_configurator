@@ -79,6 +79,8 @@ struct MachineState {
     cargo_commands: Vec<CargoCommand>,
     workspace_builds_fail: bool,
     registry_crates: BTreeMap<CrateName, CrateVersion>,
+    published_crates: BTreeMap<CrateName, CrateVersion>,
+    crates_index_unreachable: bool,
     releases: BTreeMap<GitHubRepository, ReleaseReading>,
     release_reads: Vec<(GitHubRepository, GitHubAccount)>,
     clones: Vec<(GitHubRepository, GitHubAccount)>,
@@ -627,13 +629,13 @@ impl FakeMachine {
             };
         }
 
-        if let ResolvedCargoSource::Registry {
-            version: Some(version),
-        } = source
-        {
-            state
-                .registry_crates
-                .insert(crate_name.clone(), version.clone());
+        if let ResolvedCargoSource::Registry { version } = source {
+            let installed = version
+                .clone()
+                .or_else(|| state.published_crates.get(crate_name).cloned());
+            if let Some(installed) = installed {
+                state.registry_crates.insert(crate_name.clone(), installed);
+            }
         }
 
         let built: Vec<(PathBuf, String)> = state
@@ -873,6 +875,17 @@ impl FakeMachine {
         self.state.borrow().registry_crates.get(crate_name).cloned()
     }
 
+    pub fn publish_crate(&self, crate_name: &CrateName, version: &CrateVersion) {
+        self.state
+            .borrow_mut()
+            .published_crates
+            .insert(crate_name.clone(), version.clone());
+    }
+
+    pub fn make_crates_index_unreachable(&self) {
+        self.state.borrow_mut().crates_index_unreachable = true;
+    }
+
     pub fn install_uv_tool(&self, name: &UvToolName, version: &UvToolVersion) {
         self.state
             .borrow_mut()
@@ -1016,6 +1029,8 @@ impl FakeMachine {
             cargo_commands,
             workspace_builds_fail,
             registry_crates,
+            published_crates,
+            crates_index_unreachable,
             releases,
             release_reads: _,
             clones,
@@ -1043,7 +1058,8 @@ impl FakeMachine {
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
              {earlier_cargo_workspaces:?}|{install_records:?}|{uninstalls_refused:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
-             {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|{releases:?}|\
+             {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|\
+             {published_crates:?}|{crates_index_unreachable:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
              {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\
              {mcp_servers_claude_refuses_to_add:?}|{failing_downloads:?}|\
@@ -1371,6 +1387,19 @@ impl ReadMachine for FakeMachine {
         }
 
         Ok(state.releases.get(repository).cloned())
+    }
+
+    async fn newest_published_crate(&self, crate_name: &CrateName) -> Result<CrateVersion> {
+        let state = self.state.borrow();
+        if state.crates_index_unreachable {
+            bail!("Could not ask crates.io for {crate_name}");
+        }
+
+        state
+            .published_crates
+            .get(crate_name)
+            .cloned()
+            .ok_or_else(|| anyhow!("crates.io holds no crate named {crate_name}"))
     }
 
     fn read_search_path(&self) -> Result<SearchPathReading> {

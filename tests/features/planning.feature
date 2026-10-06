@@ -476,12 +476,31 @@ Feature: Planning what a machine needs
     And the change set mentions "27.0.0"
     And the change set mentions "27.1.0"
 
-  Scenario: A cargo package declaring no version is converged at whichever version cargo holds
-    Given Alice declares the cargo package "cargo-mutants"
-    And cargo holds "cargo-mutants" at "27.0.0" on Alice's machine
+  Scenario: A cargo package declaring no version is converged at the newest version crates.io publishes
+    Given Alice declares the cargo package "ripgrep"
+    And cargo holds "ripgrep" at "15.1.0" on Alice's machine
+    And crates.io publishes "ripgrep" at "15.1.0" at the newest
     When Alice plans
     Then the change set reports 0 changes
     And the change set reports the machine as converged
+
+  Scenario: A cargo package declaring no version behind the newest crates.io publishes is a change naming both versions
+    Given Alice declares the cargo package "ripgrep"
+    And cargo holds "ripgrep" at "14.1.1" on Alice's machine
+    And crates.io publishes "ripgrep" at "15.1.0" at the newest
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "14.1.1"
+    And the change set mentions "15.1.0"
+
+  Scenario: A cargo package declaring no version is blocked rather than converged when crates.io cannot be asked
+    Given Alice declares the cargo package "ripgrep"
+    And cargo holds "ripgrep" at "15.1.0" on Alice's machine
+    And crates.io cannot be reached from Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set does not report the machine as converged
 
   Scenario: A server claude does not hold is reported as a change
     Given Alice declares the claude mcp server "serena"

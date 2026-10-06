@@ -119,6 +119,14 @@ Feature: Applying a change set
     Then cargo holds "cargo-mutants" at "27.1.0" on Alice's machine
     And the machine is reported as converged
 
+  Scenario: A cargo package declaring no version behind the newest crates.io publishes is upgraded to it
+    Given Alice declares the cargo package "ripgrep"
+    And cargo holds "ripgrep" at "14.1.1" on Alice's machine
+    And crates.io publishes "ripgrep" at "15.1.0" at the newest
+    When Alice applies
+    Then cargo holds "ripgrep" at "15.1.0" on Alice's machine
+    And the machine is reported as converged
+
   Scenario: A uv tool declaring an interpreter is installed into an environment built with it
     Given Alice declares the uv tool "serena-agent" built with Python "3.13"
     And the newest version of "serena-agent" that resolves is "1.7.0"

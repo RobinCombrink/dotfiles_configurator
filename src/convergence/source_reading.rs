@@ -1,6 +1,6 @@
 use {
     crate::{
-        configuration::{GitHubRepository, Tool},
+        configuration::{CrateName, GitHubRepository, Tool},
         convergence::Impediment,
     },
     std::{fmt::Display, path::PathBuf},
@@ -33,6 +33,7 @@ pub enum ReadSource {
     SearchPath,
     CargoWorkspace(PathBuf),
     LatestRelease(GitHubRepository),
+    CratesIndex(CrateName),
 }
 
 impl ReadSource {
@@ -55,6 +56,9 @@ impl Display for ReadSource {
             ),
             ReadSource::LatestRelease(repository) => {
                 write!(formatter, "the latest release of {repository}")
+            }
+            ReadSource::CratesIndex(crate_name) => {
+                write!(formatter, "what crates.io lists for {crate_name}")
             }
         }
     }

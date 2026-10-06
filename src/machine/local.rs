@@ -1,9 +1,9 @@
 use {
     crate::{
         configuration::{
-            Answer, ApplicationSource, ArchiveEntry, CloneDepth, CrateName, GitHubAccount,
-            GitHubRepository, Installer, Migration, PresenceCheck, ReleasedBinary, RepositoryClone,
-            Shell, VariableName, VariableValue,
+            Answer, ApplicationSource, ArchiveEntry, CloneDepth, CrateName, CrateVersion,
+            GitHubAccount, GitHubRepository, Installer, Migration, PresenceCheck, ReleasedBinary,
+            RepositoryClone, Shell, VariableName, VariableValue,
         },
         configuration_source::WriteSource,
         github::GitHubAccess,
@@ -11,7 +11,7 @@ use {
             CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
             ElevatedWork, Elevation, Exited, HeldReason, Placement, PrivilegeRefusal,
             ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool,
-            WorkspaceBuild, WriteInvocation, WriteMachine,
+            WorkspaceBuild, WriteInvocation, WriteMachine, crate_index_reading,
             environment_reading::SearchPathReading,
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -694,6 +694,32 @@ impl ReadMachine for LocalMachine<'_, '_> {
                 })
                 .collect(),
         }))
+    }
+
+    async fn newest_published_crate(&self, crate_name: &CrateName) -> Result<CrateVersion> {
+        let address = format!(
+            "{}/{}",
+            crate_index_reading::SPARSE_INDEX,
+            crate_index_reading::index_file_of(crate_name)
+        );
+        let response = self
+            .http_client
+            .get(&address)
+            .send()
+            .await
+            .with_context(|| format!("Could not ask crates.io for {crate_name}"))?;
+        if response.status().as_u16() == NOTHING_PUBLISHED {
+            bail!("crates.io holds no crate named {crate_name}");
+        }
+
+        let index_file = response
+            .error_for_status()
+            .with_context(|| format!("crates.io refused to list {crate_name}"))?
+            .text()
+            .await
+            .with_context(|| format!("Could not read what crates.io lists for {crate_name}"))?;
+        crate_index_reading::newest_listed(crate_name, &index_file)
+            .map_err(|reason| anyhow!(reason))
     }
 
     fn report_version(&self, binary_path: &Path, arguments: &[String]) -> Result<CommandOutput> {

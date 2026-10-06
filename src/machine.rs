@@ -2,8 +2,8 @@ use {
     crate::{
         TOOL_DIRECTORY,
         configuration::{
-            Answer, CrateName, GitHubAccount, GitHubRepository, McpServerName, PresenceCheck,
-            Shell, Tool, VariableName, VariableValue, path_folding,
+            Answer, CrateName, CrateVersion, GitHubAccount, GitHubRepository, McpServerName,
+            PresenceCheck, Shell, Tool, VariableName, VariableValue, path_folding,
         },
         machine::{
             environment_reading::SearchPathReading,
@@ -20,6 +20,7 @@ use {
     },
 };
 
+pub mod crate_index_reading;
 pub mod elevation;
 pub mod environment_reading;
 pub mod invocation;
@@ -222,6 +223,11 @@ pub trait ReadMachine {
         repository: &GitHubRepository,
         account: &GitHubAccount,
     ) -> impl std::future::Future<Output = Result<Option<ReleaseReading>>>;
+
+    fn newest_published_crate(
+        &self,
+        crate_name: &CrateName,
+    ) -> impl std::future::Future<Output = Result<CrateVersion>>;
 
     // ADR 0016
     fn report_version(&self, binary_path: &Path, arguments: &[String]) -> Result<CommandOutput>;

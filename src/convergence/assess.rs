@@ -21,7 +21,7 @@ use {
         version::Version,
     },
     std::{
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         path::{Path, PathBuf},
     },
 };
@@ -36,6 +36,7 @@ pub struct SourceReadings {
     workspaces: BTreeMap<PathBuf, SourceReading<Option<WorkspaceReading>>>,
     own_copies: BTreeMap<PathBuf, OwnCopies>,
     releases: BTreeMap<GitHubRepository, SourceReading<Option<ReleaseReading>>>,
+    newest_crates: BTreeMap<CrateName, SourceReading<CrateVersion>>,
     search_path: SourceReading<SearchPathReading>,
 }
 
@@ -46,10 +47,19 @@ impl SourceReadings {
         let mut cargo_is_needed = !desired_state.workspaces.is_empty();
         let mut search_path_is_needed = false;
         let mut released_from: BTreeMap<GitHubRepository, GitHubAccount> = BTreeMap::new();
+        let mut kept_at_newest: BTreeSet<CrateName> = BTreeSet::new();
         for resource in &desired_state.resources {
             match resource.declared() {
                 Resource::Package(Package::Winget(_)) => winget_is_needed = true,
-                Resource::Package(Package::Cargo(_)) => cargo_is_needed = true,
+                Resource::Package(Package::Cargo(package)) => {
+                    cargo_is_needed = true;
+                    if let CargoSource::Registry {
+                        version: PackageCurrency::Latest,
+                    } = package.source
+                    {
+                        kept_at_newest.insert(package.crate_name.clone());
+                    }
+                }
                 Resource::Package(Package::UvTool(_)) => uv_is_needed = true,
                 Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(_)) => {
                     search_path_is_needed = true;
@@ -89,6 +99,15 @@ impl SourceReadings {
             releases.insert(repository, reading);
         }
 
+        let mut newest_crates = BTreeMap::new();
+        for crate_name in kept_at_newest {
+            let reading = match machine.newest_published_crate(&crate_name).await {
+                Ok(newest) => SourceReading::Read(newest),
+                Err(error) => SourceReading::Unreadable(format!("{error:#}").into()),
+            };
+            newest_crates.insert(crate_name, reading);
+        }
+
         let mut workspaces = BTreeMap::new();
         let mut own_copies = BTreeMap::new();
         for workspace in &desired_state.workspaces {
@@ -123,6 +142,7 @@ impl SourceReadings {
             workspaces,
             own_copies,
             releases,
+            newest_crates,
             search_path: match search_path_is_needed {
                 false => SourceReading::NotRequested(ReadSource::SearchPath),
                 true => match machine.read_search_path() {
@@ -209,6 +229,13 @@ impl SourceReadings {
         match self.releases.get(repository) {
             Some(reading) => reading.read().map(Option::as_ref),
             None => Err(ReadSource::LatestRelease(repository.clone()).was_not_read()),
+        }
+    }
+
+    pub fn newest_crate(&self, crate_name: &CrateName) -> Result<&CrateVersion, Impediment> {
+        match self.newest_crates.get(crate_name) {
+            Some(reading) => reading.read(),
+            None => Err(ReadSource::CratesIndex(crate_name.clone()).was_not_read()),
         }
     }
 
@@ -708,14 +735,19 @@ fn assess_declared_cargo_package(
             CargoSource::Registry {
                 version: PackageCurrency::Latest,
             },
-            InstalledFrom::Registry { .. },
-        ) => Assessment::Converged,
+            InstalledFrom::Registry { version: installed },
+        ) => match readings.newest_crate(&package.crate_name) {
+            Ok(newest) => {
+                assess_installed_version(&WantedVersion::NewestPublished(newest.clone()), installed)
+            }
+            Err(impediment) => Assessment::Unassessable(impediment),
+        },
         (
             CargoSource::Registry {
                 version: PackageCurrency::Exactly(declared),
             },
             InstalledFrom::Registry { version: installed },
-        ) => assess_pinned_version(declared, installed),
+        ) => assess_installed_version(&WantedVersion::Declared(declared.clone()), installed),
         (CargoSource::Path { path }, InstalledFrom::Path(installed_path))
             if paths_are_the_same(path, installed_path, machine) =>
         {
@@ -725,14 +757,39 @@ fn assess_declared_cargo_package(
     }
 }
 
-fn assess_pinned_version(declared: &CrateVersion, installed: &str) -> Assessment {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WantedVersion {
+    Declared(CrateVersion),
+    NewestPublished(CrateVersion),
+}
+
+impl WantedVersion {
+    fn version(&self) -> &CrateVersion {
+        match self {
+            WantedVersion::Declared(version) | WantedVersion::NewestPublished(version) => version,
+        }
+    }
+}
+
+impl std::fmt::Display for WantedVersion {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WantedVersion::Declared(version) => {
+                write!(formatter, "the version declared is {version}")
+            }
+            WantedVersion::NewestPublished(version) => {
+                write!(formatter, "the newest published to crates.io is {version}")
+            }
+        }
+    }
+}
+
+fn assess_installed_version(wanted: &WantedVersion, installed: &str) -> Assessment {
     let spelled = installed.strip_prefix('v').unwrap_or(installed);
 
     match CrateVersion::try_from(spelled) {
-        Ok(actual) if actual == *declared => Assessment::Converged,
-        Ok(actual) => Assessment::Drifted(
-            format!("{actual} is installed, and the version declared is {declared}").into(),
-        ),
+        Ok(actual) if actual == *wanted.version() => Assessment::Converged,
+        Ok(actual) => Assessment::Drifted(format!("{actual} is installed, and {wanted}").into()),
         Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!("cargo lists it at a version this program cannot read: {reason}").into(),
         )),
@@ -990,14 +1047,14 @@ mod tests {
         );
     }
 
-    fn pinned(version: &str) -> CrateVersion {
-        CrateVersion::try_from(version).unwrap()
+    fn pinned(version: &str) -> WantedVersion {
+        WantedVersion::Declared(CrateVersion::try_from(version).unwrap())
     }
 
     #[test]
     fn a_crate_installed_at_the_version_declared_is_converged() {
         assert_eq!(
-            assess_pinned_version(&pinned("27.1.0"), "v27.1.0"),
+            assess_installed_version(&pinned("27.1.0"), "v27.1.0"),
             Assessment::Converged
         );
     }
@@ -1005,14 +1062,26 @@ mod tests {
     #[test]
     fn a_crate_installed_at_another_version_than_declared_is_drifted() {
         assert_eq!(
-            assess_pinned_version(&pinned("27.1.0"), "v27.0.0"),
+            assess_installed_version(&pinned("27.1.0"), "v27.0.0"),
             Assessment::Drifted("27.0.0 is installed, and the version declared is 27.1.0".into())
         );
     }
 
     #[test]
+    fn a_crate_behind_the_newest_published_is_drifted_naming_both_versions() {
+        let newest = WantedVersion::NewestPublished(CrateVersion::try_from("15.1.0").unwrap());
+
+        assert_eq!(
+            assess_installed_version(&newest, "v14.1.1"),
+            Assessment::Drifted(
+                "14.1.1 is installed, and the newest published to crates.io is 15.1.0".into()
+            )
+        );
+    }
+
+    #[test]
     fn a_crate_listed_at_a_version_that_cannot_be_read_is_unassessable_rather_than_drifted() {
-        let assessment = assess_pinned_version(&pinned("27.1.0"), "vtwenty-seven");
+        let assessment = assess_installed_version(&pinned("27.1.0"), "vtwenty-seven");
 
         let Assessment::Unassessable(_) = assessment else {
             panic!("expected an unassessable crate, got {assessment:?}");

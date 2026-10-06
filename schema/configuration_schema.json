@@ -229,7 +229,7 @@
               "const": "registry"
             },
             "version": {
-              "description": "The one version the crate is installed at. Absent, Cargo installs whichever version is newest when the crate is first installed.",
+              "description": "The one version the crate is installed at. Absent, the crate is kept at the newest version crates.io publishes.",
               "anyOf": [
                 {
                   "$ref": "#/$defs/CrateVersion"

@@ -1450,6 +1450,19 @@ fn cargo_holds_crate(world: &mut MachineWorld, crate_name: String, version: Stri
     );
 }
 
+#[given(expr = "crates.io publishes {string} at {string} at the newest")]
+fn crates_io_publishes(world: &mut MachineWorld, crate_name: String, version: String) {
+    world.machine.publish_crate(
+        &CrateName::from(crate_name.as_str()),
+        &CrateVersion::try_from(version.as_str()).expect("a version"),
+    );
+}
+
+#[given(expr = "crates.io cannot be reached from Alice's machine")]
+fn crates_io_is_unreachable(world: &mut MachineWorld) {
+    world.machine.make_crates_index_unreachable();
+}
+
 #[then(expr = "cargo holds {string} at {string} on Alice's machine")]
 fn cargo_now_holds_crate(world: &mut MachineWorld, crate_name: String, version: String) {
     assert_eq!(

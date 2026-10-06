@@ -553,8 +553,8 @@ pub enum CargoSource {
     Registry {
         #[serde(default, skip_serializing_if = "PackageCurrency::is_latest")]
         #[schemars(
-            description = "The one version the crate is installed at. Absent, Cargo installs \
-                           whichever version is newest when the crate is first installed."
+            description = "The one version the crate is installed at. Absent, the crate is kept \
+                           at the newest version crates.io publishes."
         )]
         version: PackageCurrency<CrateVersion>,
     },
