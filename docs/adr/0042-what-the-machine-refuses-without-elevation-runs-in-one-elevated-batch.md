@@ -10,7 +10,8 @@ demands elevation, the entry is collected rather than failed. At the end of the 
 them, every collected entry runs in one elevated batch, so a pass costs at most one UAC prompt. The
 batch is the configurator relaunching itself under a hidden subcommand, through its own
 `windows-sys` call to `ShellExecuteExW` with the `runas` verb and `SEE_MASK_NOCLOSEPROCESS`, which
-hands back the process to wait on and read the exit code of.
+hands back the process to wait on and read the exit code of. The launching thread initialises COM
+first, as Microsoft's documentation of `ShellExecuteEx` advises, and uninitialises it after.
 
 Observed on the work machine on 2026-10-05, in one apply:
 

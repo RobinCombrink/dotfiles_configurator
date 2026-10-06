@@ -21,7 +21,12 @@ use {
     windows_sys::Win32::{
         Foundation::{CloseHandle, ERROR_CANCELLED, WAIT_FAILED},
         Storage::FileSystem::FILE_SHARE_READ,
-        System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject},
+        System::{
+            Com::{
+                COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize,
+            },
+            Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject},
+        },
         UI::{
             Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW},
             WindowsAndMessaging::SW_HIDE,
@@ -245,6 +250,36 @@ fn refused_to_launch(refusal: std::io::Error) -> Result<Launched> {
 }
 
 #[cfg(target_family = "windows")]
+struct ComApartment;
+
+#[cfg(target_family = "windows")]
+impl ComApartment {
+    fn entered() -> Result<Self> {
+        // SAFETY: the reserved argument is null as required, and every successful call is
+        // balanced by the CoUninitialize in Drop on this same thread.
+        let entered = unsafe {
+            CoInitializeEx(
+                std::ptr::null(),
+                (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).cast_unsigned(),
+            )
+        };
+        if entered < 0 {
+            return Err(std::io::Error::from_raw_os_error(entered))
+                .context("Could not initialise COM to start the elevated batch");
+        }
+        Ok(Self)
+    }
+}
+
+#[cfg(target_family = "windows")]
+impl Drop for ComApartment {
+    fn drop(&mut self) {
+        // SAFETY: entered succeeded on this thread, so this call balances it.
+        unsafe { CoUninitialize() };
+    }
+}
+
+#[cfg(target_family = "windows")]
 fn launch_elevated(executable: &Path, parameters: &str) -> Result<Launched> {
     let verb = wide(OsStr::new("runas"));
     let file = wide(executable.as_os_str());
@@ -259,6 +294,7 @@ fn launch_elevated(executable: &Path, parameters: &str) -> Result<Launched> {
         ..Default::default()
     };
 
+    let _apartment = ComApartment::entered()?;
     // SAFETY: execution is fully initialised, its size is the one declared, and the strings it
     // points at are NUL-terminated and outlive the call.
     if unsafe { ShellExecuteExW(&raw mut execution) } == 0 {
