@@ -203,6 +203,16 @@ Feature: Applying a change set
     Then cargo no longer holds the binary "session-census" on Alice's machine
     And the machine is reported as converged
 
+  Scenario: Applying removes the binary of a crate no longer a member of the workspace
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And cargo holds the binary "session-census" of "session-mining" installed from the dotfiles repository
+    When Alice applies
+    Then cargo no longer holds the binary "session-census" on Alice's machine
+    And the machine is reported as converged
+
   Scenario: A binary left behind whose file is already gone is still removed from what cargo records
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine

@@ -79,21 +79,42 @@ fn git_record_line(line: &str) -> Option<InstallRecord> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RemovalReason {
+    BinaryDropped,
+    MemberGone,
+}
+
 // ADR 0041
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Withdrawal {
     Remove {
         record: InstallRecord,
         binary: BinaryName,
+        reason: RemovalReason,
     },
 }
 
 impl Display for Withdrawal {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Withdrawal::Remove { record, binary } => write!(
+            Withdrawal::Remove {
+                record,
+                binary,
+                reason: RemovalReason::BinaryDropped,
+            } => write!(
                 formatter,
                 "{binary}, which {} no longer declares (installed from {})",
+                record.crate_name, record.source
+            ),
+            Withdrawal::Remove {
+                record,
+                binary,
+                reason: RemovalReason::MemberGone,
+            } => write!(
+                formatter,
+                "{binary}, whose crate {} is no longer a member of the workspace (installed from \
+                 {})",
                 record.crate_name, record.source
             ),
         }
@@ -104,25 +125,28 @@ pub fn withdrawals<'reading>(
     workspaces: impl IntoIterator<Item = (&'reading GitHubRepository, &'reading WorkspaceReading)>,
     records: &[InstallRecord],
 ) -> Vec<Withdrawal> {
+    let nothing_declared = BTreeSet::new();
     let mut withdrawals = Vec::new();
     for (repository, reading) in workspaces {
         for record in records {
-            let Some(member) = reading.members.get(&record.crate_name) else {
-                continue;
-            };
             if !record.was_installed_from(repository) {
                 continue;
             }
+            let (reason, declared) = match reading.members.get(&record.crate_name) {
+                Some(member) => (RemovalReason::BinaryDropped, &member.binaries),
+                None => (RemovalReason::MemberGone, &nothing_declared),
+            };
 
             withdrawals.extend(
                 record
                     .binary_files
                     .iter()
                     .map(|file| record.binary_named(file))
-                    .filter(|binary| !member.binaries.contains(binary))
+                    .filter(|binary| !declared.contains(binary))
                     .map(|binary| Withdrawal::Remove {
                         record: record.clone(),
                         binary,
+                        reason,
                     }),
             );
         }
@@ -169,7 +193,7 @@ pub async fn withdraw(
 }
 
 async fn remove(withdrawal: &Withdrawal, machine: &impl WriteMachine) -> Result<()> {
-    let Withdrawal::Remove { record, binary } = withdrawal;
+    let Withdrawal::Remove { record, binary, .. } = withdrawal;
     let invocation = WriteInvocation::UninstallCargoBinary {
         specification: record.specification(),
         binary: binary.clone(),
@@ -362,8 +386,15 @@ mod tests {
         assert!(withdrawals.is_empty(), "{withdrawals:?}");
     }
 
+    fn reasons(withdrawals: &[Withdrawal]) -> BTreeSet<RemovalReason> {
+        withdrawals
+            .iter()
+            .map(|Withdrawal::Remove { reason, .. }| *reason)
+            .collect()
+    }
+
     #[test]
-    fn a_record_of_a_crate_the_workspace_does_not_hold_is_never_withdrawn() {
+    fn every_binary_of_a_record_whose_crate_the_workspace_no_longer_holds_is_withdrawn() {
         let records = install_records(&listing_of_two_disjoint_records_of_one_member());
 
         let withdrawals = withdrawals(
@@ -374,7 +405,44 @@ mod tests {
             &records,
         );
 
-        assert!(withdrawals.is_empty(), "{withdrawals:?}");
+        assert_eq!(
+            withdrawn_binaries(&withdrawals),
+            vec!["reach", "session-census", "sweep", "tool-use-statistics"]
+        );
+    }
+
+    #[test]
+    fn a_binary_whose_crate_the_workspace_no_longer_holds_is_withdrawn_as_a_member_gone() {
+        let records = install_records(&listing_of_two_disjoint_records_of_one_member());
+
+        let withdrawals = withdrawals(
+            [(
+                &dotfiles(),
+                &workspace_declaring("stop-gate", &["stop-gate"]),
+            )],
+            &records,
+        );
+
+        assert_eq!(
+            reasons(&withdrawals),
+            BTreeSet::from([RemovalReason::MemberGone])
+        );
+    }
+
+    #[test]
+    fn a_binary_a_member_no_longer_declares_is_withdrawn_as_dropped() {
+        let records = install_records(&listing_of_two_disjoint_records_of_one_member());
+        let workspace = workspace_declaring(
+            "session-mining",
+            &["sweep", "tool-use-statistics", "session-census"],
+        );
+
+        let withdrawals = withdrawals([(&dotfiles(), &workspace)], &records);
+
+        assert_eq!(
+            reasons(&withdrawals),
+            BTreeSet::from([RemovalReason::BinaryDropped])
+        );
     }
 
     #[test]

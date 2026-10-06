@@ -1528,15 +1528,7 @@ fn another_binary_shadows(world: &mut MachineWorld, binary_name: String) {
 
 #[given(expr = "an earlier install of {string} left the binary {string} behind")]
 fn an_earlier_install_left_a_binary(world: &mut MachineWorld, crate_name: String, binary: String) {
-    world.machine.hold_install_record(
-        &CrateName::from(crate_name.as_str()),
-        &dotfiles_repository(),
-        &Revision::from(EARLIER_WORKSPACE_REVISION),
-        &[BinaryName::from(binary.as_str())],
-    );
-    world
-        .machine
-        .hold_cargo_binary(&binary, format!("{binary} {EARLIER_WORKSPACE_REVISION}\n"));
+    cargo_holds_binaries_from_the_dotfiles_repository(world, &crate_name, &[&binary]);
 }
 
 #[given(expr = "cargo holds the binary {string} of {string} installed from another repository")]
@@ -1554,6 +1546,51 @@ fn cargo_holds_a_binary_from_elsewhere(
     world
         .machine
         .hold_cargo_binary(&binary, format!("{binary} {EARLIER_WORKSPACE_REVISION}\n"));
+}
+
+fn cargo_holds_binaries_from_the_dotfiles_repository(
+    world: &mut MachineWorld,
+    crate_name: &str,
+    binaries: &[&str],
+) {
+    world.machine.hold_install_record(
+        &CrateName::from(crate_name),
+        &dotfiles_repository(),
+        &Revision::from(EARLIER_WORKSPACE_REVISION),
+        &binaries
+            .iter()
+            .map(|binary| BinaryName::from(*binary))
+            .collect::<Vec<_>>(),
+    );
+    for binary in binaries {
+        world
+            .machine
+            .hold_cargo_binary(binary, format!("{binary} {EARLIER_WORKSPACE_REVISION}\n"));
+    }
+}
+
+#[given(
+    expr = "cargo holds the binary {string} of {string} installed from the dotfiles repository"
+)]
+fn cargo_holds_a_binary_from_the_dotfiles_repository(
+    world: &mut MachineWorld,
+    binary: String,
+    crate_name: String,
+) {
+    cargo_holds_binaries_from_the_dotfiles_repository(world, &crate_name, &[&binary]);
+}
+
+#[given(
+    expr = "cargo holds the binaries {string} and {string} of {string} installed from the \
+            dotfiles repository"
+)]
+fn cargo_holds_two_binaries_from_the_dotfiles_repository(
+    world: &mut MachineWorld,
+    first: String,
+    second: String,
+    crate_name: String,
+) {
+    cargo_holds_binaries_from_the_dotfiles_repository(world, &crate_name, &[&first, &second]);
 }
 
 #[given(expr = "cargo refuses to uninstall anything on Alice's machine")]

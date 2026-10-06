@@ -399,6 +399,16 @@ Feature: Planning what a machine needs
     Then the change set reports 0 binaries to remove
     And the change set reports the machine as converged
 
+  Scenario: Every binary of a crate no longer a member of the workspace is planned for removal
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And cargo holds the binaries "sweep" and "reach" of "session-mining" installed from the dotfiles repository
+    When Alice plans
+    Then the change set reports 2 binaries to remove
+    And the change set mentions "reach, whose crate session-mining is no longer a member of the workspace"
+
   Scenario: A workspace crate is blocked while cargo's bin directory is not on the search path
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
