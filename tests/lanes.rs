@@ -117,7 +117,7 @@ fn machine_lacking_every_entry() -> FakeMachine {
                 MemberReading {
                     desired: Fingerprint {
                         crate_subtree: ObjectHash::from("what the workspace holds now"),
-                        workspace_manifest: ObjectHash::from("the workspace manifest"),
+                        workspace_bindings: BTreeMap::new(),
                         lock_closure: ObjectHash::from("the lock closure"),
                         dependency_subtrees: BTreeMap::new(),
                     },

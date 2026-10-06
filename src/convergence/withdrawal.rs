@@ -273,7 +273,7 @@ mod tests {
                 MemberReading {
                     desired: Fingerprint {
                         crate_subtree: ObjectHash::from("aaa"),
-                        workspace_manifest: ObjectHash::from("bbb"),
+                        workspace_bindings: BTreeMap::new(),
                         lock_closure: ObjectHash::from("ccc"),
                         dependency_subtrees: BTreeMap::new(),
                     },

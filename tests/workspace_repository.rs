@@ -341,6 +341,62 @@ fn a_release_profile_change_drifts_every_tool() {
     assert_eq!(converged, vec![false, false]);
 }
 
+fn workspace_depending_on(left_pad_version: &str) -> String {
+    format!(
+        "[workspace]\nresolver = \"2\"\nmembers = [\"tools/alpha\", \"tools/beta\"]\n\n\
+         [workspace.dependencies]\nleft-pad = \"{left_pad_version}\"\n"
+    )
+}
+
+fn alpha_once_the_left_pad_beta_inherits_changes(alpha_dependency_sections: &str) -> bool {
+    let repository = workspace_where_alpha_declares(alpha_dependency_sections);
+    repository.write("Cargo.toml", &workspace_depending_on("1.3.0"));
+    repository.write(
+        "tools/beta/Cargo.toml",
+        "[package]\nname = \"beta\"\nversion = \"0.1.0\"\n\n\
+         [dependencies]\nleft-pad = { workspace = true }\n",
+    );
+    repository.commit("beta inherits left-pad");
+    repository.push();
+    let installed_from = repository.head_revision();
+    repository.write("Cargo.toml", &workspace_depending_on("1.4.0"));
+    repository.commit("bump the left-pad the workspace declares");
+    repository.push();
+
+    alpha(&repository, &installed_from)
+}
+
+#[test]
+fn an_edit_to_a_workspace_dependency_only_another_member_inherits_leaves_it_converged() {
+    assert!(alpha_once_the_left_pad_beta_inherits_changes(""));
+}
+
+#[test]
+fn an_edit_to_what_a_crate_it_depends_on_by_path_inherits_drifts_it() {
+    assert!(!alpha_once_the_left_pad_beta_inherits_changes(
+        "[dependencies]\nbeta = { path = \"../beta\" }\n"
+    ));
+}
+
+#[test]
+fn a_member_inheriting_what_the_workspace_manifest_does_not_hold_refuses_the_workspace() {
+    let repository = workspace_holding_a_binary_and_a_library();
+    repository.write(
+        "tools/beta/Cargo.toml",
+        "[package]\nname = \"beta\"\nversion = \"0.1.0\"\n\n\
+         [dependencies]\nghost = { workspace = true }\n",
+    );
+    repository.commit("beta inherits what the workspace does not hold");
+    repository.push();
+
+    let error = format!("{:#}", workspace::read(repository.path()).unwrap_err());
+
+    assert!(
+        error.contains("tools/beta") && error.contains("workspace.dependencies.ghost"),
+        "expected the message to name the member and what it inherits, got: {error}"
+    );
+}
+
 fn refusal_of(lock: &str) -> String {
     let repository = workspace_holding_a_binary_and_a_library();
     repository.write("Cargo.lock", lock);

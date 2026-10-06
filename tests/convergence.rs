@@ -1714,7 +1714,7 @@ fn installed_from_an_unreadable_revision(world: &mut MachineWorld, crate_name: S
 fn content_named(content: &str) -> Fingerprint {
     Fingerprint {
         crate_subtree: ObjectHash::from(content),
-        workspace_manifest: ObjectHash::from("the workspace manifest"),
+        workspace_bindings: BTreeMap::new(),
         lock_closure: ObjectHash::from("the lock closure"),
         dependency_subtrees: BTreeMap::new(),
     }

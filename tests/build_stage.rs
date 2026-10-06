@@ -29,7 +29,7 @@ const REVISION: &str = "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c";
 fn content_held_now() -> Fingerprint {
     Fingerprint {
         crate_subtree: ObjectHash::from("what the workspace holds now"),
-        workspace_manifest: ObjectHash::from("the workspace manifest"),
+        workspace_bindings: BTreeMap::new(),
         lock_closure: ObjectHash::from("the lock closure"),
         dependency_subtrees: BTreeMap::new(),
     }

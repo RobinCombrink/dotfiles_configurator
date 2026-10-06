@@ -58,7 +58,7 @@ impl Revision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fingerprint {
     pub crate_subtree: ObjectHash,
-    pub workspace_manifest: ObjectHash,
+    pub workspace_bindings: BTreeMap<String, ObjectHash>,
     pub lock_closure: ObjectHash,
     pub dependency_subtrees: BTreeMap<String, ObjectHash>,
 }
@@ -66,7 +66,7 @@ pub struct Fingerprint {
 impl Fingerprint {
     pub fn difference_from(&self, other: &Self) -> Option<String> {
         let crate_differs = self.crate_subtree != other.crate_subtree;
-        let dependencies_differ = self.workspace_manifest != other.workspace_manifest
+        let dependencies_differ = self.workspace_bindings != other.workspace_bindings
             || self.lock_closure != other.lock_closure
             || self.dependency_subtrees != other.dependency_subtrees;
 
@@ -565,7 +565,7 @@ mod tests {
     fn a_fingerprint_matching_another_reports_no_difference() {
         let fingerprint = Fingerprint {
             crate_subtree: ObjectHash::from("aaa"),
-            workspace_manifest: ObjectHash::from("bbb"),
+            workspace_bindings: BTreeMap::new(),
             lock_closure: ObjectHash::from("ccc"),
             dependency_subtrees: BTreeMap::new(),
         };
@@ -577,7 +577,7 @@ mod tests {
     fn a_fingerprint_differing_only_in_its_lock_closure_names_the_dependencies() {
         let installed = Fingerprint {
             crate_subtree: ObjectHash::from("aaa"),
-            workspace_manifest: ObjectHash::from("bbb"),
+            workspace_bindings: BTreeMap::new(),
             lock_closure: ObjectHash::from("ccc"),
             dependency_subtrees: BTreeMap::new(),
         };

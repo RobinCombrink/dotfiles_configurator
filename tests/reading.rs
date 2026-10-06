@@ -168,7 +168,7 @@ fn workspace_holding(crate_names: &[&str]) -> WorkspaceReading {
                     MemberReading {
                         desired: Fingerprint {
                             crate_subtree: ObjectHash::from(*crate_name),
-                            workspace_manifest: ObjectHash::from("the workspace manifest"),
+                            workspace_bindings: BTreeMap::new(),
                             lock_closure: ObjectHash::from("the lock closure"),
                             dependency_subtrees: BTreeMap::new(),
                         },
@@ -268,7 +268,7 @@ async fn a_member_installs_for_an_absent_or_stale_copy_of_its_own_and_a_shadow_i
         CrateName::from("behind"),
         Fingerprint {
             crate_subtree: ObjectHash::from("what behind held before"),
-            workspace_manifest: ObjectHash::from("the workspace manifest"),
+            workspace_bindings: BTreeMap::new(),
             lock_closure: ObjectHash::from("the lock closure"),
             dependency_subtrees: BTreeMap::new(),
         },

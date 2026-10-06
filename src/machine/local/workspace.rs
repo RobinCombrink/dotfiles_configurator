@@ -13,7 +13,7 @@ use {
         collections::{BTreeMap, BTreeSet},
         path::Path,
     },
-    workspace_lock::{WorkspaceLock, manifest_without_membership},
+    workspace_lock::{WorkspaceLock, inherited_by},
 };
 
 struct MemberAtRevision {
@@ -97,7 +97,6 @@ fn members_at(
     let tree = commit.tree()?;
 
     let manifest = blob_text(repository, &tree, "Cargo.toml")?;
-    let workspace_manifest = content_hash(&manifest_without_membership(&manifest)?)?;
     let lock = WorkspaceLock::read(&blob_text(repository, &tree, "Cargo.lock")?)?;
     let inherited_paths = inherited_dependency_paths(&manifest)?;
 
@@ -107,11 +106,9 @@ fn members_at(
             anyhow!("its [workspace] member \"{path}\" is not in the repository at {revision}")
         })?;
 
-        let member = read_member_manifest(&blob_text(
-            repository,
-            &tree,
-            &format!("{path}/Cargo.toml"),
-        )?)?;
+        let member_manifest = blob_text(repository, &tree, &format!("{path}/Cargo.toml"))?;
+        let workspace_binding = workspace_binding(&manifest, &path, &member_manifest)?;
+        let member = read_member_manifest(&member_manifest)?;
         let member_tree = MemberTree {
             holds_a_main_file: entry_hash(&tree, &format!("{path}/src/main.rs")).is_some(),
             inferable_binaries: inferable_binaries_in(repository, &tree, &path)?,
@@ -119,17 +116,24 @@ fn members_at(
 
         let binaries = member.binaries(&member_tree);
         if !binaries.is_empty() {
-            let dependency_subtrees =
-                dependency_subtrees(repository, &tree, &path, &member, &inherited_paths)?;
+            let mut closure = path_dependency_closure(
+                repository,
+                &tree,
+                &path,
+                &member,
+                &manifest,
+                &inherited_paths,
+            )?;
+            closure.workspace_bindings.insert(path, workspace_binding);
             let lock_closure = content_hash(lock.closure_of(member.name.as_ref())?.as_str())?;
             members.insert(
                 member.name,
                 MemberAtRevision {
                     fingerprint: Fingerprint {
                         crate_subtree,
-                        workspace_manifest: workspace_manifest.clone(),
+                        workspace_bindings: closure.workspace_bindings,
                         lock_closure,
-                        dependency_subtrees,
+                        dependency_subtrees: closure.subtrees,
                     },
                     binaries,
                 },
@@ -140,32 +144,53 @@ fn members_at(
     Ok(members)
 }
 
-fn dependency_subtrees(
+fn workspace_binding(
+    workspace_manifest: &str,
+    directory: &str,
+    member_manifest: &str,
+) -> Result<ObjectHash> {
+    let binding = inherited_by(workspace_manifest, member_manifest).with_context(|| {
+        format!("\"{directory}\" could not be read against its workspace manifest")
+    })?;
+    content_hash(&binding)
+}
+
+struct PathDependencyClosure {
+    subtrees: BTreeMap<String, ObjectHash>,
+    workspace_bindings: BTreeMap<String, ObjectHash>,
+}
+
+fn path_dependency_closure(
     repository: &Repository,
     tree: &Tree,
     member_path: &str,
     member: &MemberManifest,
+    workspace_manifest: &str,
     inherited_paths: &BTreeMap<String, String>,
-) -> Result<BTreeMap<String, ObjectHash>> {
-    let mut subtrees = BTreeMap::new();
+) -> Result<PathDependencyClosure> {
+    let mut closure = PathDependencyClosure {
+        subtrees: BTreeMap::new(),
+        workspace_bindings: BTreeMap::new(),
+    };
     let mut pending = member.directories_depended_on(member_path, inherited_paths)?;
     while let Some(directory) = pending.pop() {
-        if directory == member_path || subtrees.contains_key(&directory) {
+        if directory == member_path || closure.subtrees.contains_key(&directory) {
             continue;
         }
         let subtree = entry_hash(tree, &directory).ok_or_else(|| {
             anyhow!("\"{directory}\", which \"{member_path}\" depends on, is not in the repository")
         })?;
-        subtrees.insert(directory.clone(), subtree);
+        closure.subtrees.insert(directory.clone(), subtree);
 
-        let dependency = read_member_manifest(&blob_text(
-            repository,
-            tree,
-            &format!("{directory}/Cargo.toml"),
-        )?)?;
+        let dependency_manifest = blob_text(repository, tree, &format!("{directory}/Cargo.toml"))?;
+        closure.workspace_bindings.insert(
+            directory.clone(),
+            workspace_binding(workspace_manifest, &directory, &dependency_manifest)?,
+        );
+        let dependency = read_member_manifest(&dependency_manifest)?;
         pending.extend(dependency.directories_depended_on(&directory, inherited_paths)?);
     }
-    Ok(subtrees)
+    Ok(closure)
 }
 
 fn inferable_binaries_in(
