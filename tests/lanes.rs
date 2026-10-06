@@ -347,6 +347,18 @@ async fn winget_updates_its_sources_before_any_winget_install_begins() {
 }
 
 #[tokio::test]
+async fn winget_updates_its_sources_once_however_many_packages_it_installs() {
+    let journal = journal_of_applying(&machine_lacking_every_entry()).await;
+
+    let updates = journal
+        .work()
+        .into_iter()
+        .filter(|work| *work == "winget source update")
+        .count();
+    assert_eq!(updates, 1, "{:#?}", journal.0);
+}
+
+#[tokio::test]
 async fn the_winget_installs_run_alongside_one_another() {
     let journal = journal_of_applying(&machine_lacking_every_entry()).await;
 
