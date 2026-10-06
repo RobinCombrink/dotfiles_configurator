@@ -36,6 +36,7 @@ impl std::error::Error for LockRefusal {}
 pub enum ManifestRefusal {
     Unparsable(toml::de::Error),
     Unwritable(toml::ser::Error),
+    InheritsWhatTheWorkspaceDoesNotHold(String),
 }
 
 impl Display for ManifestRefusal {
@@ -43,6 +44,10 @@ impl Display for ManifestRefusal {
         match self {
             Self::Unparsable(error) => write!(formatter, "{error}"),
             Self::Unwritable(error) => write!(formatter, "{error}"),
+            Self::InheritsWhatTheWorkspaceDoesNotHold(key) => write!(
+                formatter,
+                "it inherits {key}, which its workspace manifest does not hold"
+            ),
         }
     }
 }
@@ -127,6 +132,121 @@ pub fn manifest_without_membership(manifest: &str) -> Result<String, ManifestRef
         workspace.remove("exclude");
     }
     toml::to_string(&document).map_err(ManifestRefusal::Unwritable)
+}
+
+const BOUND_WITHOUT_OPTING_IN: [&str; 3] = ["profile", "patch", "replace"];
+
+const DEPENDENCY_TABLES: [&str; 5] = [
+    "dependencies",
+    "dev-dependencies",
+    "dev_dependencies",
+    "build-dependencies",
+    "build_dependencies",
+];
+
+pub fn inherited_by(root_manifest: &str, member_manifest: &str) -> Result<String, ManifestRefusal> {
+    let root: toml::Table = toml::from_str(root_manifest).map_err(ManifestRefusal::Unparsable)?;
+    let member: toml::Table =
+        toml::from_str(member_manifest).map_err(ManifestRefusal::Unparsable)?;
+    let workspace = root.get("workspace").and_then(toml::Value::as_table);
+
+    let mut binding: toml::Table = BOUND_WITHOUT_OPTING_IN
+        .iter()
+        .filter_map(|section| Some(((*section).to_owned(), root.get(*section)?.clone())))
+        .collect();
+
+    let mut workspace_binding = toml::Table::new();
+    if let Some(resolver) = workspace.and_then(|workspace| workspace.get("resolver")) {
+        workspace_binding.insert("resolver".to_owned(), resolver.clone());
+    }
+
+    let package_fields = member
+        .get("package")
+        .and_then(toml::Value::as_table)
+        .into_iter()
+        .flat_map(opted_in_keys);
+    insert_unless_empty(
+        &mut workspace_binding,
+        "package",
+        held_entries(workspace, "package", package_fields)?,
+    );
+    insert_unless_empty(
+        &mut workspace_binding,
+        "dependencies",
+        held_entries(workspace, "dependencies", inherited_dependencies(&member))?,
+    );
+
+    if member.get("lints").is_some_and(opts_into_the_workspace) {
+        let lints = workspace
+            .and_then(|workspace| workspace.get("lints"))
+            .ok_or_else(|| {
+                ManifestRefusal::InheritsWhatTheWorkspaceDoesNotHold("workspace.lints".to_owned())
+            })?;
+        workspace_binding.insert("lints".to_owned(), lints.clone());
+    }
+
+    insert_unless_empty(&mut binding, "workspace", workspace_binding);
+    toml::to_string(&binding).map_err(ManifestRefusal::Unwritable)
+}
+
+fn opts_into_the_workspace(value: &toml::Value) -> bool {
+    value
+        .as_table()
+        .and_then(|table| table.get("workspace"))
+        .and_then(toml::Value::as_bool)
+        == Some(true)
+}
+
+fn opted_in_keys(table: &toml::Table) -> impl Iterator<Item = &String> {
+    table
+        .iter()
+        .filter(|(_, value)| opts_into_the_workspace(value))
+        .map(|(key, _)| key)
+}
+
+fn inherited_dependencies(member: &toml::Table) -> BTreeSet<&String> {
+    let per_target = member
+        .get("target")
+        .and_then(toml::Value::as_table)
+        .into_iter()
+        .flat_map(|targets| targets.values().filter_map(toml::Value::as_table));
+
+    std::iter::once(member)
+        .chain(per_target)
+        .flat_map(|sections| {
+            DEPENDENCY_TABLES
+                .iter()
+                .filter_map(|table| sections.get(*table).and_then(toml::Value::as_table))
+        })
+        .flat_map(opted_in_keys)
+        .collect()
+}
+
+fn held_entries<'a>(
+    workspace: Option<&toml::Table>,
+    section: &str,
+    keys: impl IntoIterator<Item = &'a String>,
+) -> Result<toml::Table, ManifestRefusal> {
+    let held = workspace
+        .and_then(|workspace| workspace.get(section))
+        .and_then(toml::Value::as_table);
+
+    keys.into_iter()
+        .map(|key| {
+            let value = held.and_then(|held| held.get(key)).ok_or_else(|| {
+                ManifestRefusal::InheritsWhatTheWorkspaceDoesNotHold(format!(
+                    "workspace.{section}.{key}"
+                ))
+            })?;
+            Ok((key.clone(), value.clone()))
+        })
+        .collect()
+}
+
+fn insert_unless_empty(table: &mut toml::Table, key: &str, value: toml::Table) {
+    if !value.is_empty() {
+        table.insert(key.to_owned(), toml::Value::Table(value));
+    }
 }
 
 #[cfg(test)]
@@ -232,6 +352,213 @@ mod tests {
         let LockRefusal::Unresolvable(_) = refusal else {
             panic!("expected the lock to be refused as unresolvable, got: {refusal}");
         };
+    }
+
+    fn alpha_inheriting(dependency_sections: &str) -> String {
+        format!("[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n\n{dependency_sections}")
+    }
+
+    fn workspace_depending_on(serde_version: &str, left_pad_version: &str) -> String {
+        format!(
+            "[workspace]\nmembers = [\"tools/alpha\"]\n\n[workspace.dependencies]\n\
+             serde = \"{serde_version}\"\nleft-pad = \"{left_pad_version}\"\n"
+        )
+    }
+
+    fn inherited_text(root_manifest: &str, member_manifest: &str) -> String {
+        match inherited_by(root_manifest, member_manifest) {
+            Ok(text) => text,
+            Err(refusal) => panic!("expected what the member inherits, got: {refusal}"),
+        }
+    }
+
+    #[test]
+    fn an_edit_to_a_workspace_dependency_a_member_does_not_inherit_leaves_what_it_inherits_unchanged()
+     {
+        let alpha = alpha_inheriting("[dependencies]\nserde = { workspace = true }\n");
+
+        assert_eq!(
+            inherited_text(&workspace_depending_on("1.0.0", "1.3.0"), &alpha),
+            inherited_text(&workspace_depending_on("1.0.0", "1.4.0"), &alpha)
+        );
+    }
+
+    fn moved_by_editing_left_pad(dependency_sections: &str) -> bool {
+        let alpha = alpha_inheriting(dependency_sections);
+
+        inherited_text(&workspace_depending_on("1.0.0", "1.3.0"), &alpha)
+            != inherited_text(&workspace_depending_on("1.0.0", "1.4.0"), &alpha)
+    }
+
+    #[test]
+    fn an_edit_to_a_workspace_dependency_a_member_inherits_changes_what_it_inherits() {
+        assert!(moved_by_editing_left_pad(
+            "[dependencies]\nleft-pad = { workspace = true }\n"
+        ));
+    }
+
+    #[test]
+    fn an_edit_to_a_workspace_dependency_a_member_inherits_only_for_its_tests_changes_what_it_inherits()
+     {
+        assert!(moved_by_editing_left_pad(
+            "[dev-dependencies]\nleft-pad = { workspace = true }\n"
+        ));
+    }
+
+    #[test]
+    fn an_edit_to_a_workspace_dependency_a_member_inherits_to_build_for_one_platform_changes_what_it_inherits()
+     {
+        assert!(moved_by_editing_left_pad(
+            "[target.'cfg(windows)'.build-dependencies]\nleft-pad = { workspace = true }\n"
+        ));
+    }
+
+    fn workspace_linting(unsafe_code: &str) -> String {
+        format!(
+            "[workspace]\nmembers = [\"tools/alpha\"]\n\n\
+             [workspace.lints.rust]\nunsafe_code = \"{unsafe_code}\"\n"
+        )
+    }
+
+    fn moved_by_editing_the_workspace_lints(member_sections: &str) -> bool {
+        let alpha = alpha_inheriting(member_sections);
+
+        inherited_text(&workspace_linting("warn"), &alpha)
+            != inherited_text(&workspace_linting("forbid"), &alpha)
+    }
+
+    #[test]
+    fn an_edit_to_the_workspace_lints_changes_what_a_member_opting_into_them_inherits() {
+        assert!(moved_by_editing_the_workspace_lints(
+            "[lints]\nworkspace = true\n"
+        ));
+    }
+
+    #[test]
+    fn an_edit_to_the_workspace_lints_leaves_what_a_member_not_opting_into_them_inherits_unchanged()
+    {
+        assert!(!moved_by_editing_the_workspace_lints(""));
+    }
+
+    fn workspace_describing_its_packages(version: &str, authors: &str) -> String {
+        format!(
+            "[workspace]\nmembers = [\"tools/alpha\"]\n\n\
+             [workspace.package]\nversion = \"{version}\"\nauthors = [\"{authors}\"]\n"
+        )
+    }
+
+    #[test]
+    fn an_edit_to_a_package_field_a_member_inherits_changes_what_it_inherits() {
+        let alpha = "[package]\nname = \"alpha\"\nversion.workspace = true\n";
+
+        assert_ne!(
+            inherited_text(&workspace_describing_its_packages("0.1.0", "Alice"), alpha),
+            inherited_text(&workspace_describing_its_packages("0.2.0", "Alice"), alpha)
+        );
+    }
+
+    #[test]
+    fn an_edit_to_a_package_field_a_member_does_not_inherit_leaves_what_it_inherits_unchanged() {
+        let alpha = "[package]\nname = \"alpha\"\nversion.workspace = true\n";
+
+        assert_eq!(
+            inherited_text(&workspace_describing_its_packages("0.1.0", "Alice"), alpha),
+            inherited_text(&workspace_describing_its_packages("0.1.0", "Bob"), alpha)
+        );
+    }
+
+    fn moved_for_a_member_inheriting_nothing(before: &str, after: &str) -> bool {
+        let alpha = alpha_inheriting("");
+        let workspace = "[workspace]\nmembers = [\"tools/alpha\"]\n";
+
+        inherited_text(&format!("{workspace}{before}"), &alpha)
+            != inherited_text(&format!("{workspace}{after}"), &alpha)
+    }
+
+    #[test]
+    fn an_edit_to_a_profile_changes_what_every_member_inherits() {
+        assert!(moved_for_a_member_inheriting_nothing(
+            "\n[profile.release]\nlto = false\n",
+            "\n[profile.release]\nlto = true\n"
+        ));
+    }
+
+    #[test]
+    fn an_edit_to_the_resolver_changes_what_every_member_inherits() {
+        assert!(moved_for_a_member_inheriting_nothing(
+            "resolver = \"2\"\n",
+            "resolver = \"3\"\n"
+        ));
+    }
+
+    #[test]
+    fn an_edit_to_a_patch_changes_what_every_member_inherits() {
+        assert!(moved_for_a_member_inheriting_nothing(
+            "\n[patch.crates-io]\nleft-pad = { path = \"vendor/left-pad\" }\n",
+            "\n[patch.crates-io]\nleft-pad = { path = \"vendor/left-pad-fork\" }\n"
+        ));
+    }
+
+    #[test]
+    fn an_edit_to_a_replacement_changes_what_every_member_inherits() {
+        assert!(moved_for_a_member_inheriting_nothing(
+            "\n[replace]\n\"left-pad:1.3.0\" = { path = \"vendor/left-pad\" }\n",
+            "\n[replace]\n\"left-pad:1.3.0\" = { path = \"vendor/left-pad-fork\" }\n"
+        ));
+    }
+
+    #[test]
+    fn a_change_of_membership_leaves_what_a_member_inherits_unchanged() {
+        assert!(!moved_for_a_member_inheriting_nothing(
+            "",
+            "exclude = [\"tools/scratch\"]\ndefault-members = [\"tools/alpha\"]\n"
+        ));
+    }
+
+    #[test]
+    fn what_a_member_inherits_reads_the_same_whatever_order_the_workspace_is_written_in() {
+        let alpha = alpha_inheriting(
+            "[dependencies]\nserde = { workspace = true }\nleft-pad = { workspace = true }\n",
+        );
+        let one_order = "[profile.release]\nlto = true\nstrip = true\n\n\
+            [workspace]\nresolver = \"2\"\nmembers = [\"tools/alpha\"]\n\n\
+            [workspace.dependencies]\nserde = \"1\"\nleft-pad = \"1\"\n";
+        let another_order = "[workspace]\nmembers = [\"tools/alpha\"]\nresolver = \"2\"\n\n\
+            [workspace.dependencies]\nleft-pad = \"1\"\nserde = \"1\"\n\n\
+            [profile.release]\nstrip = true\nlto = true\n";
+
+        assert_eq!(
+            inherited_text(one_order, &alpha),
+            inherited_text(another_order, &alpha)
+        );
+    }
+
+    fn refusal_naming(root_manifest: &str, member_manifest: &str) -> String {
+        match inherited_by(root_manifest, member_manifest) {
+            Ok(text) => panic!("expected a refusal, got: {text}"),
+            Err(ManifestRefusal::InheritsWhatTheWorkspaceDoesNotHold(key)) => key,
+            Err(refusal) => panic!("expected a refusal naming what is missing, got: {refusal}"),
+        }
+    }
+
+    #[test]
+    fn a_member_inheriting_a_dependency_the_workspace_does_not_hold_is_refused_naming_it() {
+        let alpha = alpha_inheriting("[dependencies]\nghost = { workspace = true }\n");
+
+        assert_eq!(
+            refusal_naming(&workspace_depending_on("1.0.0", "1.3.0"), &alpha),
+            "workspace.dependencies.ghost"
+        );
+    }
+
+    #[test]
+    fn a_member_inheriting_lints_from_a_workspace_holding_none_is_refused_naming_them() {
+        let alpha = alpha_inheriting("[lints]\nworkspace = true\n");
+
+        assert_eq!(
+            refusal_naming(&workspace_depending_on("1.0.0", "1.3.0"), &alpha),
+            "workspace.lints"
+        );
     }
 
     #[test]
