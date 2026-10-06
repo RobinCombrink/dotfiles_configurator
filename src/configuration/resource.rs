@@ -4,8 +4,9 @@ use {
             context::MachineClass,
             estate::Estates,
             names::{
-                ApplicationName, BinaryName, CrateName, CrateVersion, GitHubAccount, McpServerName,
-                PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, UvToolVersion,
+                ApplicationName, BinaryName, CrateName, CrateVersion, DartPackageName, GitCommit,
+                GitHubAccount, GitReferenceName, GitRemoteUrl, McpServerName, PythonInterpreter,
+                RepositoryName, RepositoryOwner, RepositorySubdirectory, UvToolName, UvToolVersion,
                 VariableName, VariableValue, WingetPackageId, WingetVersion,
             },
             package_currency::PackageCurrency,
@@ -552,6 +553,98 @@ pub struct UvToolPackage {
                        newest version that resolves."
     )]
     pub version: PackageCurrency<UvToolVersion>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(
+    description = "A Dart command-line package dart install builds from a directory of a git \
+                   repository into a bundle of its own."
+)]
+pub struct DartPackage {
+    pub name: DartPackageName,
+    pub source: DartSource,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum DartSource {
+    Git {
+        url: GitRemoteUrl,
+        path: RepositorySubdirectory,
+        #[serde(rename = "ref")]
+        reference: DartReference,
+    },
+}
+
+/// What a Dart package tracks: a branch or tag whose commit moves, or exactly one commit.
+///
+/// ```
+/// # use dotfiles_configurator::configuration::{DartReference, GitCommit, GitReferenceName};
+/// let pinned: DartReference =
+///     serde_json::from_str(r#""3bd27908c1a2b3c4d5e6f708192a3b4c5d6e7f80""#).unwrap();
+/// let tracking: DartReference = serde_json::from_str(r#""main""#).unwrap();
+///
+/// assert_eq!(
+///     pinned,
+///     DartReference::Exactly(
+///         GitCommit::try_from("3bd27908c1a2b3c4d5e6f708192a3b4c5d6e7f80").unwrap()
+///     )
+/// );
+/// assert_eq!(tracking, DartReference::Tracking(GitReferenceName::from("main")));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DartReference {
+    Tracking(GitReferenceName),
+    Exactly(GitCommit),
+}
+
+impl Display for DartReference {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DartReference::Tracking(name) => Display::fmt(name, formatter),
+            DartReference::Exactly(commit) => Display::fmt(commit, formatter),
+        }
+    }
+}
+
+impl From<&str> for DartReference {
+    fn from(spelled: &str) -> Self {
+        match GitCommit::try_from(spelled) {
+            Ok(commit) => DartReference::Exactly(commit),
+            Err(_) => DartReference::Tracking(GitReferenceName::from(spelled)),
+        }
+    }
+}
+
+impl Serialize for DartReference {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for DartReference {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let spelled = String::deserialize(deserializer)?;
+        Ok(DartReference::from(spelled.as_str()))
+    }
+}
+
+impl JsonSchema for DartReference {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "DartReference".into()
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        concat!(module_path!(), "::DartReference").into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "description": "A branch or tag the package is kept at the head of, or a full \
+                            40-character commit hash it is kept at exactly.",
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

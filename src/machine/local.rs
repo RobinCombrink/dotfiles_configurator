@@ -39,6 +39,7 @@ use {
     url::Url,
 };
 
+pub mod dart;
 pub mod elevation;
 pub mod environment;
 #[cfg(target_family = "windows")]

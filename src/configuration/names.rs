@@ -229,6 +229,77 @@ name!(
 );
 
 name!(
+    #[schemars(
+        description = "The name a Dart package declares in its pubspec, which dart install also \
+                       names its bundle by."
+    )]
+    DartPackageName
+);
+
+name!(
+    #[schemars(
+        description = "The URL of a git repository, compared as written with the URL pub \
+                       records for it."
+    )]
+    GitRemoteUrl
+);
+
+name!(
+    #[schemars(
+        description = "The directory within a git repository a package sits in, written with \
+                       forward slashes as pub records it."
+    )]
+    RepositorySubdirectory
+);
+
+name!(GitReferenceName);
+
+/// A commit named by its full hash, which every reader of it compares in lowercase.
+///
+/// ```
+/// # use dotfiles_configurator::configuration::GitCommit;
+/// let commit = GitCommit::try_from("3BD27908C1A2B3C4D5E6F708192A3B4C5D6E7F80").unwrap();
+///
+/// assert_eq!(commit.to_string(), "3bd27908c1a2b3c4d5e6f708192a3b4c5d6e7f80");
+/// assert!(GitCommit::try_from("3bd27908").is_err());
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct GitCommit(String);
+
+const COMMIT_HASH_LENGTH: usize = 40;
+
+impl TryFrom<&str> for GitCommit {
+    type Error = String;
+
+    fn try_from(spelled: &str) -> Result<Self, Self::Error> {
+        let is_a_full_hash = spelled.len() == COMMIT_HASH_LENGTH
+            && spelled
+                .bytes()
+                .all(|character| character.is_ascii_hexdigit());
+        match is_a_full_hash {
+            true => Ok(Self(spelled.to_ascii_lowercase())),
+            false => Err(format!(
+                "{spelled:?} is not a commit; a commit is named by its full {COMMIT_HASH_LENGTH}-\
+                 character hash"
+            )),
+        }
+    }
+}
+
+impl Display for GitCommit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for GitCommit {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+name!(
     #[schemars(description = "The name Claude Code holds an MCP server under.")]
     McpServerName
 );

@@ -21,6 +21,7 @@ use {
 };
 
 pub mod crate_index_reading;
+pub mod dart_reading;
 pub mod elevation;
 pub mod environment_reading;
 pub mod invocation;
