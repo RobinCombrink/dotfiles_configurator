@@ -19,10 +19,10 @@ use {
             ConfigurationName, Context, CrateName, CrateVersion, DeclaredNotice,
             EnvironmentVariable, EstateName, EstateOwner, Estates, GitHubAccount, Installer,
             MachineClass, MachineManifest, McpScope, McpServerName, Migration, Notice,
-            OLDEST_READABLE_GENERATION, Package, PresenceCheck, PythonInterpreter, RecordedRun,
-            RecordedSource, Registration, RepositoryClone, Resource, SearchPathDirectory,
-            SearchPathEntry, Shell, Symlink, Tool, UvToolPackage, UvToolVersion, Variable,
-            VariableName, VariableValue,
+            OLDEST_READABLE_GENERATION, Package, PackageCurrency, PresenceCheck, PythonInterpreter,
+            RecordedRun, RecordedSource, Registration, RepositoryClone, Resource,
+            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
+            UvToolVersion, Variable, VariableName, VariableValue,
         },
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -1419,7 +1419,7 @@ fn declare_cargo_package(world: &mut MachineWorld, crate_name: String) {
             dotfiles_configurator::configuration::CargoPackage {
                 crate_name: CrateName::from(crate_name.as_str()),
                 source: dotfiles_configurator::configuration::CargoSource::Registry {
-                    version: None,
+                    version: PackageCurrency::Latest,
                 },
             },
         ),
@@ -1433,7 +1433,9 @@ fn declare_pinned_cargo_package(world: &mut MachineWorld, crate_name: String, ve
             dotfiles_configurator::configuration::CargoPackage {
                 crate_name: CrateName::from(crate_name.as_str()),
                 source: dotfiles_configurator::configuration::CargoSource::Registry {
-                    version: Some(CrateVersion::try_from(version.as_str()).expect("a version")),
+                    version: PackageCurrency::Exactly(
+                        CrateVersion::try_from(version.as_str()).expect("a version"),
+                    ),
                 },
             },
         ),

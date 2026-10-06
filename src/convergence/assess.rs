@@ -3,9 +3,9 @@ use {
         configuration::{
             Application, ApplicationSource, BinaryName, CargoPackage, CargoSource, ClaudeMcpServer,
             Command, CrateName, CrateVersion, EnvironmentVariable, GitHubAccount, GitHubRepository,
-            Installer, MachineManifest, Package, Registration, ReleasedBinary, RenderedManifest,
-            RepositoryClone, Requirement, Resource, SearchPathEntry, Symlink, UvToolName,
-            UvToolPackage, UvToolVersion, Variable, WingetPackage,
+            Installer, MachineManifest, Package, PackageCurrency, Registration, ReleasedBinary,
+            RenderedManifest, RepositoryClone, Requirement, Resource, SearchPathEntry, Symlink,
+            UvToolName, UvToolPackage, UvToolVersion, Variable, WingetPackage,
         },
         convergence::{
             Assessment, Impediment, ReadSource, SourceReading, UnreadableReason,
@@ -704,12 +704,15 @@ fn assess_declared_cargo_package(
     };
 
     match (&package.source, &actual) {
-        (CargoSource::Registry { version: None }, InstalledFrom::Registry { .. }) => {
-            Assessment::Converged
-        }
         (
             CargoSource::Registry {
-                version: Some(declared),
+                version: PackageCurrency::Latest,
+            },
+            InstalledFrom::Registry { .. },
+        ) => Assessment::Converged,
+        (
+            CargoSource::Registry {
+                version: PackageCurrency::Exactly(declared),
             },
             InstalledFrom::Registry { version: installed },
         ) => assess_pinned_version(declared, installed),

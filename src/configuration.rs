@@ -18,6 +18,8 @@ pub mod identity;
 pub mod migration;
 #[path = "configuration/names.rs"]
 pub mod names;
+#[path = "configuration/package_currency.rs"]
+pub mod package_currency;
 #[path = "configuration/path_folding.rs"]
 pub(crate) mod path_folding;
 #[path = "configuration/presence_check.rs"]
@@ -44,6 +46,7 @@ pub use {
         McpServerName, PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName,
         UvToolVersion, VariableName, VariableValue, WingetPackageId,
     },
+    package_currency::PackageCurrency,
     presence_check::{Answer, Candidates, PresenceCheck},
     requirement::{Requirement, Tool},
     resource::{

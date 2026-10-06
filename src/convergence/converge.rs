@@ -316,7 +316,7 @@ async fn converge_cargo_package(
 ) -> Result<Placement> {
     let source = match &package.source {
         CargoSource::Registry { version } => ResolvedCargoSource::Registry {
-            version: version.clone(),
+            version: version.exact().cloned(),
         },
         CargoSource::Path { path } => ResolvedCargoSource::Path { path: path.clone() },
         CargoSource::Workspace { repository } => {

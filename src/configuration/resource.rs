@@ -8,6 +8,7 @@ use {
                 PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, VariableName,
                 VariableValue, WingetPackageId,
             },
+            package_currency::PackageCurrency,
             presence_check::PresenceCheck,
             requirement::{Requirement, Tool},
         },
@@ -550,12 +551,12 @@ pub struct CargoPackage {
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum CargoSource {
     Registry {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "PackageCurrency::is_latest")]
         #[schemars(
             description = "The one version the crate is installed at. Absent, Cargo installs \
                            whichever version is newest when the crate is first installed."
         )]
-        version: Option<CrateVersion>,
+        version: PackageCurrency<CrateVersion>,
     },
     Path {
         path: PathBuf,
@@ -887,7 +888,7 @@ mod tests {
         ))
     }
 
-    fn pinned_version(resource: Resource) -> Option<CrateVersion> {
+    fn pinned_version(resource: Resource) -> PackageCurrency<CrateVersion> {
         let Resource::Package(Package::Cargo(CargoPackage {
             source: CargoSource::Registry { version },
             ..
@@ -899,15 +900,18 @@ mod tests {
     }
 
     #[test]
-    fn a_registry_crate_declaring_no_version_is_installed_unpinned() {
-        assert_eq!(pinned_version(registry_crate("").unwrap()), None);
+    fn a_registry_crate_declaring_no_version_is_kept_at_the_latest() {
+        assert_eq!(
+            pinned_version(registry_crate("").unwrap()),
+            PackageCurrency::Latest
+        );
     }
 
     #[test]
     fn a_registry_crate_declaring_an_exact_version_is_pinned_to_it() {
         assert_eq!(
             pinned_version(registry_crate(r#", "version": "27.1.0""#).unwrap()),
-            Some(CrateVersion::try_from("27.1.0").unwrap())
+            PackageCurrency::Exactly(CrateVersion::try_from("27.1.0").unwrap())
         );
     }
 

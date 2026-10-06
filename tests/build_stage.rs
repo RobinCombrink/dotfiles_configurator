@@ -9,8 +9,8 @@ use {
     declarations::{Reporting, declaring, dotfiles_repository},
     dotfiles_configurator::{
         configuration::{
-            BinaryName, CargoPackage, CargoSource, CargoWorkspace, CrateName, Package, Resource,
-            WingetPackage,
+            BinaryName, CargoPackage, CargoSource, CargoWorkspace, CrateName, Package,
+            PackageCurrency, Resource, WingetPackage,
         },
         confirmation::Operator,
         convergence::{ApplyOutcome, Enactment, apply::apply},
@@ -184,7 +184,9 @@ async fn a_crate_from_outside_any_workspace_installs_with_no_build_or_reaping_be
     )]);
     let ripgrep = Resource::Package(Package::Cargo(CargoPackage {
         crate_name: CrateName::from("ripgrep"),
-        source: CargoSource::Registry { version: None },
+        source: CargoSource::Registry {
+            version: PackageCurrency::Latest,
+        },
     }));
 
     applying(vec![ripgrep], &machine).await;

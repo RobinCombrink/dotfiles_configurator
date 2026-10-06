@@ -635,7 +635,9 @@ mod tests {
             Lane::Cargo,
             &Resource::Package(Package::Cargo(CargoPackage {
                 crate_name: CrateName::from("stop-gate"),
-                source: CargoSource::Registry { version: None },
+                source: CargoSource::Registry {
+                    version: crate::configuration::PackageCurrency::Latest,
+                },
             })),
         )
     }
@@ -766,7 +768,9 @@ mod tests {
             Lane::Cargo,
             &Resource::Package(Package::Cargo(CargoPackage {
                 crate_name: CrateName::from("ripgrep"),
-                source: CargoSource::Registry { version: None },
+                source: CargoSource::Registry {
+                    version: crate::configuration::PackageCurrency::Latest,
+                },
             })),
         )
     }

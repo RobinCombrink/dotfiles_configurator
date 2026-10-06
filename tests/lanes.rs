@@ -14,9 +14,9 @@ use {
         configuration::{
             Application, ApplicationName, ApplicationSource, BinaryName, CargoPackage, CargoSource,
             CargoWorkspace, ClaudeMcpServer, Command, CrateName, EnvironmentVariable, Installer,
-            McpScope, McpServerName, Package, PresenceCheck, Registration, ReleasedBinary,
-            Resource, Shell, Symlink, UvToolPackage, UvToolVersion, Variable, VariableName,
-            VariableValue, WingetPackage,
+            McpScope, McpServerName, Package, PackageCurrency, PresenceCheck, Registration,
+            ReleasedBinary, Resource, Shell, Symlink, UvToolPackage, UvToolVersion, Variable,
+            VariableName, VariableValue, WingetPackage,
         },
         confirmation::Operator,
         convergence::{ApplyOutcome, Enactment, apply::apply},
@@ -71,7 +71,9 @@ fn one_entry_of_every_kind() -> Vec<Resource> {
         Resource::Repository(named_repository(NOTES_REPOSITORY).into()),
         Resource::Package(Package::Cargo(CargoPackage {
             crate_name: CrateName::from("ripgrep"),
-            source: CargoSource::Registry { version: None },
+            source: CargoSource::Registry {
+                version: PackageCurrency::Latest,
+            },
         })),
         winget("Microsoft.PowerShell"),
         winget("Git.Git"),

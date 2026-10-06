@@ -13,8 +13,8 @@ use {
     dotfiles_configurator::{
         configuration::{
             Application, BinaryName, CargoPackage, CargoSource, CargoWorkspace, CrateName,
-            GitHubAccount, GitHubRepository, Package, RepositoryName, RepositoryOwner, Resource,
-            UvToolPackage, WingetPackage,
+            GitHubAccount, GitHubRepository, Package, PackageCurrency, RepositoryName,
+            RepositoryOwner, Resource, UvToolPackage, WingetPackage,
         },
         convergence::plan,
         desired_state::DesiredState,
@@ -43,7 +43,9 @@ fn winget_package(id: &str) -> Resource {
 fn cargo_package(crate_name: &str) -> Resource {
     Resource::Package(Package::Cargo(CargoPackage {
         crate_name: crate_name.into(),
-        source: CargoSource::Registry { version: None },
+        source: CargoSource::Registry {
+            version: PackageCurrency::Latest,
+        },
     }))
 }
 

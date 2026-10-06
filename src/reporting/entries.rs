@@ -709,7 +709,9 @@ mod tests {
     fn cargo_package(name: &str) -> Resource {
         Resource::Package(Package::Cargo(CargoPackage {
             crate_name: CrateName::from(name),
-            source: CargoSource::Registry { version: None },
+            source: CargoSource::Registry {
+                version: crate::configuration::PackageCurrency::Latest,
+            },
         }))
     }
 
