@@ -37,6 +37,7 @@ pub enum ManifestRefusal {
     Unparsable(toml::de::Error),
     Unwritable(toml::ser::Error),
     InheritsWhatTheWorkspaceDoesNotHold(String),
+    UnrecognisedEdition(String),
 }
 
 impl Display for ManifestRefusal {
@@ -47,6 +48,10 @@ impl Display for ManifestRefusal {
             Self::InheritsWhatTheWorkspaceDoesNotHold(key) => write!(
                 formatter,
                 "it inherits {key}, which its workspace manifest does not hold"
+            ),
+            Self::UnrecognisedEdition(edition) => write!(
+                formatter,
+                "its root package names the edition {edition}, which implies no known resolver"
             ),
         }
     }
@@ -146,9 +151,7 @@ pub fn inherited_by(root_manifest: &str, member_manifest: &str) -> Result<String
         .collect();
 
     let mut workspace_binding = toml::Table::new();
-    if let Some(resolver) = workspace.and_then(|workspace| workspace.get("resolver")) {
-        workspace_binding.insert("resolver".to_owned(), resolver.clone());
-    }
+    workspace_binding.insert("resolver".to_owned(), effective_resolver(&root, workspace)?);
 
     let package_fields = member
         .get("package")
@@ -177,6 +180,43 @@ pub fn inherited_by(root_manifest: &str, member_manifest: &str) -> Result<String
 
     insert_unless_empty(&mut binding, "workspace", workspace_binding);
     toml::to_string(&binding).map_err(ManifestRefusal::Unwritable)
+}
+
+fn effective_resolver(
+    root: &toml::Table,
+    workspace: Option<&toml::Table>,
+) -> Result<toml::Value, ManifestRefusal> {
+    let root_package = root.get("package").and_then(toml::Value::as_table);
+    let declared = workspace
+        .and_then(|workspace| workspace.get("resolver"))
+        .or_else(|| root_package.and_then(|package| package.get("resolver")));
+    if let Some(resolver) = declared {
+        return Ok(resolver.clone());
+    }
+
+    let edition = match root_package.and_then(|package| package.get("edition")) {
+        None => None,
+        Some(edition) if opts_into_the_workspace(edition) => Some(
+            workspace
+                .and_then(|workspace| workspace.get("package"))
+                .and_then(|package| package.get("edition"))
+                .ok_or_else(|| {
+                    ManifestRefusal::InheritsWhatTheWorkspaceDoesNotHold(
+                        "workspace.package.edition".to_owned(),
+                    )
+                })?,
+        ),
+        Some(edition) => Some(edition),
+    };
+    let resolver = match edition.map(|edition| (edition, edition.as_str())) {
+        None | Some((_, Some("2015" | "2018"))) => "1",
+        Some((_, Some("2021"))) => "2",
+        Some((_, Some("2024"))) => "3",
+        Some((edition, _)) => {
+            return Err(ManifestRefusal::UnrecognisedEdition(edition.to_string()));
+        }
+    };
+    Ok(toml::Value::String(resolver.to_owned()))
 }
 
 fn opts_into_the_workspace(value: &toml::Value) -> bool {
@@ -479,6 +519,83 @@ mod tests {
             "resolver = \"2\"\n",
             "resolver = \"3\"\n"
         ));
+    }
+
+    fn workspace_with_a_root_package(package_lines: &str, workspace_lines: &str) -> String {
+        format!(
+            "[package]\nname = \"root\"\n{package_lines}\n\
+             [workspace]\nmembers = [\"tools/alpha\"]\n{workspace_lines}"
+        )
+    }
+
+    #[test]
+    fn an_edit_to_the_root_package_edition_changes_what_every_member_inherits_when_the_workspace_names_no_resolver()
+     {
+        let alpha = alpha_inheriting("");
+
+        assert_ne!(
+            inherited_text(
+                &workspace_with_a_root_package("edition = \"2018\"\n", ""),
+                &alpha
+            ),
+            inherited_text(
+                &workspace_with_a_root_package("edition = \"2021\"\n", ""),
+                &alpha
+            )
+        );
+    }
+
+    #[test]
+    fn an_edit_to_the_root_package_edition_leaves_what_every_member_inherits_unchanged_when_the_workspace_names_a_resolver()
+     {
+        let alpha = alpha_inheriting("");
+
+        assert_eq!(
+            inherited_text(
+                &workspace_with_a_root_package("edition = \"2021\"\n", "resolver = \"2\"\n"),
+                &alpha
+            ),
+            inherited_text(
+                &workspace_with_a_root_package("edition = \"2024\"\n", "resolver = \"2\"\n"),
+                &alpha
+            )
+        );
+    }
+
+    #[test]
+    fn every_spelling_yielding_the_same_resolver_gives_a_member_the_same_inheritance() {
+        let alpha = alpha_inheriting("");
+        let spellings = [
+            "[workspace]\nmembers = [\"tools/alpha\"]\nresolver = \"2\"\n".to_owned(),
+            workspace_with_a_root_package("edition = \"2015\"\nresolver = \"2\"\n", ""),
+            workspace_with_a_root_package("edition = \"2021\"\n", ""),
+            workspace_with_a_root_package(
+                "edition.workspace = true\n",
+                "\n[workspace.package]\nedition = \"2021\"\n",
+            ),
+        ];
+
+        let texts: BTreeSet<String> = spellings
+            .iter()
+            .map(|root| inherited_text(root, &alpha))
+            .collect();
+
+        assert_eq!(texts.len(), 1, "expected one text, got: {texts:?}");
+    }
+
+    #[test]
+    fn a_root_package_naming_an_edition_that_implies_no_known_resolver_is_refused() {
+        let root = workspace_with_a_root_package("edition = \"2077\"\n", "");
+
+        let refusal = match inherited_by(&root, &alpha_inheriting("")) {
+            Ok(text) => panic!("expected a refusal, got: {text}"),
+            Err(refusal) => refusal,
+        };
+
+        let ManifestRefusal::UnrecognisedEdition(edition) = refusal else {
+            panic!("expected the refusal to name the edition, got: {refusal}");
+        };
+        assert_eq!(edition, "\"2077\"");
     }
 
     #[test]

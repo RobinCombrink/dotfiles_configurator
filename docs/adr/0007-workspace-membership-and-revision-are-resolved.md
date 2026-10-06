@@ -68,12 +68,15 @@ kind, and the registry covers the ordinary way to install someone else's crate.
   over dotfiles' 85 lockfile-changing commits from 2026-08-29 to 2026-09-29, hashing the whole
   lockfile would have rebuilt 2,263 crates and the closure rebuilds 268.
 - **The workspace manifest is fingerprinted by the part that binds the crate**: what every member
-  is bound by without opting in — `resolver`, profiles, `[patch]` and `[replace]` — and only what
-  the crate opts into: each `[workspace.package]` field it marks `.workspace = true`, each
-  `[workspace.dependencies]` entry it inherits in any dependency table, and `[workspace.lints]`
-  where it sets `lints.workspace = true`. Membership, and whatever only another crate inherits,
-  say nothing about how this one is built. The part is read as TOML and written back with its
-  keys sorted, so the order a manifest is written in never moves the fingerprint. None of
+  is bound by without opting in — the resolver cargo applies, profiles, `[patch]` and `[replace]`
+  — and only what the crate opts into: each `[workspace.package]` field it marks
+  `.workspace = true`, each `[workspace.dependencies]` entry it inherits in any dependency table,
+  and `[workspace.lints]` where it sets `lints.workspace = true`. The resolver is
+  `workspace.resolver`, else the root package's `resolver`, else the one its edition implies,
+  written as that one resolved value whichever spelling yields it. Membership, and whatever only
+  another crate inherits, say nothing about how this one is built. The part is read as TOML and
+  written back with its keys sorted, so the order a manifest is written in never moves the
+  fingerprint. None of
   dotfiles' 21 root-manifest commits in the same month changed more than membership.
 - **A workspace that cannot be read refuses the whole run.** Cloned but with no tracked remote
   branch, an unparseable manifest, a member named by a glob, a member inheriting what the
