@@ -41,7 +41,7 @@ use {
                 Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
-        planned_run::PlannedRun,
+        planned_run::{PlannedRun, ResolvingRun},
         reporting::{RunKind, RunReport},
         version::Version,
     },
@@ -2472,12 +2472,13 @@ fn the_machine_holds_a_manifest_recording_no_run(world: &mut MachineWorld) {
 }
 
 impl MachineWorld {
-    fn resolve_the_plan(
+    fn resolve_the_run(
         &mut self,
+        run: ResolvingRun,
         named_machine: Option<MachineClass>,
         named_sources: Vec<ConfigurationSource>,
     ) {
-        match PlannedRun::resolved(named_machine, named_sources, &self.machine) {
+        match PlannedRun::resolved(run, named_machine, named_sources, &self.machine) {
             Ok(planned) => self.planned_run = Some(planned),
             Err(refusal) => self.loading_error = Some(refusal.to_string()),
         }
@@ -2486,31 +2487,36 @@ impl MachineWorld {
 
 #[when(expr = "Alice plans naming neither a machine nor a source")]
 fn alice_plans_naming_nothing(world: &mut MachineWorld) {
-    world.resolve_the_plan(None, Vec::new());
+    world.resolve_the_run(ResolvingRun::Plan, None, Vec::new());
+}
+
+#[when(expr = "Alice applies naming neither a machine nor a source")]
+fn alice_applies_naming_nothing(world: &mut MachineWorld) {
+    world.resolve_the_run(ResolvingRun::Apply, None, Vec::new());
 }
 
 #[when(expr = "Alice plans a personal machine naming no source")]
 fn alice_plans_a_personal_machine_naming_no_source(world: &mut MachineWorld) {
-    world.resolve_the_plan(Some(MachineClass::Personal), Vec::new());
+    world.resolve_the_run(ResolvingRun::Plan, Some(MachineClass::Personal), Vec::new());
 }
 
 #[when(expr = "Alice plans naming only the source {string}")]
 fn alice_plans_naming_only_a_source(world: &mut MachineWorld, source: String) {
     let named = ConfigurationSource::of_recorded(&RecordedSource::from(source))
         .expect("a source written in full");
-    world.resolve_the_plan(None, vec![named]);
+    world.resolve_the_run(ResolvingRun::Plan, None, vec![named]);
 }
 
-#[then(expr = "planning is refused")]
+#[then(expr = "planning/applying is refused")]
 fn planning_is_refused(world: &mut MachineWorld) {
     assert_eq!(world.planned_run, None);
     assert!(
         world.loading_error.is_some(),
-        "planning was not refused, and no plan was resolved either"
+        "the run was not refused, and none was resolved either"
     );
 }
 
-#[then(expr = "the plan is for a {word} machine reading {string}")]
+#[then(expr = "the plan/apply is for a {word} machine reading {string}")]
 fn the_plan_is_for(world: &mut MachineWorld, class: String, source: String) {
     let expected = PlannedRun {
         machine: MachineClass::from_str(&class).expect("a machine class"),

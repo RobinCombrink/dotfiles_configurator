@@ -16,12 +16,39 @@ pub struct PlannedRun {
     pub sources: Vec<ConfigurationSource>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvingRun {
+    Plan,
+    Apply,
+}
+
+impl ResolvingRun {
+    fn naming_no_machine(self) -> &'static str {
+        match self {
+            ResolvingRun::Plan => "A plan naming no machine plans",
+            ResolvingRun::Apply => "An apply naming no machine applies",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnrecordedRun {
-    NoManifest(PathBuf),
-    ManifestUnreadable { manifest: PathBuf, cause: String },
-    NoRecordedRun { manifest: PathBuf, cause: String },
-    SourceUnreadable { manifest: PathBuf, cause: String },
+    NoManifest {
+        run: ResolvingRun,
+        manifest: PathBuf,
+    },
+    ManifestUnreadable {
+        manifest: PathBuf,
+        cause: String,
+    },
+    NoRecordedRun {
+        manifest: PathBuf,
+        cause: String,
+    },
+    SourceUnreadable {
+        manifest: PathBuf,
+        cause: String,
+    },
 }
 
 const NAMING_THE_MACHINE: &str =
@@ -30,10 +57,11 @@ const NAMING_THE_MACHINE: &str =
 impl Display for UnrecordedRun {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            UnrecordedRun::NoManifest(manifest) => write!(
+            UnrecordedRun::NoManifest { run, manifest } => write!(
                 formatter,
-                "A plan naming no machine plans what the last apply recorded, and this machine \
-                 holds no manifest at {}; {NAMING_THE_MACHINE}",
+                "{} what the last apply recorded, and this machine holds no manifest at {}; \
+                 {NAMING_THE_MACHINE}",
+                run.naming_no_machine(),
                 manifest.display()
             ),
             UnrecordedRun::ManifestUnreadable { manifest, cause } => write!(
@@ -60,6 +88,7 @@ impl std::error::Error for UnrecordedRun {}
 
 impl PlannedRun {
     pub fn resolved(
+        run: ResolvingRun,
         named_machine: Option<MachineClass>,
         named_sources: Vec<ConfigurationSource>,
         machine: &impl ReadMachine,
@@ -75,7 +104,7 @@ impl PlannedRun {
             });
         }
 
-        let recorded = Self::recorded_on(machine)?;
+        let recorded = Self::recorded_on(run, machine)?;
         match named_sources.is_empty() {
             true => Ok(recorded),
             false => Ok(Self {
@@ -85,11 +114,11 @@ impl PlannedRun {
         }
     }
 
-    fn recorded_on(machine: &impl ReadMachine) -> Result<Self, UnrecordedRun> {
+    fn recorded_on(run: ResolvingRun, machine: &impl ReadMachine) -> Result<Self, UnrecordedRun> {
         let manifest = MachineManifest::path_within(machine.home_directory());
         let document = match machine.text_file_at(&manifest) {
             Ok(Some(document)) => document,
-            Ok(None) => return Err(UnrecordedRun::NoManifest(manifest)),
+            Ok(None) => return Err(UnrecordedRun::NoManifest { run, manifest }),
             Err(error) => {
                 return Err(UnrecordedRun::ManifestUnreadable {
                     manifest,

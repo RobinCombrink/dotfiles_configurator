@@ -437,3 +437,14 @@ Feature: Applying a change set
     And Alice names her configurations relative to the checkout she runs in
     When Alice applies her configurations for a personal machine
     Then the link ".gitconfig" resolves to "gitconfig/.gitconfig" in Alice's checkout
+
+  Scenario: An apply naming no machine applies the class and the sources the last apply recorded
+    Given Alice's last apply was for a work machine reading "github:Employer/dotfiles/config"
+    When Alice applies naming neither a machine nor a source
+    Then the apply is for a work machine reading "github:Employer/dotfiles/config"
+
+  Scenario: An apply naming no machine on a machine no apply has recorded is refused as an apply
+    Given Alice's machine holds no manifest
+    When Alice applies naming neither a machine nor a source
+    Then applying is refused
+    And the refusal mentions "An apply naming no machine"

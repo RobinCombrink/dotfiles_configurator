@@ -20,7 +20,7 @@ use {
             ElevatedBatch, HeldReason, Placement, ReadMachine,
             local::{LocalMachine, elevation},
         },
-        planned_run::PlannedRun,
+        planned_run::{PlannedRun, ResolvingRun},
         reporting::{RunKind, RunReport},
         version::Version,
     },
@@ -200,7 +200,12 @@ async fn run(task: Task) -> Result<Ending> {
         Task::Plan(arguments) => {
             let report = RunReport::open(RunKind::Plan)?;
             let machine = LocalMachine::new(&report, &github)?;
-            let planned = PlannedRun::resolved(arguments.machine, arguments.sources, &machine)?;
+            let planned = PlannedRun::resolved(
+                ResolvingRun::Plan,
+                arguments.machine,
+                arguments.sources,
+                &machine,
+            )?;
             let desired_state = load_desired_state(
                 &planned.sources,
                 planned.machine,
