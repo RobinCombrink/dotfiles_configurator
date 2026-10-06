@@ -1476,6 +1476,14 @@ fn workspace_holds_crate(world: &mut MachineWorld, crate_name: String) {
     );
 }
 
+#[given(expr = "the crate {string} declares the binary {string}")]
+fn crate_declares_binary(world: &mut MachineWorld, crate_name: String, binary_name: String) {
+    world
+        .member(&crate_name)
+        .binaries
+        .insert(BinaryName::from(binary_name.as_str()));
+}
+
 fn built_from(world: &mut MachineWorld, crate_name: &str, revision: &str) {
     let binaries = world.member(crate_name).binaries.clone();
     for binary in binaries {

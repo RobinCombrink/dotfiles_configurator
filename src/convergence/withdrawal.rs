@@ -125,16 +125,22 @@ pub fn withdrawals<'reading>(
     workspaces: impl IntoIterator<Item = (&'reading GitHubRepository, &'reading WorkspaceReading)>,
     records: &[InstallRecord],
 ) -> Vec<Withdrawal> {
-    let nothing_declared = BTreeSet::new();
+    let workspaces: Vec<_> = workspaces.into_iter().collect();
+    let declared: BTreeSet<&BinaryName> = workspaces
+        .iter()
+        .flat_map(|(_, reading)| reading.members.values())
+        .flat_map(|member| &member.binaries)
+        .collect();
+
     let mut withdrawals = Vec::new();
-    for (repository, reading) in workspaces {
+    for (repository, reading) in &workspaces {
         for record in records {
             if !record.was_installed_from(repository) {
                 continue;
             }
-            let (reason, declared) = match reading.members.get(&record.crate_name) {
-                Some(member) => (RemovalReason::BinaryDropped, &member.binaries),
-                None => (RemovalReason::MemberGone, &nothing_declared),
+            let reason = match reading.members.contains_key(&record.crate_name) {
+                true => RemovalReason::BinaryDropped,
+                false => RemovalReason::MemberGone,
             };
 
             withdrawals.extend(
@@ -142,7 +148,7 @@ pub fn withdrawals<'reading>(
                     .binary_files
                     .iter()
                     .map(|file| record.binary_named(file))
-                    .filter(|binary| !declared.contains(binary))
+                    .filter(|binary| !declared.contains(&binary))
                     .map(|binary| Withdrawal::Remove {
                         record: record.clone(),
                         binary,
@@ -427,6 +433,47 @@ mod tests {
             reasons(&withdrawals),
             BTreeSet::from([RemovalReason::MemberGone])
         );
+    }
+
+    #[test]
+    fn a_binary_a_member_of_another_declared_workspace_declares_is_never_withdrawn() {
+        let records = install_records(&listing_of_two_disjoint_records_of_one_member());
+        let tools = GitHubRepository {
+            owner: RepositoryOwner::from("Alice"),
+            repository: RepositoryName::from("tools"),
+        };
+
+        let withdrawals = withdrawals(
+            [
+                (
+                    &dotfiles(),
+                    &workspace_declaring("stop-gate", &["stop-gate"]),
+                ),
+                (&tools, &workspace_declaring("session-tools", &["reach"])),
+            ],
+            &records,
+        );
+
+        assert_eq!(
+            withdrawn_binaries(&withdrawals),
+            vec!["session-census", "sweep", "tool-use-statistics"]
+        );
+    }
+
+    #[test]
+    fn a_binary_a_member_stops_declaring_that_another_member_declares_is_never_withdrawn() {
+        let records = install_records(&listing_of_two_disjoint_records_of_one_member());
+        let mut workspace = workspace_declaring(
+            "session-mining",
+            &["sweep", "tool-use-statistics", "session-census"],
+        );
+        workspace
+            .members
+            .extend(workspace_declaring("session-tools", &["reach"]).members);
+
+        let withdrawals = withdrawals([(&dotfiles(), &workspace)], &records);
+
+        assert!(withdrawals.is_empty(), "{withdrawals:?}");
     }
 
     #[test]

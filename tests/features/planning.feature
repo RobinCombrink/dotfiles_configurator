@@ -409,6 +409,16 @@ Feature: Planning what a machine needs
     Then the change set reports 2 binaries to remove
     And the change set mentions "reach, whose crate session-mining is no longer a member of the workspace"
 
+  Scenario: A binary of a crate gone from the workspace that a member now declares is not planned for removal
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "session-tools"
+    And the crate "session-tools" declares the binary "sweep"
+    And cargo holds the binary "sweep" of "session-mining" installed from the dotfiles repository
+    And cargo installed "session-tools" from the content the workspace holds now
+    When Alice plans
+    Then the change set reports 0 binaries to remove
+
   Scenario: A workspace crate is blocked while cargo's bin directory is not on the search path
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
