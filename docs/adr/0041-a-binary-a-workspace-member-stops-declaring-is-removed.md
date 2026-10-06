@@ -6,13 +6,17 @@ status: accepted
 
 `plan` names, and `apply` removes, a binary that a cargo install record of a declared workspace
 member names but that the member's manifest, at the revision the workspace is read at, no longer
-declares. It is the configurator's first uninstall, and the exception ADR 0005 left room for:
+declares, and every binary of a record whose crate is no longer a member. It is the configurator's first uninstall, and the exception ADR 0005 left room for:
 ownership the machine itself reveals, without a receipt of past runs.
 
-Ownership is derived, never declared. A record belongs to a member when it carries the member's
-name and was installed from git out of the repository the workspace is cloned from, whichever
-account fetched it. The binaries to remove are the record's binaries less the ones the member
-declares now, resolved as ADR 0021 resolves them. Nothing else in cargo's bin directory is named
+Ownership is derived, never declared. A record belongs to a workspace when it was installed from
+git out of the repository the workspace is cloned from, whichever account fetched it. Where the
+record's crate is a member now, the binaries to remove are the record's binaries less the ones the
+member declares, resolved as ADR 0021 resolves them; where it is not, which includes a crate still
+in the workspace that builds no binary, since ADR 0007 counts only the crates that build one as
+members, every binary the record holds is removed. Either way, no binary is removed while a
+current member of any declared workspace declares one of that name, because that member's
+`cargo install --force` has already taken it over. Nothing else in cargo's bin directory is named
 or touched, and a crate from the registry is out of scope: its record carries no revision, so
 two records of one package at two revisions cannot arise for it.
 
@@ -35,7 +39,7 @@ not refused, and ADR 0022 displaces only on a refusal.
 
 ## Considered options
 
-- **Leave it where it is**, as ADR 0021 did. Rejected: a binary a member no longer declares stays
+- **Leave it where it is.** Rejected: a binary a member no longer declares stays
   on the search path under a name nothing builds any more, and a record whose files are already
   gone can be repaired only by a person who knows the placeholder trick.
 - **Edit cargo's install record.** Rejected: it is cargo's state in a format cargo owns, and
@@ -47,8 +51,10 @@ not refused, and ADR 0022 displaces only on a refusal.
 - **A removal is a change of its own kind**, beside the change a resource makes, with its own
   count. A pending removal leaves the plan unconverged and the exit status reflects it, as any
   change does.
-- **ADR 0021's consequence that a binary a member stops declaring is left where it is no longer
-  holds.** A member withdrawn from the workspace altogether is still left alone, since nothing
-  then declares it.
+- **The plan says why each binary goes**: one its crate no longer declares, or one whose crate
+  is no longer a member of the workspace. A workspace withdrawn from the configuration altogether
+  is still left alone, per ADR 0005, since nothing then reads the repository its records name.
+- **A crate merged into another keeps the binaries the surviving member declares**, since the
+  survivor's install has taken them over and removing them would uninstall it.
 - **A record whose files are all gone is still removable**, and removing its last binary
   removes the record.

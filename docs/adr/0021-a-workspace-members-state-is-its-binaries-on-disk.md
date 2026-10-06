@@ -1,5 +1,5 @@
 ---
-status: accepted, its drift rule superseded by [ADR 0040](0040-a-workspace-members-currency-is-read-from-the-build-its-binaries-report.md) and its consequence for a binary a member stops declaring by [ADR 0041](0041-a-binary-a-workspace-member-stops-declaring-is-removed.md)
+status: accepted, its drift rule superseded by [ADR 0040](0040-a-workspace-members-currency-is-read-from-the-build-its-binaries-report.md)
 ---
 
 # A workspace member's actual state is its binaries on disk
@@ -60,8 +60,8 @@ resources of their own.
   declared thing true rather than an undeclared thing false, so ADR 0005 is untouched.
 - **Repair rebuilds every binary the member declares**, because the reinstall is per crate. A
   member missing one of seven pays for all seven.
-- **A binary that a member stops declaring is left where it is.** Withdrawal ends the tool's
-  interest without removing anything, per ADR 0005, so a renamed binary leaves its predecessor on
-  disk and undeclared.
+- **A binary that a member stops declaring is removed**, as is every binary of a crate that stops
+  being a member, as ADR 0041 records, so a renamed binary does not leave its predecessor on disk
+  and undeclared.
 - **A member whose manifest cannot be read still refuses the whole run**, as ADR 0007 records.
   Resolving names rather than a boolean adds no new way for that reading to fail.

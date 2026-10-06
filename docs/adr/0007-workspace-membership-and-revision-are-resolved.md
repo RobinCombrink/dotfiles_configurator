@@ -51,8 +51,10 @@ kind, and the registry covers the ordinary way to install someone else's crate.
   than converged.
 - **Membership is resolved, so it requires the repository.** On a machine that has not cloned it
   yet, the crates are blocked until it is, and readiness already expresses this.
-- Adding a crate to the workspace declares it; removing one withdraws it. Withdrawal ends the
-  tool's interest without uninstalling anything, per ADR 0005.
+- Adding a crate to the workspace declares it; removing one, or leaving it in the workspace
+  building no binary, uninstalls every binary cargo installed for it from the repository, as ADR
+  0041 records. Withdrawing the workspace itself from the configuration uninstalls nothing, per
+  ADR 0005.
 - The fingerprint covers the crate's own subtree, the crate's closure in the lockfile, and the
   subtree of every crate it reaches by a path dependency — normal, build and target-specific,
   directly or through another, including one inherited from `[workspace.dependencies]` — along
