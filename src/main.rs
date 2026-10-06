@@ -3,9 +3,7 @@ use {
     clap::{Args, Parser, Subcommand},
     dotfiles_configurator::{
         configuration::{GitHubAccount, MachineClass},
-        configuration_source::{
-            AbsoluteDirectory, ConfigurationSource, DEFAULT_SOURCE, LoadFailure, load_desired_state,
-        },
+        configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
         convergence::{
             apply::{Enactment, apply},
@@ -25,13 +23,7 @@ use {
         version::Version,
     },
     log::{LevelFilter, trace},
-    std::{
-        ffi::OsString,
-        fmt::Display,
-        io::Write,
-        path::{Path, PathBuf},
-        process::ExitCode,
-    },
+    std::{ffi::OsString, fmt::Display, io::Write, path::PathBuf, process::ExitCode},
 };
 
 #[cfg(test)]
@@ -50,36 +42,14 @@ fn source_named_in_the_working_directory(value: &str) -> Result<ConfigurationSou
 }
 
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
-struct ConfigurationArguments {
-    #[arg(
-        short = 'm',
-        long = "machine",
-        value_name = "MACHINE",
-        help = "Which class of machine this is — `personal` or `work`. A configuration applies \
-                when it declares this class, or `everywhere`."
-    )]
-    machine: MachineClass,
-    #[arg(
-        short = 's',
-        long = "source",
-        value_name = "SOURCE",
-        default_value = DEFAULT_SOURCE,
-        value_parser = source_named_in_the_working_directory,
-        help = "Where to read configurations from, as `local:<directory>` or \
-                `github:<owner>/<repo>/<directory>`. Repeatable; read in the order given."
-    )]
-    sources: Vec<ConfigurationSource>,
-}
-
-#[derive(Args, Debug, Clone, PartialEq, Eq)]
-struct PlanArguments {
+struct RunArguments {
     #[arg(
         short = 'm',
         long = "machine",
         value_name = "MACHINE",
         help = "Which class of machine this is — `personal` or `work`. A configuration applies \
                 when it declares this class, or `everywhere`. Named nowhere, the class the last \
-                apply recorded in the machine manifest is planned."
+                apply recorded in the machine manifest is used."
     )]
     machine: Option<MachineClass>,
     #[arg(
@@ -98,7 +68,7 @@ struct PlanArguments {
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 struct ApplyArguments {
     #[command(flatten)]
-    configuration: ConfigurationArguments,
+    run: RunArguments,
     #[arg(
         long = "yes",
         num_args = 0,
@@ -144,7 +114,7 @@ enum Task {
     #[command(
         about = "Report the change set that would close every drift, without touching the machine"
     )]
-    Plan(PlanArguments),
+    Plan(RunArguments),
     #[command(about = "Show the change set, ask once, then enact it until a pass changes nothing")]
     Apply(ApplyArguments),
     #[command(
@@ -227,10 +197,16 @@ async fn run(task: Task) -> Result<Ending> {
                 }
             };
             let machine = LocalMachine::new(&report, &github)?;
+            let applied = PlannedRun::resolved(
+                ResolvingRun::Apply,
+                arguments.run.machine,
+                arguments.run.sources.clone(),
+                &machine,
+            )?;
             #[cfg(target_family = "windows")]
             machine.note_the_privileges_it_holds();
             let desired_state = match load_after_updating_if_it_must(
-                &arguments, &machine, &report, &github, &operator,
+                &arguments, &applied, &machine, &report, &github, &operator,
             )
             .await?
             {
@@ -320,30 +296,24 @@ fn hand_over_to_the_installed_build(
         .ok_or_else(|| anyhow!("{} ended without an exit status", installed.display()))
 }
 
-async fn load(
-    arguments: &ConfigurationArguments,
-    github: &GitHubAccess,
-    repositories_root: &Path,
-) -> Result<DesiredState, LoadFailure> {
-    load_desired_state(
-        &arguments.sources,
-        arguments.machine,
-        repositories_root,
-        github,
-    )
-    .await
-}
-
 // ADR 0019
 async fn load_after_updating_if_it_must(
     arguments: &ApplyArguments,
+    applied: &PlannedRun,
     machine: &LocalMachine<'_, '_>,
     report: &RunReport,
     github: &GitHubAccess,
     operator: &impl Confirm,
 ) -> Result<Loaded> {
     let repositories_root = repositories_root()?;
-    let refusal = match load(&arguments.configuration, github, &repositories_root).await {
+    let loaded = load_desired_state(
+        &applied.sources,
+        applied.machine,
+        &repositories_root,
+        github,
+    )
+    .await;
+    let refusal = match loaded {
         Ok(desired_state) => return Ok(Loaded::Read(desired_state)),
         Err(refusal) => refusal,
     };
@@ -483,20 +453,11 @@ fn setup_logging(level_filter: LevelFilter) {
 mod tests {
     use super::*;
 
-    fn parse(arguments: &[&str]) -> ConfigurationArguments {
-        let parsed = Arguments::try_parse_from(
-            std::iter::once("dotfiles_configurator").chain(arguments.iter().copied()),
-        )
-        .unwrap();
-        match parsed.task {
-            Task::Apply(apply) => apply.configuration,
-            Task::Plan(_) | Task::ElevatedBatch(_) => {
-                panic!("the arguments named something other than apply")
-            }
-        }
+    fn parse(arguments: &[&str]) -> RunArguments {
+        apply_arguments(arguments).run
     }
 
-    fn plan_arguments(arguments: &[&str]) -> PlanArguments {
+    fn plan_arguments(arguments: &[&str]) -> RunArguments {
         let parsed = Arguments::try_parse_from(
             std::iter::once("dotfiles_configurator").chain(arguments.iter().copied()),
         )
@@ -543,14 +504,6 @@ mod tests {
         assert_eq!(
             sources_from(&["apply", "--machine", "personal", "--source", "local:config"]),
             vec![under_the_working_directory("config")]
-        );
-    }
-
-    #[test]
-    fn an_apply_naming_no_source_reads_the_default_one() {
-        assert_eq!(
-            sources_from(&["apply", "--machine", "personal"]),
-            vec![ConfigurationSource::named(DEFAULT_SOURCE, &working_directory()).unwrap()]
         );
     }
 
@@ -609,20 +562,26 @@ mod tests {
     fn the_machine_named_decides_which_configurations_apply() {
         assert_eq!(
             parse(&["apply", "--machine", "work"]).machine,
-            MachineClass::Work
+            Some(MachineClass::Work)
         );
     }
 
     #[test]
-    fn an_apply_naming_no_machine_is_refused() {
-        assert!(Arguments::try_parse_from(["dotfiles_configurator", "apply"]).is_err());
+    fn an_apply_naming_neither_a_machine_nor_a_source_leaves_both_to_the_record() {
+        assert_eq!(
+            parse(&["apply"]),
+            RunArguments {
+                machine: None,
+                sources: Vec::new(),
+            }
+        );
     }
 
     #[test]
     fn a_plan_naming_neither_a_machine_nor_a_source_leaves_both_to_the_record() {
         assert_eq!(
             plan_arguments(&["plan"]),
-            PlanArguments {
+            RunArguments {
                 machine: None,
                 sources: Vec::new(),
             }
@@ -671,9 +630,14 @@ mod tests {
             parsed_successor_of(&["apply", "--machine", "work", "--source", "local:config"]);
 
         assert_eq!(
-            successor.configuration,
+            successor.run,
             parse(&["apply", "--machine", "work", "--source", "local:config"])
         );
+    }
+
+    #[test]
+    fn the_build_that_replaced_an_apply_naming_nothing_leaves_its_run_to_the_same_record() {
+        assert_eq!(parsed_successor_of(&["apply"]).run, parse(&["apply"]));
     }
 
     #[test]

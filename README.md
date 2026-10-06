@@ -30,7 +30,7 @@ Alongside them, **notices** carry messages about things the tool cannot do. They
 
 Requires the GitHub CLI (`gh`) to be installed and authenticated wherever a run reaches GitHub: reading configurations from a `github:` source, cloning a repository, or installing an application from a release. Credentials are obtained at the moment they are needed, so planning against a `local:` source asks for none.
 
-Every apply names which class of machine it is on — `personal` or `work` — and records it in the machine manifest with the sources it read. A plan naming no machine plans what the last apply recorded, and refuses on a machine no apply has recorded; it never assumes a class. Each configuration declares which machines it is for — `everywhere`, `personal` or `work` — so where they are read from cannot change which of them apply.
+Every apply records the class of machine it ran for — `personal` or `work` — in the machine manifest with the sources it read. A plan or an apply naming no machine runs what the last apply recorded, and refuses on a machine no apply has recorded; it never assumes a class. Each configuration declares which machines it is for — `everywhere`, `personal` or `work` — so where they are read from cannot change which of them apply.
 
 ```bash
 # Report what would change on a personal machine, without touching it
@@ -38,6 +38,9 @@ cargo run -- plan --machine personal
 
 # Report what the last apply on this machine would change now
 cargo run -- plan
+
+# Apply again what the last apply on this machine ran with
+cargo run -- apply
 
 # Read a local directory of configurations instead of the default remote
 cargo run -- plan --machine personal --source local:config
