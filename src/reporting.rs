@@ -761,6 +761,40 @@ mod tests {
         assert!(watched);
     }
 
+    fn ripgrep() -> Entry {
+        Entry::new(
+            Lane::Cargo,
+            &Resource::Package(Package::Cargo(CargoPackage {
+                crate_name: CrateName::from("ripgrep"),
+                source: CargoSource::Registry { version: None },
+            })),
+        )
+    }
+
+    #[tokio::test]
+    async fn of_two_running_entries_only_the_one_that_went_quiet_is_named_as_silent() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = quiet_report(directory.path(), RunKind::Apply);
+        report.converging(&stop_gate(), async {}).await;
+        report.converging(&ripgrep(), async {}).await;
+        let long_ago = Instant::now()
+            .checked_sub(SILENCE_THRESHOLD + Duration::from_secs(1))
+            .expect("the machine has been up longer than the silence threshold");
+        for activity in report.shared.listening().values_mut() {
+            activity.last_spoke = long_ago;
+        }
+
+        report.child_line(Some(&stop_gate()), "Compiling stop-gate v0.1.0");
+        let silent: Vec<String> = report
+            .shared
+            .fallen_silent()
+            .into_iter()
+            .map(|(label, _)| label)
+            .collect();
+
+        assert_eq!(silent, vec![ripgrep().to_string()]);
+    }
+
     #[tokio::test]
     async fn output_captured_once_an_entry_resumes_reaches_the_log_prefixed_with_it() {
         let directory = tempfile::tempdir().unwrap();
