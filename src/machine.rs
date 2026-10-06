@@ -2,10 +2,11 @@ use {
     crate::{
         TOOL_DIRECTORY,
         configuration::{
-            Answer, CrateName, CrateVersion, GitHubAccount, GitHubRepository, McpServerName,
-            PresenceCheck, Shell, Tool, VariableName, VariableValue, path_folding,
+            Answer, CrateName, CrateVersion, DartPackage, GitHubAccount, GitHubRepository,
+            McpServerName, PresenceCheck, Shell, Tool, VariableName, VariableValue, path_folding,
         },
         machine::{
+            dart_reading::{DartLocations, DartReading},
             environment_reading::SearchPathReading,
             release_reading::ReleaseReading,
             workspace_reading::{Fingerprint, Revision, WorkspaceReading},
@@ -259,6 +260,16 @@ pub trait ReadMachine {
             .join(TOOL_DIRECTORY)
             .join("build-cache")
     }
+
+    fn dart_locations(&self) -> DartLocations {
+        let local_application_data = self.home_directory().join("AppData").join("Local");
+        DartLocations {
+            install_directory: local_application_data.join("Dart").join("install"),
+            pub_cache_directory: local_application_data.join("Pub").join("Cache"),
+        }
+    }
+
+    fn read_dart_package(&self, package: &DartPackage) -> Result<DartReading>;
 
     // ADR 0022
     fn displacement_directories(&self) -> Vec<PathBuf>;

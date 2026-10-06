@@ -16,12 +16,12 @@ use {
         configuration::{
             Application, ApplicationName, ApplicationSource, AssetPattern, BUILD_GENERATION,
             BinaryName, Candidates, CargoWorkspace, ClaudeMcpServer, CloneDepth, Configuration,
-            ConfigurationName, Context, CrateName, CrateVersion, DeclaredNotice,
-            EnvironmentVariable, EstateName, EstateOwner, Estates, GitHubAccount, Installer,
-            MachineClass, MachineManifest, McpScope, McpServerName, Migration, Notice,
-            OLDEST_READABLE_GENERATION, Package, PackageCurrency, PresenceCheck, PythonInterpreter,
-            RecordedRun, RecordedSource, Registration, RepositoryClone, Resource,
-            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
+            ConfigurationName, Context, CrateName, CrateVersion, DartPackage, DartReference,
+            DartSource, DeclaredNotice, EnvironmentVariable, EstateName, EstateOwner, Estates,
+            GitHubAccount, Installer, MachineClass, MachineManifest, McpScope, McpServerName,
+            Migration, Notice, OLDEST_READABLE_GENERATION, Package, PackageCurrency, PresenceCheck,
+            PythonInterpreter, RecordedRun, RecordedSource, Registration, RepositoryClone,
+            Resource, SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
             UvToolVersion, Variable, VariableName, VariableValue, WingetVersion,
         },
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
@@ -36,6 +36,7 @@ use {
         github::GitHubAccess,
         machine::{
             CommandOutput, Exited, ReadInvocation, ReadMachine, WriteMachine,
+            dart_reading::DartReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
                 Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
@@ -994,6 +995,85 @@ fn winget_is_absent(world: &mut MachineWorld) {
 #[given(expr = "git is absent from Alice's machine")]
 fn git_is_absent(world: &mut MachineWorld) {
     world.machine.remove_tool(Tool::Git);
+}
+
+#[given(expr = "dart is absent from Alice's machine")]
+fn dart_is_absent(world: &mut MachineWorld) {
+    world.machine.remove_tool(Tool::Dart);
+}
+
+#[given(expr = "Alice declares the dart package {string} from {string} of {string} at {string}")]
+fn declare_dart_package(
+    world: &mut MachineWorld,
+    name: String,
+    path: String,
+    url: String,
+    reference: String,
+) {
+    world
+        .resources
+        .push(Resource::Package(Package::Dart(DartPackage {
+            name: name.into(),
+            source: DartSource::Git {
+                url: url.into(),
+                path: path.into(),
+                reference: DartReference::from(reference.as_str()),
+            },
+        })));
+}
+
+#[given(expr = "the directory dart install writes to is on Alice's search path")]
+fn dart_binaries_are_on_the_search_path(world: &mut MachineWorld) {
+    let directory = world.machine.dart_locations().binaries();
+    world.machine.hold_user_search_path_entry(directory);
+}
+
+#[given(expr = "dart holds {string} as its reference names it on Alice's machine")]
+fn dart_holds_package_currently(world: &mut MachineWorld, name: String) {
+    world
+        .machine
+        .hold_dart_package_reading(&name.into(), Ok(DartReading::Current));
+}
+
+#[given(expr = "origin cannot be asked about {string} from Alice's machine")]
+fn dart_origin_cannot_be_asked(world: &mut MachineWorld, name: String) {
+    world.machine.hold_dart_package_reading(
+        &name.into(),
+        Err("git ls-remote exited with 128: Authentication failed".to_owned()),
+    );
+}
+
+#[given(expr = "dart cannot replace {string} while Alice's machine is running it")]
+fn dart_cannot_replace_a_running_package(world: &mut MachineWorld, name: String) {
+    world.machine.refuse_dart_install(
+        &name.into(),
+        CommandOutput {
+            exited: Exited::Code(1),
+            standard_output: String::new(),
+            standard_error: "The process cannot access the file because it is being used by \
+                             another process.\n"
+                .to_owned(),
+        },
+    );
+}
+
+#[then(expr = "dart holds {string} as its reference names it on Alice's machine")]
+fn dart_now_holds_package_currently(world: &mut MachineWorld, name: String) {
+    let declared = world
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let Resource::Package(Package::Dart(package)) = resource else {
+                return None;
+            };
+            (package.name.as_ref() == name).then(|| package.clone())
+        })
+        .expect("a scenario declares the dart package it asks about");
+
+    assert_eq!(
+        world.machine.read_dart_package(&declared).unwrap(),
+        DartReading::Current
+    );
 }
 
 #[given(expr = "wsl is absent from Alice's machine")]

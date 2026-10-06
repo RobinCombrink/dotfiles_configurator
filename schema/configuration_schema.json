@@ -353,6 +353,58 @@
       "type": "string",
       "pattern": "^\\d+\\.\\d+\\.\\d+([-+].+)?$"
     },
+    "DartPackage": {
+      "description": "A Dart command-line package dart install builds from a directory of a git repository into a bundle of its own.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/DartPackageName"
+        },
+        "source": {
+          "$ref": "#/$defs/DartSource"
+        }
+      },
+      "required": [
+        "name",
+        "source"
+      ]
+    },
+    "DartPackageName": {
+      "description": "The name a Dart package declares in its pubspec, which dart install also names its bundle by.",
+      "type": "string"
+    },
+    "DartReference": {
+      "description": "A branch or tag the package is kept at the head of, or a full 40-character commit hash it is kept at exactly.",
+      "type": "string"
+    },
+    "DartSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "$ref": "#/$defs/RepositorySubdirectory"
+            },
+            "ref": {
+              "$ref": "#/$defs/DartReference"
+            },
+            "source": {
+              "type": "string",
+              "const": "git"
+            },
+            "url": {
+              "$ref": "#/$defs/GitRemoteUrl"
+            }
+          },
+          "required": [
+            "source",
+            "url",
+            "path",
+            "ref"
+          ]
+        }
+      ]
+    },
     "DeclaredNotice": {
       "description": "A message for a person about something the tool cannot do. Not a resource — it never\nconverges, is reported by every change set, and is never applied.",
       "type": "string"
@@ -438,6 +490,10 @@
         "repository"
       ]
     },
+    "GitRemoteUrl": {
+      "description": "The URL of a git repository, compared as written with the URL pub records for it.",
+      "type": "string"
+    },
     "Installer": {
       "type": "object",
       "properties": {
@@ -507,6 +563,19 @@
             }
           },
           "$ref": "#/$defs/UvToolPackage",
+          "required": [
+            "manager"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "manager": {
+              "type": "string",
+              "const": "dart"
+            }
+          },
+          "$ref": "#/$defs/DartPackage",
           "required": [
             "manager"
           ]
@@ -667,6 +736,10 @@
     },
     "RepositoryOwner": {
       "description": "The account a repository belongs to on GitHub.",
+      "type": "string"
+    },
+    "RepositorySubdirectory": {
+      "description": "The directory within a git repository a package sits in, written with forward slashes as pub records it.",
       "type": "string"
     },
     "Resource": {

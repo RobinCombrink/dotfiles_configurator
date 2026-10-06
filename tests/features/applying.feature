@@ -221,6 +221,21 @@ Feature: Applying a change set
     Then 1 resource is reported as failed
     And 0 resources are reported as held
 
+  Scenario: A dart package dart has not installed is installed from its repository directory
+    Given Alice declares the dart package "coderabbit_findings" from "tools/coderabbit-findings" of "https://github.com/Alice/dotfiles.git" at "main"
+    And the directory dart install writes to is on Alice's search path
+    When Alice applies
+    Then dart holds "coderabbit_findings" as its reference names it on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A dart package whose install is refused while it runs is held rather than failed
+    Given Alice declares the dart package "coderabbit_findings" from "tools/coderabbit-findings" of "https://github.com/Alice/dotfiles.git" at "main"
+    And the directory dart install writes to is on Alice's search path
+    And dart cannot replace "coderabbit_findings" while Alice's machine is running it
+    When Alice applies
+    Then 1 resource is reported as held
+    And 0 resources are reported as failed
+
   Scenario: A resource that cannot be read leaves the machine reported as unconverged
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget is absent from Alice's machine

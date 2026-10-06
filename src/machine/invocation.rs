@@ -1,9 +1,9 @@
 use {
     crate::{
         configuration::{
-            BinaryName, ClaudeMcpServer, CrateName, CrateVersion, GitHubAccount, GitHubRepository,
-            McpServerName, PythonInterpreter, Tool, UvToolName, UvToolVersion, WingetPackageId,
-            WingetVersion,
+            BinaryName, ClaudeMcpServer, CrateName, CrateVersion, DartPackage, DartSource,
+            GitHubAccount, GitHubRepository, McpServerName, PythonInterpreter, Tool, UvToolName,
+            UvToolVersion, WingetPackageId, WingetVersion,
         },
         machine::{
             CommandOutput, Exited, HeldReason, Replacement,
@@ -114,11 +114,18 @@ pub enum WriteInvocation {
     UpgradeUvTool {
         name: UvToolName,
     },
+    InstallDartPackage {
+        package: Box<DartPackage>,
+    },
     // ADR 0041
     UninstallCargoBinary {
         specification: String,
         binary: BinaryName,
     },
+}
+
+pub fn without_terminal_prompts() -> Vec<(String, String)> {
+    vec![("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned())]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,7 +344,20 @@ impl WriteInvocation {
             WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => {
                 Tool::Uv
             }
+            WriteInvocation::InstallDartPackage { .. } => Tool::Dart,
             WriteInvocation::UninstallCargoBinary { .. } => Tool::Cargo,
+        }
+    }
+
+    pub fn environment(&self) -> Vec<(String, String)> {
+        match self {
+            WriteInvocation::InstallDartPackage { .. } => without_terminal_prompts(),
+            WriteInvocation::UpdateWingetSources
+            | WriteInvocation::InstallWingetPackage { .. }
+            | WriteInvocation::UpgradeWingetPackage { .. }
+            | WriteInvocation::InstallUvTool { .. }
+            | WriteInvocation::UpgradeUvTool { .. }
+            | WriteInvocation::UninstallCargoBinary { .. } => Vec::new(),
         }
     }
 
@@ -395,6 +415,21 @@ impl WriteInvocation {
             WriteInvocation::UpgradeUvTool { name } => {
                 vec!["tool".to_owned(), "upgrade".to_owned(), name.to_string()]
             }
+            WriteInvocation::InstallDartPackage { package } => {
+                let DartSource::Git {
+                    url,
+                    path,
+                    reference,
+                } = &package.source;
+                vec![
+                    "install".to_owned(),
+                    format!(
+                        "{}@{{git: {{url: {url}, path: {path}, ref: {reference}}}}}",
+                        package.name
+                    ),
+                    "--overwrite".to_owned(),
+                ]
+            }
             WriteInvocation::UninstallCargoBinary {
                 specification,
                 binary,
@@ -423,7 +458,8 @@ impl WriteInvocation {
             | WriteInvocation::InstallWingetPackage { .. }
             | WriteInvocation::UpgradeWingetPackage { .. }
             | WriteInvocation::InstallUvTool { .. }
-            | WriteInvocation::UpgradeUvTool { .. } => false,
+            | WriteInvocation::UpgradeUvTool { .. }
+            | WriteInvocation::InstallDartPackage { .. } => false,
         }
     }
 
@@ -436,6 +472,7 @@ impl WriteInvocation {
             WriteInvocation::UpdateWingetSources
             | WriteInvocation::InstallWingetPackage { .. }
             | WriteInvocation::UpgradeWingetPackage { .. }
+            | WriteInvocation::InstallDartPackage { .. }
             | WriteInvocation::UninstallCargoBinary { .. } => None,
             WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => output
                 .standard_error
@@ -448,6 +485,13 @@ impl WriteInvocation {
         match self {
             WriteInvocation::InstallWingetPackage { .. }
             | WriteInvocation::UpgradeWingetPackage { .. } => winget_held_by(output),
+            WriteInvocation::InstallDartPackage { .. } => {
+                [&output.standard_error, &output.standard_output]
+                    .into_iter()
+                    .flat_map(|said| said.lines())
+                    .find(|line| line.contains(FILE_IN_USE))
+                    .map(|line| HeldReason::ReportedInUse(line.trim().to_owned()))
+            }
             WriteInvocation::UpdateWingetSources
             | WriteInvocation::InstallUvTool { .. }
             | WriteInvocation::UpgradeUvTool { .. }
@@ -469,6 +513,10 @@ const WINGET_PACKAGE_IN_USE: [i32; 2] =
     [0x8A15_0101_u32.cast_signed(), 0x8A15_0111_u32.cast_signed()];
 
 const WINGET_REFUSES_TO_UPGRADE: &str = "cannot be upgraded using winget";
+
+// 2026-09-25: Windows words a sharing violation "The process cannot access the file because it is
+// being used by another process", as uv 0.10.12 relayed it on Windows 11.
+const FILE_IN_USE: &str = "being used by another process";
 
 fn winget_held_by(output: &CommandOutput) -> Option<HeldReason> {
     let said = format!("{}\n{}", output.standard_output, output.standard_error);
@@ -1308,6 +1356,77 @@ mod tests {
                 "--disable-interactivity",
                 "--accept-package-agreements",
             ]
+        );
+    }
+
+    fn installing_coderabbit_findings(reference: &str) -> WriteInvocation {
+        WriteInvocation::InstallDartPackage {
+            package: Box::new(DartPackage {
+                name: crate::configuration::DartPackageName::from("coderabbit_findings"),
+                source: DartSource::Git {
+                    url: crate::configuration::GitRemoteUrl::from(
+                        "https://github.com/Alice/dotfiles.git",
+                    ),
+                    path: crate::configuration::RepositorySubdirectory::from(
+                        "tools/coderabbit-findings",
+                    ),
+                    reference: crate::configuration::DartReference::from(reference),
+                },
+            }),
+        }
+    }
+
+    #[test]
+    fn a_dart_package_is_installed_from_its_repository_directory_and_reference_over_any_earlier() {
+        assert_eq!(
+            installing_coderabbit_findings("main").arguments(),
+            vec![
+                "install",
+                "coderabbit_findings@{git: {url: https://github.com/Alice/dotfiles.git, path: \
+                 tools/coderabbit-findings, ref: main}}",
+                "--overwrite",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_dart_install_never_waits_on_a_credential_prompt() {
+        assert_eq!(
+            installing_coderabbit_findings("main").environment(),
+            vec![("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned())]
+        );
+    }
+
+    #[test]
+    fn a_dart_install_refused_by_a_running_executable_is_held() {
+        let output = CommandOutput {
+            exited: Exited::Code(1),
+            standard_output: String::new(),
+            standard_error: "PathAccessException: Cannot delete file, path = 'C:\\bundle\\\
+                             coderabbit_findings.exe' (OS Error: The process cannot access the \
+                             file because it is being used by another process., errno = 32)\n"
+                .to_owned(),
+        };
+
+        let held = installing_coderabbit_findings("main").held_by(&output);
+
+        let Some(HeldReason::ReportedInUse(reported)) = held else {
+            panic!("expected the install to be held as in use, got {held:?}");
+        };
+        assert!(reported.contains("coderabbit_findings.exe"), "{reported}");
+    }
+
+    #[test]
+    fn a_dart_install_failing_for_any_other_reason_is_not_held() {
+        let output = CommandOutput {
+            exited: Exited::Code(65),
+            standard_output: String::new(),
+            standard_error: "Could not find a file named \"pubspec.yaml\"\n".to_owned(),
+        };
+
+        assert_eq!(
+            installing_coderabbit_findings("main").held_by(&output),
+            None
         );
     }
 }

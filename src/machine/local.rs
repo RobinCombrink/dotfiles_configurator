@@ -2,8 +2,8 @@ use {
     crate::{
         configuration::{
             Answer, ApplicationSource, ArchiveEntry, CloneDepth, CrateName, CrateVersion,
-            GitHubAccount, GitHubRepository, Installer, Migration, PresenceCheck, ReleasedBinary,
-            RepositoryClone, Shell, VariableName, VariableValue,
+            DartPackage, GitHubAccount, GitHubRepository, Installer, Migration, PresenceCheck,
+            ReleasedBinary, RepositoryClone, Shell, VariableName, VariableValue,
         },
         configuration_source::WriteSource,
         github::GitHubAccess,
@@ -12,7 +12,9 @@ use {
             ElevatedWork, Elevation, Exited, HeldReason, Placement, PrivilegeRefusal,
             ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool,
             WorkspaceBuild, WriteInvocation, WriteMachine, crate_index_reading,
+            dart_reading::DartReading,
             environment_reading::SearchPathReading,
+            invocation::without_terminal_prompts,
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
@@ -268,10 +270,20 @@ fn rendered_invocation(program: &Path, arguments: &[String]) -> String {
 }
 
 fn capture(program: &Path, arguments: &[String], report: &RunReport) -> Result<CommandOutput> {
+    capture_with(program, arguments, &[], report)
+}
+
+fn capture_with(
+    program: &Path,
+    arguments: &[String],
+    environment: &[(String, String)],
+    report: &RunReport,
+) -> Result<CommandOutput> {
     report.note(&rendered_invocation(program, arguments));
 
     let output = ProcessCommand::new(program)
         .args(arguments)
+        .envs(environment.iter().map(|(name, value)| (name, value)))
         .stdin(Stdio::null())
         .output()
         .with_context(|| format!("Could not run {}", program.display()))?;
@@ -734,6 +746,21 @@ impl ReadMachine for LocalMachine<'_, '_> {
     fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>> {
         environment::read_variable(name)
     }
+
+    fn read_dart_package(&self, package: &DartPackage) -> Result<DartReading> {
+        dart::read(&self.dart_locations(), package, &|directory, arguments| {
+            let arguments: Vec<String> = ["-C".to_owned(), directory.display().to_string()]
+                .into_iter()
+                .chain(arguments.iter().map(|argument| (*argument).to_owned()))
+                .collect();
+            capture_with(
+                Path::new(Tool::Git.program()),
+                &arguments,
+                &without_terminal_prompts(),
+                self.report,
+            )
+        })
+    }
 }
 
 impl WriteMachine for LocalMachine<'_, '_> {
@@ -937,7 +964,9 @@ impl WriteMachine for LocalMachine<'_, '_> {
 
     async fn write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
         let arguments = invocation.arguments();
-        let output = self.run(invocation.tool(), &arguments, &[]).await?;
+        let output = self
+            .run(invocation.tool(), &arguments, &invocation.environment())
+            .await?;
         match output.exited.succeeded() {
             true => Ok(output),
             false => Err(refused(invocation.tool(), &arguments, &output)),
@@ -945,8 +974,12 @@ impl WriteMachine for LocalMachine<'_, '_> {
     }
 
     async fn attempt_write(&self, invocation: &WriteInvocation) -> Result<CommandOutput> {
-        self.run(invocation.tool(), &invocation.arguments(), &[])
-            .await
+        self.run(
+            invocation.tool(),
+            &invocation.arguments(),
+            &invocation.environment(),
+        )
+        .await
     }
 
     async fn write_over_running_images(&self, invocation: &WriteInvocation) -> Result<Placement> {

@@ -13,6 +13,7 @@ pub enum Lane {
     Cargo,
     Install,
     Uv,
+    Dart,
     Instant,
     Commands,
 }
@@ -29,6 +30,7 @@ impl Lane {
             Resource::Package(Package::Winget(_))
             | Resource::Application(Application::Installer(_)) => Lane::Install,
             Resource::Package(Package::UvTool(_)) => Lane::Uv,
+            Resource::Package(Package::Dart(_)) => Lane::Dart,
             Resource::Application(Application::ReleasedBinary(_))
             | Resource::EnvironmentVariable(_)
             | Resource::Symlink(_)
@@ -46,6 +48,7 @@ impl Display for Lane {
             Lane::Cargo => "cargo",
             Lane::Install => "install",
             Lane::Uv => "uv",
+            Lane::Dart => "dart",
             Lane::Instant => "instant",
             Lane::Commands => "commands",
         })

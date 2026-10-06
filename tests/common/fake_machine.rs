@@ -7,10 +7,10 @@ use {
     dotfiles_configurator::{
         configuration::{
             Answer, ApplicationName, ApplicationSource, BinaryName, ClaudeMcpServer, CloneDepth,
-            CrateName, CrateVersion, GitHubAccount, GitHubRepository, Installer, MachineClass,
-            MachineManifest, McpServerName, Migration, PresenceCheck, PythonInterpreter,
-            ReleasedBinary, RepositoryClone, Shell, Tool, UvToolName, UvToolVersion, VariableName,
-            VariableValue, WingetPackageId, WingetVersion,
+            CrateName, CrateVersion, DartPackage, DartPackageName, GitHubAccount, GitHubRepository,
+            Installer, MachineClass, MachineManifest, McpServerName, Migration, PresenceCheck,
+            PythonInterpreter, ReleasedBinary, RepositoryClone, Shell, Tool, UvToolName,
+            UvToolVersion, VariableName, VariableValue, WingetPackageId, WingetVersion,
         },
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
@@ -19,6 +19,7 @@ use {
             ElevatedOutcome, ElevatedWork, Elevation, Exited, HeldReason, Placement,
             PrivilegeRefusal, ReadInvocation, ReadMachine, Replacement, ReplacingInvocation,
             ResolvedCargoSource, WorkspaceBuild, WriteInvocation, WriteMachine,
+            dart_reading::{DartDrift, DartReading},
             environment_reading::SearchPathReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
@@ -55,6 +56,8 @@ struct MachineState {
     winget_versions: BTreeMap<WingetPackageId, WingetVersion>,
     winget_offers: BTreeMap<WingetPackageId, WingetVersion>,
     winget_upgrade_refusals: BTreeMap<WingetPackageId, CommandOutput>,
+    dart_readings: BTreeMap<DartPackageName, Result<DartReading, String>>,
+    dart_install_refusals: BTreeMap<DartPackageName, CommandOutput>,
     uv_tools: BTreeMap<UvToolName, UvToolVersion>,
     uv_newest_versions: BTreeMap<UvToolName, UvToolVersion>,
     uv_tool_interpreters: BTreeMap<UvToolName, Option<PythonInterpreter>>,
@@ -209,6 +212,7 @@ impl Default for FakeMachine {
                     Tool::Wsl,
                     Tool::Git,
                     Tool::Uv,
+                    Tool::Dart,
                 ]),
                 ..MachineState::default()
             }),
@@ -606,6 +610,14 @@ impl FakeMachine {
                         .insert(name.clone(), python.clone());
                 }
             }
+            WriteInvocation::InstallDartPackage { package } => {
+                if let Some(refusal) = state.dart_install_refusals.get(&package.name) {
+                    return Ok(refusal.clone());
+                }
+                state
+                    .dart_readings
+                    .insert(package.name.clone(), Ok(DartReading::Current));
+            }
             WriteInvocation::UpgradeUvTool { name } => {
                 if !state.uv_tools.contains_key(name) {
                     bail!("Failed to upgrade {name}: `{name}` is not installed");
@@ -907,6 +919,24 @@ impl FakeMachine {
             .insert(id.clone(), version.clone());
     }
 
+    pub fn hold_dart_package_reading(
+        &self,
+        name: &DartPackageName,
+        reading: Result<DartReading, String>,
+    ) {
+        self.state
+            .borrow_mut()
+            .dart_readings
+            .insert(name.clone(), reading);
+    }
+
+    pub fn refuse_dart_install(&self, name: &DartPackageName, refusal: CommandOutput) {
+        self.state
+            .borrow_mut()
+            .dart_install_refusals
+            .insert(name.clone(), refusal);
+    }
+
     pub fn refuse_winget_upgrade(&self, id: &WingetPackageId, refusal: CommandOutput) {
         self.state
             .borrow_mut()
@@ -1073,6 +1103,8 @@ impl FakeMachine {
             winget_versions,
             winget_offers,
             winget_upgrade_refusals,
+            dart_readings,
+            dart_install_refusals,
             uv_tools,
             uv_newest_versions,
             uv_tool_interpreters,
@@ -1124,7 +1156,8 @@ impl FakeMachine {
         format!(
             "{paths:?}|{links:?}|{text_files:?}|{tools:?}|{installed_applications:?}|\
              {winget_packages:?}|{winget_packages_matched_only_by_identifier:?}|\
-             {winget_versions:?}|{winget_offers:?}|{winget_upgrade_refusals:?}|{uv_tools:?}|\
+             {winget_versions:?}|{winget_offers:?}|{winget_upgrade_refusals:?}|\
+             {dart_readings:?}|{dart_install_refusals:?}|{uv_tools:?}|\
              {uv_newest_versions:?}|{uv_tool_interpreters:?}|{uv_running_launchers:?}|\
              {uv_tools_failing_to_upgrade:?}|{failing_applications:?}|{silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
@@ -1516,6 +1549,14 @@ impl ReadMachine for FakeMachine {
         Ok(state.releases.get(repository).cloned())
     }
 
+    fn read_dart_package(&self, package: &DartPackage) -> Result<DartReading> {
+        match self.state.borrow().dart_readings.get(&package.name) {
+            None => Ok(DartReading::Drifted(DartDrift::NoBundle)),
+            Some(Ok(reading)) => Ok(reading.clone()),
+            Some(Err(reason)) => bail!("{reason}"),
+        }
+    }
+
     async fn newest_published_crate(&self, crate_name: &CrateName) -> Result<CrateVersion> {
         let state = self.state.borrow();
         if state.crates_index_unreachable {
@@ -1876,6 +1917,7 @@ fn work_of(invocation: &WriteInvocation) -> String {
         WriteInvocation::InstallUvTool { name, .. } | WriteInvocation::UpgradeUvTool { name } => {
             format!("uv {name}")
         }
+        WriteInvocation::InstallDartPackage { package } => format!("dart install {}", package.name),
         WriteInvocation::UninstallCargoBinary { binary, .. } => format!("cargo uninstall {binary}"),
     }
 }

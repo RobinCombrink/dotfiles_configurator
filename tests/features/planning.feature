@@ -271,6 +271,45 @@ Feature: Planning what a machine needs
     And the change set reports 1 blocked resource
     And the change set does not report the machine as converged
 
+  Scenario: A dart package dart has not installed is reported as a change
+    Given Alice declares the dart package "coderabbit_findings" from "tools/coderabbit-findings" of "https://github.com/Alice/dotfiles.git" at "main"
+    And the directory dart install writes to is on Alice's search path
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "coderabbit_findings"
+
+  Scenario: A dart package installed from what its reference names is reported as converged
+    Given Alice declares the dart package "coderabbit_findings" from "tools/coderabbit-findings" of "https://github.com/Alice/dotfiles.git" at "main"
+    And the directory dart install writes to is on Alice's search path
+    And dart holds "coderabbit_findings" as its reference names it on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A dart package whose origin cannot be asked is blocked rather than drifted
+    Given Alice declares the dart package "coderabbit_findings" from "tools/coderabbit-findings" of "https://github.com/Alice/dotfiles.git" at "main"
+    And the directory dart install writes to is on Alice's search path
+    And origin cannot be asked about "coderabbit_findings" from Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set mentions "Authentication failed"
+
+  Scenario: A dart package is blocked while the directory dart install writes to is off the search path
+    Given Alice declares the dart package "coderabbit_findings" from "tools/coderabbit-findings" of "https://github.com/Alice/dotfiles.git" at "main"
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set mentions "missing from PATH"
+
+  Scenario: A dart package is blocked on a machine without dart
+    Given Alice declares the dart package "coderabbit_findings" from "tools/coderabbit-findings" of "https://github.com/Alice/dotfiles.git" at "main"
+    And the directory dart install writes to is on Alice's search path
+    And dart is absent from Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+
   Scenario: An application whose presence check cannot be run is blocked rather than drifted
     Given Alice declares the application "Neovim"
     And the presence check for "Neovim" cannot be run on Alice's machine

@@ -1,8 +1,8 @@
 use {
     crate::configuration::{
         names::{
-            ApplicationName, BinaryName, CrateName, McpServerName, UvToolName, VariableName,
-            WingetPackageId,
+            ApplicationName, BinaryName, CrateName, DartPackageName, McpServerName, UvToolName,
+            VariableName, WingetPackageId,
         },
         path_folding,
         resource::{
@@ -44,6 +44,7 @@ pub enum Identity {
     WingetPackage(WingetPackageId),
     CargoCrate(CrateName),
     UvTool(UvToolName),
+    DartPackage(DartPackageName),
     EnvironmentVariable(VariableName),
     SearchPathEntry(SearchPathDirectory),
     Symlink(LinkPath),
@@ -64,6 +65,7 @@ impl Display for Identity {
             Identity::WingetPackage(id) => write!(formatter, "the winget package {id}"),
             Identity::CargoCrate(name) => write!(formatter, "the cargo crate {name}"),
             Identity::UvTool(name) => write!(formatter, "the uv tool {name}"),
+            Identity::DartPackage(name) => write!(formatter, "the dart package {name}"),
             Identity::EnvironmentVariable(name) => {
                 write!(formatter, "the environment variable {name}")
             }
@@ -106,6 +108,9 @@ impl Resource {
             }
             Resource::Package(Package::UvTool(package)) => {
                 Some(Identity::UvTool(package.name.clone()))
+            }
+            Resource::Package(Package::Dart(package)) => {
+                Some(Identity::DartPackage(package.name.clone()))
             }
             Resource::EnvironmentVariable(EnvironmentVariable::Variable(Variable {
                 name, ..

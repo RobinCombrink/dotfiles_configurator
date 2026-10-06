@@ -2,11 +2,11 @@ use {
     crate::{
         configuration::{
             Application, ApplicationSource, BinaryName, CargoPackage, CargoSource, ClaudeMcpServer,
-            Command, CrateName, CrateVersion, EnvironmentVariable, GitHubAccount, GitHubRepository,
-            Installer, MachineManifest, Package, PackageCurrency, Registration, ReleasedBinary,
-            RenderedManifest, RepositoryClone, Requirement, Resource, SearchPathEntry, Symlink,
-            Tool, UvToolName, UvToolPackage, UvToolVersion, Variable, WingetPackage,
-            WingetPackageId, WingetVersion,
+            Command, CrateName, CrateVersion, DartPackage, EnvironmentVariable, GitHubAccount,
+            GitHubRepository, Installer, MachineManifest, Package, PackageCurrency, Registration,
+            ReleasedBinary, RenderedManifest, RepositoryClone, Requirement, Resource,
+            SearchPathEntry, Symlink, Tool, UvToolName, UvToolPackage, UvToolVersion, Variable,
+            WingetPackage, WingetPackageId, WingetVersion,
         },
         convergence::{
             Assessment, Impediment, ReadSource, SourceReading, UnreadableReason,
@@ -16,7 +16,7 @@ use {
         },
         desired_state::{DesiredState, ResolvedResource},
         machine::{
-            CommandOutput, Exited, ReadInvocation, ReadMachine,
+            CommandOutput, Exited, ReadInvocation, ReadMachine, dart_reading::DartReading,
             environment_reading::SearchPathReading, release_reading::ReleaseReading,
             workspace_reading::WorkspaceReading,
         },
@@ -68,6 +68,7 @@ impl SourceReadings {
                     }
                 }
                 Resource::Package(Package::UvTool(_)) => uv_is_needed = true,
+                Resource::Package(Package::Dart(_)) => search_path_is_needed = true,
                 Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(_)) => {
                     search_path_is_needed = true;
                 }
@@ -381,6 +382,7 @@ pub fn assess(
             assess_winget_package(package, machine, readings)
         }
         Resource::Package(Package::UvTool(package)) => assess_uv_tool(package, readings),
+        Resource::Package(Package::Dart(package)) => assess_dart_package(package, machine),
         Resource::Package(Package::Cargo(package)) => {
             assess_cargo_package(package, resource, machine, readings)
         }
@@ -429,6 +431,19 @@ fn requirement_is_met(
         Requirement::CargoBinariesOnSearchPath => Ok(readings
             .search_path()?
             .carries(&machine.cargo_binaries_directory())),
+        Requirement::DartBinariesOnSearchPath => Ok(readings
+            .search_path()?
+            .carries(&machine.dart_locations().binaries())),
+    }
+}
+
+fn assess_dart_package(package: &DartPackage, machine: &impl ReadMachine) -> Assessment {
+    match machine.read_dart_package(package) {
+        Ok(DartReading::Current) => Assessment::Converged,
+        Ok(DartReading::Drifted(drift)) => Assessment::Drifted(drift.to_string().into()),
+        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            format!("{error:#}").into(),
+        )),
     }
 }
 

@@ -73,6 +73,7 @@ impl Resource {
             Resource::Package(Package::Winget(package)) => package.id.to_string(),
             Resource::Package(Package::Cargo(package)) => package.crate_name.to_string(),
             Resource::Package(Package::UvTool(package)) => package.name.to_string(),
+            Resource::Package(Package::Dart(package)) => package.name.to_string(),
             Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => {
                 variable.name.to_string()
             }
@@ -111,6 +112,11 @@ impl Resource {
             Resource::Application(Application::ReleasedBinary(_)) => Vec::new(),
             Resource::Package(Package::Winget(_)) => vec![Requirement::Tool(Tool::Winget)],
             Resource::Package(Package::UvTool(_)) => vec![Requirement::Tool(Tool::Uv)],
+            Resource::Package(Package::Dart(_)) => vec![
+                Requirement::Tool(Tool::Dart),
+                Requirement::Tool(Tool::Git),
+                Requirement::DartBinariesOnSearchPath,
+            ],
             Resource::Package(Package::Cargo(package)) => match package.source {
                 CargoSource::Workspace { .. } => vec![
                     Requirement::Tool(Tool::Cargo),
@@ -513,6 +519,7 @@ pub enum Package {
     Winget(WingetPackage),
     Cargo(CargoPackage),
     UvTool(UvToolPackage),
+    Dart(DartPackage),
 }
 
 impl Display for Package {
@@ -521,6 +528,7 @@ impl Display for Package {
             Package::Winget(package) => write!(formatter, "winget {}", package.id),
             Package::Cargo(package) => write!(formatter, "cargo {}", package.crate_name),
             Package::UvTool(package) => write!(formatter, "uv tool {}", package.name),
+            Package::Dart(package) => write!(formatter, "dart {}", package.name),
         }
     }
 }

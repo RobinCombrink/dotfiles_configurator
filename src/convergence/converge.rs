@@ -57,6 +57,15 @@ pub async fn converge(
         Resource::Package(Package::UvTool(package)) => {
             return converge_uv_tool(package, machine, readings).await;
         }
+        Resource::Package(Package::Dart(package)) => {
+            return placed_unless_held(
+                &WriteInvocation::InstallDartPackage {
+                    package: Box::new(package.clone()),
+                },
+                machine,
+            )
+            .await;
+        }
         Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => machine
             .set_environment_variable(&variable.name, &variable.value)
             .with_context(|| format!("Could not set {}", variable.name)),
@@ -299,7 +308,14 @@ async fn converge_winget_package(
         },
     };
 
-    let output = machine.attempt_write(&invocation).await?;
+    placed_unless_held(&invocation, machine).await
+}
+
+async fn placed_unless_held(
+    invocation: &WriteInvocation,
+    machine: &impl WriteMachine,
+) -> Result<Placement> {
+    let output = machine.attempt_write(invocation).await?;
     if output.exited.succeeded() {
         return Ok(Placement::Placed);
     }
@@ -308,7 +324,8 @@ async fn converge_winget_package(
     }
 
     bail!(
-        "winget {} failed, {}:\n{}\n{}",
+        "{} {} failed, {}:\n{}\n{}",
+        invocation.tool(),
         invocation.arguments().join(" "),
         output.exited,
         output.standard_output.trim(),

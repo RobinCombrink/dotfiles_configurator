@@ -8,6 +8,7 @@ pub enum Tool {
     Wsl,
     Git,
     Uv,
+    Dart,
 }
 
 impl Tool {
@@ -19,6 +20,7 @@ impl Tool {
             Tool::Wsl => "wsl",
             Tool::Git => "git",
             Tool::Uv => "uv",
+            Tool::Dart => "dart",
         }
     }
 }
@@ -36,6 +38,7 @@ pub enum Requirement {
     DotfilesRepository(GitHubRepository),
     // ADR 0040
     CargoBinariesOnSearchPath,
+    DartBinariesOnSearchPath,
 }
 
 impl Display for Requirement {
@@ -47,6 +50,9 @@ impl Display for Requirement {
             }
             Requirement::CargoBinariesOnSearchPath => {
                 formatter.write_str("cargo's bin directory is missing from PATH")
+            }
+            Requirement::DartBinariesOnSearchPath => {
+                formatter.write_str("the bin directory dart install writes to is missing from PATH")
             }
         }
     }

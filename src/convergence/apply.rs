@@ -490,10 +490,11 @@ async fn attempt(
             )
             .collect()
     };
-    let (cargo, install, uv, instant) = (
+    let (cargo, install, uv, dart, instant) = (
         work_in(Lane::Cargo),
         work_in(Lane::Install),
         work_in(Lane::Uv),
+        work_in(Lane::Dart),
         work_in(Lane::Instant),
     );
 
@@ -503,13 +504,21 @@ async fn attempt(
         .filter(|withdrawal| !attempted_withdrawals.contains(withdrawal))
         .collect();
 
-    let ((cargo, withdrawn), install, uv, instant) = tokio::join!(
+    let ((cargo, withdrawn), install, uv, dart, instant) = tokio::join!(
         cargo_lane(cargo, withdrawals, readings, machine, report),
         install_lane(install, readings, machine, report),
         in_order(uv, readings, machine, report),
+        in_order(dart, readings, machine, report),
         in_order(instant, readings, machine, report),
     );
-    settled.extend(cargo.into_iter().chain(install).chain(uv).chain(instant));
+    settled.extend(
+        cargo
+            .into_iter()
+            .chain(install)
+            .chain(uv)
+            .chain(dart)
+            .chain(instant),
+    );
 
     for (position, change) in in_lane(Lane::Commands) {
         settled.push(Settled {

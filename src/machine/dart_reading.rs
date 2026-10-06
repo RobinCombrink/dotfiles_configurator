@@ -38,6 +38,10 @@ impl DartLocations {
     pub fn mirrors(&self) -> PathBuf {
         self.pub_cache_directory.join("git").join("cache")
     }
+
+    pub fn binaries(&self) -> PathBuf {
+        self.install_directory.join("bin")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
