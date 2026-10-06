@@ -2,7 +2,7 @@ use {
     crate::{
         configuration::{
             BinaryName, ClaudeMcpServer, CrateName, CrateVersion, GitHubAccount, GitHubRepository,
-            McpServerName, PythonInterpreter, Tool, UvToolName, WingetPackageId,
+            McpServerName, PythonInterpreter, Tool, UvToolName, WingetPackageId, WingetVersion,
         },
         machine::{
             CommandOutput, Replacement,
@@ -22,6 +22,7 @@ use {
 pub enum ReadInvocation {
     WingetInstalledPackages,
     WingetPackage { id: WingetPackageId },
+    WingetUpgrades,
     CargoInstalledCrates,
     ClaudeMcpServer { name: McpServerName },
     UvInstalledTools,
@@ -31,9 +32,9 @@ pub enum ReadInvocation {
 impl ReadInvocation {
     pub fn tool(&self) -> Tool {
         match self {
-            ReadInvocation::WingetInstalledPackages | ReadInvocation::WingetPackage { .. } => {
-                Tool::Winget
-            }
+            ReadInvocation::WingetInstalledPackages
+            | ReadInvocation::WingetPackage { .. }
+            | ReadInvocation::WingetUpgrades => Tool::Winget,
             ReadInvocation::CargoInstalledCrates => Tool::Cargo,
             ReadInvocation::ClaudeMcpServer { .. } => Tool::Claude,
             ReadInvocation::UvInstalledTools | ReadInvocation::UvOutdatedTools => Tool::Uv,
@@ -58,6 +59,15 @@ impl ReadInvocation {
                 "--id".to_owned(),
                 id.to_string(),
                 "--exact".to_owned(),
+                "--accept-source-agreements".to_owned(),
+                "--disable-interactivity".to_owned(),
+            ],
+            // 2026-10-06: lists each installed package winget offers a newer version of, under
+            // the columns Name, Id, Version, Available and Source, and closes on a count of them.
+            // A package whose installed version winget cannot determine, or one pinned in winget,
+            // is left out. winget v1.29.380 on Windows 11.
+            ReadInvocation::WingetUpgrades => vec![
+                "upgrade".to_owned(),
                 "--accept-source-agreements".to_owned(),
                 "--disable-interactivity".to_owned(),
             ],
@@ -89,6 +99,10 @@ impl ReadInvocation {
 pub enum WriteInvocation {
     UpdateWingetSources,
     InstallWingetPackage {
+        id: WingetPackageId,
+        version: Option<WingetVersion>,
+    },
+    UpgradeWingetPackage {
         id: WingetPackageId,
     },
     InstallUvTool {
@@ -315,9 +329,9 @@ fn cargo_environment(build_directory: Option<&Path>) -> Vec<(String, String)> {
 impl WriteInvocation {
     pub fn tool(&self) -> Tool {
         match self {
-            WriteInvocation::UpdateWingetSources | WriteInvocation::InstallWingetPackage { .. } => {
-                Tool::Winget
-            }
+            WriteInvocation::UpdateWingetSources
+            | WriteInvocation::InstallWingetPackage { .. }
+            | WriteInvocation::UpgradeWingetPackage { .. } => Tool::Winget,
             WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => {
                 Tool::Uv
             }
@@ -328,14 +342,35 @@ impl WriteInvocation {
     pub fn arguments(&self) -> Vec<String> {
         match self {
             WriteInvocation::UpdateWingetSources => vec!["source".to_owned(), "update".to_owned()],
-            WriteInvocation::InstallWingetPackage { id } => vec![
-                "install".to_owned(),
-                "--exact".to_owned(),
+            WriteInvocation::InstallWingetPackage { id, version } => {
+                let mut arguments = vec![
+                    "install".to_owned(),
+                    "--exact".to_owned(),
+                    "--id".to_owned(),
+                    id.to_string(),
+                ];
+                if let Some(version) = version {
+                    arguments.extend([
+                        "--version".to_owned(),
+                        version.to_string(),
+                        "--force".to_owned(),
+                    ]);
+                }
+                arguments.extend([
+                    "--accept-package-agreements".to_owned(),
+                    "--accept-source-agreements".to_owned(),
+                    "--disable-interactivity".to_owned(),
+                ]);
+                arguments
+            }
+            WriteInvocation::UpgradeWingetPackage { id } => vec![
+                "upgrade".to_owned(),
                 "--id".to_owned(),
                 id.to_string(),
-                "--accept-package-agreements".to_owned(),
-                "--accept-source-agreements".to_owned(),
+                "--exact".to_owned(),
+                "--silent".to_owned(),
                 "--disable-interactivity".to_owned(),
+                "--accept-package-agreements".to_owned(),
             ],
             WriteInvocation::InstallUvTool { name, python } => {
                 let mut arguments = vec!["tool".to_owned(), "install".to_owned()];
@@ -375,6 +410,7 @@ impl WriteInvocation {
             }
             WriteInvocation::UpdateWingetSources
             | WriteInvocation::InstallWingetPackage { .. }
+            | WriteInvocation::UpgradeWingetPackage { .. }
             | WriteInvocation::InstallUvTool { .. }
             | WriteInvocation::UpgradeUvTool { .. } => false,
         }
@@ -388,6 +424,7 @@ impl WriteInvocation {
         match self {
             WriteInvocation::UpdateWingetSources
             | WriteInvocation::InstallWingetPackage { .. }
+            | WriteInvocation::UpgradeWingetPackage { .. }
             | WriteInvocation::UninstallCargoBinary { .. } => None,
             WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => output
                 .standard_error
@@ -1054,5 +1091,64 @@ mod tests {
         );
 
         assert!(!uninstalling_session_census().refused_as_corrupt(&output));
+    }
+
+    fn shfmt() -> WingetPackageId {
+        WingetPackageId::from("mvdan.shfmt")
+    }
+
+    #[test]
+    fn a_winget_package_kept_at_the_latest_is_installed_at_whatever_winget_offers() {
+        let arguments = WriteInvocation::InstallWingetPackage {
+            id: shfmt(),
+            version: None,
+        }
+        .arguments();
+
+        assert!(
+            !arguments.contains(&"--version".to_owned()),
+            "{arguments:?}"
+        );
+    }
+
+    #[test]
+    fn a_winget_package_kept_at_one_version_is_installed_over_whatever_version_it_is_at() {
+        let arguments = WriteInvocation::InstallWingetPackage {
+            id: shfmt(),
+            version: Some(WingetVersion::from("3.13.1")),
+        }
+        .arguments();
+
+        assert_eq!(
+            arguments,
+            vec![
+                "install",
+                "--exact",
+                "--id",
+                "mvdan.shfmt",
+                "--version",
+                "3.13.1",
+                "--force",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+                "--disable-interactivity",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_winget_package_behind_the_latest_is_upgraded_silently_and_without_prompting() {
+        assert_eq!(
+            WriteInvocation::UpgradeWingetPackage { id: shfmt() }.arguments(),
+            vec![
+                "upgrade",
+                "--id",
+                "mvdan.shfmt",
+                "--exact",
+                "--silent",
+                "--disable-interactivity",
+                "--accept-package-agreements",
+            ]
+        );
     }
 }

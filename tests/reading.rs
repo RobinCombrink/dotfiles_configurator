@@ -37,7 +37,10 @@ fn desired_state(resources: Vec<Resource>) -> DesiredState {
 }
 
 fn winget_package(id: &str) -> Resource {
-    Resource::Package(Package::Winget(WingetPackage { id: id.into() }))
+    Resource::Package(Package::Winget(WingetPackage {
+        id: id.into(),
+        version: PackageCurrency::Latest,
+    }))
 }
 
 fn cargo_package(crate_name: &str) -> Resource {

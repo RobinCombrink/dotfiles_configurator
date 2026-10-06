@@ -6,7 +6,7 @@ use {
             names::{
                 ApplicationName, BinaryName, CrateName, CrateVersion, GitHubAccount, McpServerName,
                 PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName, VariableName,
-                VariableValue, WingetPackageId,
+                VariableValue, WingetPackageId, WingetVersion,
             },
             package_currency::PackageCurrency,
             presence_check::PresenceCheck,
@@ -527,6 +527,13 @@ impl Display for Package {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct WingetPackage {
     pub id: WingetPackageId,
+    #[serde(default, skip_serializing_if = "PackageCurrency::is_latest")]
+    #[schemars(
+        description = "The one version winget keeps the package at, newer and older versions \
+                       alike being drift. Absent, the package is kept at the newest version \
+                       winget offers."
+    )]
+    pub version: PackageCurrency<WingetVersion>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

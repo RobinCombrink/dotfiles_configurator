@@ -164,6 +164,40 @@ Feature: Planning what a machine needs
     Then the change set reports 0 changes
     And the change set reports 1 blocked resource
 
+  Scenario: A winget package declaring no version that winget offers a newer version of is a change naming both versions
+    Given Alice declares the winget package "mvdan.shfmt"
+    And winget holds "mvdan.shfmt" at "3.13.1" on Alice's machine
+    And winget offers "mvdan.shfmt" at "3.14.1"
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "3.13.1"
+    And the change set mentions "3.14.1"
+
+  Scenario: A winget package declaring a version is converged at that version whatever winget offers
+    Given Alice declares the winget package "mvdan.shfmt" at "3.13.1"
+    And winget holds "mvdan.shfmt" at "3.13.1" on Alice's machine
+    And winget offers "mvdan.shfmt" at "3.14.1"
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A winget package newer than the version declared is a change naming both versions
+    Given Alice declares the winget package "mvdan.shfmt" at "3.13.1"
+    And winget holds "mvdan.shfmt" at "3.14.1" on Alice's machine
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "3.13.1"
+    And the change set mentions "3.14.1"
+
+  Scenario: A winget package declaring no version is blocked rather than converged when winget cannot list its upgrades
+    Given Alice declares the winget package "mvdan.shfmt"
+    And winget holds "mvdan.shfmt" at "3.13.1" on Alice's machine
+    And winget cannot list what it would upgrade on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set does not report the machine as converged
+
   Scenario: A package whose manager is absent is reported as blocked rather than as drift
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget is absent from Alice's machine

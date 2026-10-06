@@ -718,6 +718,7 @@ mod tests {
     fn winget_package(id: &str) -> Resource {
         Resource::Package(Package::Winget(WingetPackage {
             id: WingetPackageId::from(id),
+            version: crate::configuration::PackageCurrency::Latest,
         }))
     }
 

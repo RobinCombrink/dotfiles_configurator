@@ -894,6 +894,17 @@
       "properties": {
         "id": {
           "$ref": "#/$defs/WingetPackageId"
+        },
+        "version": {
+          "description": "The one version winget keeps the package at, newer and older versions alike being drift. Absent, the package is kept at the newest version winget offers.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WingetVersion"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -902,6 +913,10 @@
     },
     "WingetPackageId": {
       "description": "The identifier winget knows a package by.",
+      "type": "string"
+    },
+    "WingetVersion": {
+      "description": "A version written as winget reports it, such as 2025.1.2.11, and compared whole rather than read as a semantic version.",
       "type": "string"
     }
   }

@@ -162,6 +162,28 @@ Feature: Applying a change set
     And 0 resources are reported as held
     And the machine is not reported as converged
 
+  Scenario: A winget package declaring no version is upgraded to the newer version winget offers
+    Given Alice declares the winget package "mvdan.shfmt"
+    And winget holds "mvdan.shfmt" at "3.13.1" on Alice's machine
+    And winget offers "mvdan.shfmt" at "3.14.1"
+    When Alice applies
+    Then winget holds "mvdan.shfmt" at "3.14.1" on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A winget package newer than the version declared is moved back to it
+    Given Alice declares the winget package "mvdan.shfmt" at "3.13.1"
+    And winget holds "mvdan.shfmt" at "3.14.1" on Alice's machine
+    When Alice applies
+    Then winget holds "mvdan.shfmt" at "3.13.1" on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A winget package winget does not hold is installed at the version declared
+    Given Alice declares the winget package "mvdan.shfmt" at "3.13.1"
+    And winget offers "mvdan.shfmt" at "3.14.1"
+    When Alice applies
+    Then winget holds "mvdan.shfmt" at "3.13.1" on Alice's machine
+    And the machine is reported as converged
+
   Scenario: A resource that cannot be read leaves the machine reported as unconverged
     Given Alice declares the winget package "Microsoft.PowerShell"
     And winget is absent from Alice's machine

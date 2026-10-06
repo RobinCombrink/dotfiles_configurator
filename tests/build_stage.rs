@@ -200,6 +200,7 @@ async fn a_member_a_pass_already_attempted_is_not_built_again_on_a_later_pass() 
     machine.execute_binary_that_cannot_be_displaced("tool-use-statistics");
     let powershell = Resource::Package(Package::Winget(WingetPackage {
         id: "Microsoft.PowerShell".into(),
+        version: PackageCurrency::Latest,
     }));
 
     let outcome = applying(vec![powershell], &machine).await;

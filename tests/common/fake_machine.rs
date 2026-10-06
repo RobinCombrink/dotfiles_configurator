@@ -10,7 +10,7 @@ use {
             CrateName, CrateVersion, GitHubAccount, GitHubRepository, Installer, MachineClass,
             MachineManifest, McpServerName, Migration, PresenceCheck, PythonInterpreter,
             ReleasedBinary, RepositoryClone, Shell, Tool, UvToolName, UvToolVersion, VariableName,
-            VariableValue, WingetPackageId,
+            VariableValue, WingetPackageId, WingetVersion,
         },
         configuration_source::WriteSource,
         currency::{own_currency, own_release_asset_name, own_release_repository},
@@ -52,6 +52,8 @@ struct MachineState {
     installed_applications: BTreeSet<ApplicationName>,
     winget_packages: BTreeSet<WingetPackageId>,
     winget_packages_matched_only_by_identifier: BTreeSet<WingetPackageId>,
+    winget_versions: BTreeMap<WingetPackageId, WingetVersion>,
+    winget_offers: BTreeMap<WingetPackageId, WingetVersion>,
     uv_tools: BTreeMap<UvToolName, UvToolVersion>,
     uv_newest_versions: BTreeMap<UvToolName, UvToolVersion>,
     uv_tool_interpreters: BTreeMap<UvToolName, Option<PythonInterpreter>>,
@@ -555,8 +557,24 @@ impl FakeMachine {
                 drop(state);
                 return Ok(self.uninstall_cargo_binary(specification, binary));
             }
-            WriteInvocation::InstallWingetPackage { id } => {
+            WriteInvocation::InstallWingetPackage { id, version } => {
                 state.winget_packages.insert(id.clone());
+                let installed = version
+                    .clone()
+                    .or_else(|| state.winget_offers.get(id).cloned());
+                if let Some(installed) = installed {
+                    state.winget_versions.insert(id.clone(), installed);
+                }
+            }
+            WriteInvocation::UpgradeWingetPackage { id } => {
+                match state.winget_offers.get(id).cloned() {
+                    Some(offered) if state.winget_packages.contains(id) => {
+                        state.winget_versions.insert(id.clone(), offered);
+                    }
+                    Some(_) | None => {
+                        standard_error = format!("No available upgrade found for {id}.");
+                    }
+                }
             }
             WriteInvocation::InstallUvTool { name, python } => {
                 if !state.uv_tools.contains_key(name) {
@@ -857,6 +875,30 @@ impl FakeMachine {
         self.state.borrow_mut().winget_packages.insert(id.clone());
     }
 
+    pub fn install_winget_package_at(&self, id: &WingetPackageId, version: &WingetVersion) {
+        let mut state = self.state.borrow_mut();
+        state.winget_packages.insert(id.clone());
+        state.winget_versions.insert(id.clone(), version.clone());
+    }
+
+    pub fn offer_winget_upgrade(&self, id: &WingetPackageId, version: &WingetVersion) {
+        self.state
+            .borrow_mut()
+            .winget_offers
+            .insert(id.clone(), version.clone());
+    }
+
+    pub fn winget_package_version(&self, id: &WingetPackageId) -> Option<WingetVersion> {
+        let state = self.state.borrow();
+        state.winget_packages.contains(id).then(|| {
+            state
+                .winget_versions
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| WingetVersion::from(WINGET_VERSION_UNLESS_DECLARED))
+        })
+    }
+
     pub fn install_winget_package_matched_only_by_identifier(&self, id: &WingetPackageId) {
         self.state
             .borrow_mut()
@@ -1002,6 +1044,8 @@ impl FakeMachine {
             installed_applications,
             winget_packages,
             winget_packages_matched_only_by_identifier,
+            winget_versions,
+            winget_offers,
             uv_tools,
             uv_newest_versions,
             uv_tool_interpreters,
@@ -1052,7 +1096,8 @@ impl FakeMachine {
         } = &*state;
         format!(
             "{paths:?}|{links:?}|{text_files:?}|{tools:?}|{installed_applications:?}|\
-             {winget_packages:?}|{winget_packages_matched_only_by_identifier:?}|{uv_tools:?}|\
+             {winget_packages:?}|{winget_packages_matched_only_by_identifier:?}|\
+             {winget_versions:?}|{winget_offers:?}|{uv_tools:?}|\
              {uv_newest_versions:?}|{uv_tool_interpreters:?}|{uv_running_launchers:?}|\
              {uv_tools_failing_to_upgrade:?}|{failing_applications:?}|{silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
@@ -1142,28 +1187,61 @@ const WINGET_FINDS_NO_PACKAGE: &str = "No installed package found matching input
 
 const WINGET_EXITS_FINDING_NO_PACKAGE: i32 = 0x8A15_0014_u32.cast_signed();
 
-fn winget_listing(packages: &BTreeSet<WingetPackageId>) -> String {
-    const PACKAGE_NAME: &str = "A package";
-    const VERSION: &str = "1.0.0";
+const WINGET_VERSION_UNLESS_DECLARED: &str = "1.0.0";
 
-    let identifiers: Vec<String> = packages.iter().map(WingetPackageId::to_string).collect();
-    let width = |heading: &str, widest_value: usize| heading.len().max(widest_value) + 2;
-    let name_width = width("Name", PACKAGE_NAME.len());
-    let id_width = width(
-        "Id",
-        identifiers
-            .iter()
-            .map(|identifier| identifier.chars().count())
-            .max()
-            .unwrap_or_default(),
+struct WingetRow {
+    id: String,
+    version: String,
+    available: String,
+}
+
+fn winget_row_of(state: &MachineState, id: &WingetPackageId) -> WingetRow {
+    let version = state.winget_versions.get(id).map_or_else(
+        || WINGET_VERSION_UNLESS_DECLARED.to_owned(),
+        ToString::to_string,
     );
+    let available = state
+        .winget_offers
+        .get(id)
+        .map(ToString::to_string)
+        .filter(|offered| *offered != version)
+        .unwrap_or_default();
 
-    let mut listing = format!("{:name_width$}{:id_width$}{}\n", "Name", "Id", "Version");
-    listing.push_str(&"-".repeat(name_width + id_width + "Version".len()));
+    WingetRow {
+        id: id.to_string(),
+        version,
+        available,
+    }
+}
+
+fn winget_listing(rows: &[WingetRow]) -> String {
+    const PACKAGE_NAME: &str = "A package";
+
+    let width = |heading: &str, values: &mut dyn Iterator<Item = &String>| {
+        heading.len().max(
+            values
+                .map(|value| value.chars().count())
+                .max()
+                .unwrap_or_default(),
+        ) + 2
+    };
+    let name_width = "Name".len().max(PACKAGE_NAME.len()) + 2;
+    let id_width = width("Id", &mut rows.iter().map(|row| &row.id));
+    let version_width = width("Version", &mut rows.iter().map(|row| &row.version));
+    let available_width = width("Available", &mut rows.iter().map(|row| &row.available));
+
+    let mut listing = format!(
+        "{:name_width$}{:id_width$}{:version_width$}{:available_width$}{}\n",
+        "Name", "Id", "Version", "Available", "Source"
+    );
+    listing.push_str(
+        &"-".repeat(name_width + id_width + version_width + available_width + "Source".len()),
+    );
     listing.push('\n');
-    for identifier in identifiers {
+    for row in rows {
         listing.push_str(&format!(
-            "{PACKAGE_NAME:name_width$}{identifier:id_width$}{VERSION}\n"
+            "{PACKAGE_NAME:name_width$}{:id_width$}{:version_width$}{:available_width$}winget\n",
+            row.id, row.version, row.available
         ));
     }
     listing
@@ -1248,10 +1326,15 @@ impl ReadMachine for FakeMachine {
         let mut standard_error = String::new();
         let succeeded = Exited::Code(0);
         let (exited, standard_output) = match invocation {
-            ReadInvocation::WingetInstalledPackages => (
-                succeeded,
-                winget_listing(&self.state.borrow().winget_packages),
-            ),
+            ReadInvocation::WingetInstalledPackages => {
+                let state = self.state.borrow();
+                let rows: Vec<WingetRow> = state
+                    .winget_packages
+                    .iter()
+                    .map(|id| winget_row_of(&state, id))
+                    .collect();
+                (succeeded, winget_listing(&rows))
+            }
             ReadInvocation::WingetPackage { id } => {
                 let state = self.state.borrow();
                 match state.winget_packages.contains(id)
@@ -1259,11 +1342,28 @@ impl ReadMachine for FakeMachine {
                         .winget_packages_matched_only_by_identifier
                         .contains(id)
                 {
-                    true => (succeeded, winget_listing(&BTreeSet::from([id.clone()]))),
+                    true => (succeeded, winget_listing(&[winget_row_of(&state, id)])),
                     false => (
                         Exited::Code(WINGET_EXITS_FINDING_NO_PACKAGE),
                         WINGET_FINDS_NO_PACKAGE.to_owned(),
                     ),
+                }
+            }
+            ReadInvocation::WingetUpgrades => {
+                let state = self.state.borrow();
+                let rows: Vec<WingetRow> = state
+                    .winget_packages
+                    .iter()
+                    .chain(&state.winget_packages_matched_only_by_identifier)
+                    .map(|id| winget_row_of(&state, id))
+                    .filter(|row| !row.available.is_empty())
+                    .collect();
+                match rows.is_empty() {
+                    true => (
+                        Exited::Code(WINGET_EXITS_FINDING_NO_PACKAGE),
+                        WINGET_FINDS_NO_PACKAGE.to_owned(),
+                    ),
+                    false => (succeeded, winget_listing(&rows)),
                 }
             }
             ReadInvocation::CargoInstalledCrates => {
@@ -1744,7 +1844,8 @@ impl WriteMachine for FakeMachine {
 fn work_of(invocation: &WriteInvocation) -> String {
     match invocation {
         WriteInvocation::UpdateWingetSources => "winget source update".to_owned(),
-        WriteInvocation::InstallWingetPackage { id } => format!("winget install {id}"),
+        WriteInvocation::InstallWingetPackage { id, .. } => format!("winget install {id}"),
+        WriteInvocation::UpgradeWingetPackage { id } => format!("winget upgrade {id}"),
         WriteInvocation::InstallUvTool { name, .. } | WriteInvocation::UpgradeUvTool { name } => {
             format!("uv {name}")
         }

@@ -63,7 +63,10 @@ fn neovim() -> Resource {
 }
 
 fn winget(id: &str) -> Resource {
-    Resource::Package(Package::Winget(WingetPackage { id: id.into() }))
+    Resource::Package(Package::Winget(WingetPackage {
+        id: id.into(),
+        version: PackageCurrency::Latest,
+    }))
 }
 
 fn one_entry_of_every_kind() -> Vec<Resource> {

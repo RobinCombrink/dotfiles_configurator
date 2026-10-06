@@ -22,7 +22,7 @@ use {
             OLDEST_READABLE_GENERATION, Package, PackageCurrency, PresenceCheck, PythonInterpreter,
             RecordedRun, RecordedSource, Registration, RepositoryClone, Resource,
             SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
-            UvToolVersion, Variable, VariableName, VariableValue,
+            UvToolVersion, Variable, VariableName, VariableValue, WingetVersion,
         },
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -501,18 +501,56 @@ fn configurator_is_running_and_undisplaceable(world: &mut MachineWorld) {
     world.machine.own_binary_is_executing_and_will_not_release();
 }
 
-#[given(expr = "Alice declares the winget package {string}")]
-fn declare_winget_package(world: &mut MachineWorld, id: String) {
+fn declare_winget_package_kept_at(
+    world: &mut MachineWorld,
+    id: String,
+    version: PackageCurrency<WingetVersion>,
+) {
     world.resources.push(Resource::Package(
         dotfiles_configurator::configuration::Package::Winget(
-            dotfiles_configurator::configuration::WingetPackage { id: id.into() },
+            dotfiles_configurator::configuration::WingetPackage {
+                id: id.into(),
+                version,
+            },
         ),
     ));
+}
+
+#[given(expr = "Alice declares the winget package {string}")]
+fn declare_winget_package(world: &mut MachineWorld, id: String) {
+    declare_winget_package_kept_at(world, id, PackageCurrency::Latest);
+}
+
+#[given(expr = "Alice declares the winget package {string} at {string}")]
+fn declare_pinned_winget_package(world: &mut MachineWorld, id: String, version: String) {
+    declare_winget_package_kept_at(world, id, PackageCurrency::Exactly(version.into()));
 }
 
 #[given(expr = "winget holds {string} on Alice's machine")]
 fn winget_holds_package(world: &mut MachineWorld, id: String) {
     world.machine.install_winget_package(&id.into());
+}
+
+#[given(expr = "winget holds {string} at {string} on Alice's machine")]
+fn winget_holds_package_at(world: &mut MachineWorld, id: String, version: String) {
+    world
+        .machine
+        .install_winget_package_at(&id.into(), &version.into());
+}
+
+#[given(expr = "winget offers {string} at {string}")]
+fn winget_offers(world: &mut MachineWorld, id: String, version: String) {
+    world
+        .machine
+        .offer_winget_upgrade(&id.into(), &version.into());
+}
+
+#[then(expr = "winget holds {string} at {string} on Alice's machine")]
+fn winget_now_holds_package_at(world: &mut MachineWorld, id: String, version: String) {
+    assert_eq!(
+        world.machine.winget_package_version(&id.into()),
+        Some(WingetVersion::from(version))
+    );
 }
 
 #[given(
@@ -827,6 +865,18 @@ fn winget_cannot_be_read(world: &mut MachineWorld) {
     world.machine.make_reading_fail(
         ReadInvocation::WingetInstalledPackages,
         "winget exited with an error",
+    );
+}
+
+#[given(expr = "winget cannot list what it would upgrade on Alice's machine")]
+fn winget_cannot_list_upgrades(world: &mut MachineWorld) {
+    world.machine.answer_reading_with(
+        ReadInvocation::WingetUpgrades,
+        CommandOutput {
+            exited: Exited::Code(0x8A15_0003_u32.cast_signed()),
+            standard_output: "Failed when searching source: winget\n".to_owned(),
+            standard_error: String::new(),
+        },
     );
 }
 

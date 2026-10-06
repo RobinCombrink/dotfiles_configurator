@@ -5,7 +5,8 @@ use {
             Command, CrateName, CrateVersion, EnvironmentVariable, GitHubAccount, GitHubRepository,
             Installer, MachineManifest, Package, PackageCurrency, Registration, ReleasedBinary,
             RenderedManifest, RepositoryClone, Requirement, Resource, SearchPathEntry, Symlink,
-            UvToolName, UvToolPackage, UvToolVersion, Variable, WingetPackage,
+            Tool, UvToolName, UvToolPackage, UvToolVersion, Variable, WingetPackage,
+            WingetPackageId, WingetVersion,
         },
         convergence::{
             Assessment, Impediment, ReadSource, SourceReading, UnreadableReason,
@@ -15,8 +16,9 @@ use {
         },
         desired_state::{DesiredState, ResolvedResource},
         machine::{
-            CommandOutput, ReadInvocation, ReadMachine, environment_reading::SearchPathReading,
-            release_reading::ReleaseReading, workspace_reading::WorkspaceReading,
+            CommandOutput, Exited, ReadInvocation, ReadMachine,
+            environment_reading::SearchPathReading, release_reading::ReleaseReading,
+            workspace_reading::WorkspaceReading,
         },
         version::Version,
     },
@@ -30,6 +32,7 @@ use {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceReadings {
     winget_packages: SourceReading<String>,
+    winget_upgrades: SourceReading<WingetUpgradeListing>,
     cargo_crates: SourceReading<String>,
     uv_tools: SourceReading<String>,
     uv_outdated_tools: SourceReading<String>,
@@ -43,6 +46,7 @@ pub struct SourceReadings {
 impl SourceReadings {
     pub async fn read_for(desired_state: &DesiredState, machine: &impl ReadMachine) -> Self {
         let mut winget_is_needed = false;
+        let mut winget_upgrades_are_needed = false;
         let mut uv_is_needed = false;
         let mut cargo_is_needed = !desired_state.workspaces.is_empty();
         let mut search_path_is_needed = false;
@@ -50,7 +54,10 @@ impl SourceReadings {
         let mut kept_at_newest: BTreeSet<CrateName> = BTreeSet::new();
         for resource in &desired_state.resources {
             match resource.declared() {
-                Resource::Package(Package::Winget(_)) => winget_is_needed = true,
+                Resource::Package(Package::Winget(package)) => {
+                    winget_is_needed = true;
+                    winget_upgrades_are_needed |= package.version.is_latest();
+                }
                 Resource::Package(Package::Cargo(package)) => {
                     cargo_is_needed = true;
                     if let CargoSource::Registry {
@@ -132,6 +139,7 @@ impl SourceReadings {
                 ReadInvocation::WingetInstalledPackages,
                 machine,
             ),
+            winget_upgrades: read_winget_upgrades(winget_upgrades_are_needed, machine),
             cargo_crates: read_listing(
                 cargo_is_needed,
                 ReadInvocation::CargoInstalledCrates,
@@ -229,6 +237,43 @@ impl SourceReadings {
         match self.releases.get(repository) {
             Some(reading) => reading.read().map(Option::as_ref),
             None => Err(ReadSource::LatestRelease(repository.clone()).was_not_read()),
+        }
+    }
+
+    /// The newer version winget would upgrade a package to, or `None` where it offers none.
+    ///
+    /// ```no_run
+    /// # use dotfiles_configurator::{
+    /// #     configuration::WingetPackageId, convergence::SourceReadings,
+    /// # };
+    /// # fn describe(readings: &SourceReadings) -> String {
+    /// match readings.winget_upgrade_of(&WingetPackageId::from("jqlang.jq")) {
+    ///     Ok(Some(offered)) => format!("winget offers {offered}"),
+    ///     Ok(None) => "winget offers nothing newer".to_owned(),
+    ///     Err(impediment) => impediment.to_string(),
+    /// }
+    /// # }
+    /// ```
+    pub fn winget_upgrade_of(
+        &self,
+        id: &WingetPackageId,
+    ) -> Result<Option<WingetVersion>, Impediment> {
+        let listing = match self.winget_upgrades.read()? {
+            WingetUpgradeListing::NothingToUpgrade => return Ok(None),
+            WingetUpgradeListing::Listed(listing) => listing,
+        };
+
+        match winget_row(listing, id.as_ref()).map_err(Impediment::ActualStateUnreadable)? {
+            None => Ok(None),
+            Some(WingetRow {
+                available: Some(offered),
+                ..
+            }) => Ok(Some(WingetVersion::from(offered))),
+            Some(WingetRow {
+                available: None, ..
+            }) => Err(Impediment::ActualStateUnreadable(
+                format!("winget lists an upgrade of {id} without the version it offers").into(),
+            )),
         }
     }
 
@@ -501,15 +546,49 @@ fn assess_winget_package(
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Assessment {
-    let listing = match readings.winget_packages.read() {
-        Ok(listing) => listing,
+    let installed = match installed_winget_package(package, machine, readings) {
+        Ok(Some(row)) => row.version,
+        Ok(None) => return Assessment::Drifted("winget reports it as not installed".into()),
         Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
-    match winget_lists_package(listing, package.id.to_string().as_str()) {
-        Ok(true) => Assessment::Converged,
-        Ok(false) => assess_winget_package_by_identifier(package, machine),
-        Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(reason)),
+    match &package.version {
+        PackageCurrency::Latest => match readings.winget_upgrade_of(&package.id) {
+            Ok(None) => Assessment::Converged,
+            Ok(Some(offered)) => Assessment::Drifted(
+                format!("{installed} is installed, and winget offers {offered}").into(),
+            ),
+            Err(impediment) => Assessment::Unassessable(impediment),
+        },
+        PackageCurrency::Exactly(declared) => assess_winget_version(declared, &installed),
+    }
+}
+
+fn assess_winget_version(declared: &WingetVersion, installed: &str) -> Assessment {
+    if installed == declared.as_ref() {
+        return Assessment::Converged;
+    }
+    if !installed.starts_with(|character: char| character.is_ascii_digit()) {
+        return Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            format!("winget reports no one version it is installed at, only {installed:?}").into(),
+        ));
+    }
+
+    Assessment::Drifted(
+        format!("{installed} is installed, and the version declared is {declared}").into(),
+    )
+}
+
+fn installed_winget_package(
+    package: &WingetPackage,
+    machine: &impl ReadMachine,
+    readings: &SourceReadings,
+) -> Result<Option<WingetRow>, Impediment> {
+    let listing = readings.winget_packages.read()?;
+
+    match winget_row(listing, package.id.as_ref()).map_err(Impediment::ActualStateUnreadable)? {
+        Some(row) => Ok(Some(row)),
+        None => winget_package_by_identifier(package, machine),
     }
 }
 
@@ -517,26 +596,25 @@ fn assess_winget_package(
 // output when nothing installed matches. winget v1.29.380 on Windows 11.
 const WINGET_FINDS_NO_PACKAGE: &str = "No installed package found matching input criteria.";
 
-fn assess_winget_package_by_identifier(
+const WINGET_EXITS_FINDING_NO_PACKAGE: Exited = Exited::Code(0x8A15_0014_u32.cast_signed());
+
+fn winget_package_by_identifier(
     package: &WingetPackage,
     machine: &impl ReadMachine,
-) -> Assessment {
+) -> Result<Option<WingetRow>, Impediment> {
     let invocation = ReadInvocation::WingetPackage {
         id: package.id.clone(),
     };
-    let output = match machine.read(&invocation) {
-        Ok(output) => output,
-        Err(error) => {
-            return Assessment::Unassessable(Impediment::ActualStateUnreadable(
-                format!("winget could not be asked about {}: {error}", package.id).into(),
-            ));
-        }
-    };
+    let output = machine.read(&invocation).map_err(|error| {
+        Impediment::ActualStateUnreadable(
+            format!("winget could not be asked about {}: {error}", package.id).into(),
+        )
+    })?;
 
     if !output.exited.succeeded() {
         return match output.standard_output.trim() == WINGET_FINDS_NO_PACKAGE {
-            true => Assessment::Drifted("winget reports it as not installed".into()),
-            false => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            true => Ok(None),
+            false => Err(Impediment::ActualStateUnreadable(
                 format!(
                     "winget could not be asked about {}, {}: {}",
                     package.id,
@@ -548,49 +626,128 @@ fn assess_winget_package_by_identifier(
         };
     }
 
-    match winget_lists_package(&output.standard_output, package.id.to_string().as_str()) {
-        Ok(true) => Assessment::Converged,
-        Ok(false) => Assessment::Drifted("winget reports it as not installed".into()),
-        Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(reason)),
+    winget_row(&output.standard_output, package.id.as_ref())
+        .map_err(Impediment::ActualStateUnreadable)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WingetUpgradeListing {
+    NothingToUpgrade,
+    Listed(String),
+}
+
+// 2026-10-06: `winget upgrade --source winget --name <no such package>` exited 0x8A150014 and
+// printed the same line `winget list` prints when nothing matches. winget v1.29.380 on Windows 11.
+fn read_winget_upgrades(
+    is_needed: bool,
+    machine: &impl ReadMachine,
+) -> SourceReading<WingetUpgradeListing> {
+    if !is_needed || !machine.tool_is_present(Tool::Winget) {
+        return SourceReading::NotRequested(ReadSource::Tool(Tool::Winget));
+    }
+
+    match machine.read(&ReadInvocation::WingetUpgrades) {
+        Ok(output) if output.exited.succeeded() => {
+            SourceReading::Read(WingetUpgradeListing::Listed(output.standard_output))
+        }
+        Ok(output)
+            if output.exited == WINGET_EXITS_FINDING_NO_PACKAGE
+                && output.standard_output.trim() == WINGET_FINDS_NO_PACKAGE =>
+        {
+            SourceReading::Read(WingetUpgradeListing::NothingToUpgrade)
+        }
+        Ok(output) => SourceReading::Unreadable(
+            format!(
+                "winget could not list what it would upgrade, {}: {} {}",
+                output.exited,
+                output.standard_output.trim(),
+                output.standard_error.trim()
+            )
+            .into(),
+        ),
+        Err(error) => SourceReading::Unreadable(
+            format!("winget could not list what it would upgrade: {error}").into(),
+        ),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WingetRow {
+    version: String,
+    available: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WingetColumns {
+    id: usize,
+    version: usize,
+    available: Option<usize>,
+    source: Option<usize>,
+}
+
+impl WingetColumns {
+    fn located_in(listing: &str) -> Option<Self> {
+        listing.lines().find_map(|line| {
+            let characters_before = |byte: usize| line[..byte].chars().count();
+            let name = line.find("Name")?;
+            let id = line[name..].find("Id").map(|offset| name + offset)?;
+            let version = line[id..].find("Version").map(|offset| id + offset)?;
+            let available = line[version..]
+                .find("Available")
+                .map(|offset| version + offset);
+            let source = line[version..]
+                .find("Source")
+                .map(|offset| version + offset);
+            Some(Self {
+                id: characters_before(id),
+                version: characters_before(version),
+                available: available.map(characters_before),
+                source: source.map(characters_before),
+            })
+        })
+    }
+
+    fn cell(line: &str, first: usize, past_last: Option<usize>) -> String {
+        let characters = line.chars().skip(first);
+        let cell: String = match past_last {
+            Some(past_last) => characters.take(past_last.saturating_sub(first)).collect(),
+            None => characters.collect(),
+        };
+        cell.trim().to_owned()
     }
 }
 
 const TRUNCATION_MARKER: char = '…';
 
 // ADR 0010
-fn winget_lists_package(listing: &str, id: &str) -> Result<bool, UnreadableReason> {
-    let Some((first_column, last_column)) = winget_id_column(listing) else {
+fn winget_row(listing: &str, id: &str) -> Result<Option<WingetRow>, UnreadableReason> {
+    let Some(columns) = WingetColumns::located_in(listing) else {
         return Err("winget's listing has no Id column, so it could not be read".into());
     };
 
-    let mut lists_it = false;
+    let mut found = None;
     for line in listing.lines() {
-        let cell: String = line
-            .chars()
-            .skip(first_column)
-            .take(last_column - first_column)
-            .collect();
-        let cell = cell.trim();
+        let cell = WingetColumns::cell(line, columns.id, Some(columns.version));
 
         if cell.contains(TRUNCATION_MARKER) {
             return Err("winget cut an Id short, so its listing could not be read".into());
         }
-        if cell == id {
-            lists_it = true;
+        if cell == id && found.is_none() {
+            let available = columns
+                .available
+                .map(|available| WingetColumns::cell(line, available, columns.source));
+            found = Some(WingetRow {
+                version: WingetColumns::cell(
+                    line,
+                    columns.version,
+                    columns.available.or(columns.source),
+                ),
+                available: available.filter(|offered| !offered.is_empty()),
+            });
         }
     }
 
-    Ok(lists_it)
-}
-
-fn winget_id_column(listing: &str) -> Option<(usize, usize)> {
-    listing.lines().find_map(|line| {
-        let characters_before = |byte: usize| line[..byte].chars().count();
-        let name = line.find("Name")?;
-        let id = line[name..].find("Id").map(|offset| name + offset)?;
-        let version = line[id..].find("Version").map(|offset| id + offset)?;
-        Some((characters_before(id), characters_before(version)))
-    })
+    Ok(found)
 }
 
 fn assess_uv_tool(package: &UvToolPackage, readings: &SourceReadings) -> Assessment {
@@ -1128,12 +1285,94 @@ mod tests {
         "AMD Software         ARP\\Machine\\X64\\AMD Cat   26.7.1                     \n",
     );
 
+    fn winget_lists_package(listing: &str, id: &str) -> Result<bool, UnreadableReason> {
+        winget_row(listing, id).map(|row| row.is_some())
+    }
+
     #[test]
     fn a_package_winget_lists_is_found() {
         assert_eq!(
             winget_lists_package(PACKAGES, "Bitwarden.Bitwarden"),
             Ok(true)
         );
+    }
+
+    #[test]
+    fn a_package_winget_lists_is_read_at_its_version_and_the_one_winget_offers() {
+        assert_eq!(
+            winget_row(PACKAGES, "Bitwarden.Bitwarden"),
+            Ok(Some(WingetRow {
+                version: "2026.3.1".to_owned(),
+                available: Some("2026.7.0".to_owned()),
+            }))
+        );
+    }
+
+    #[test]
+    fn a_package_winget_offers_nothing_newer_for_is_read_without_an_available_version() {
+        assert_eq!(
+            winget_row(PACKAGES, "ARP\\Machine\\X64\\AMD Cat"),
+            Ok(Some(WingetRow {
+                version: "26.7.1".to_owned(),
+                available: None,
+            }))
+        );
+    }
+
+    // 2026-10-06: taken verbatim from `winget upgrade --accept-source-agreements
+    // --disable-interactivity`, narrowed to two packages and the lines closing the table.
+    const UPGRADES: &str = concat!(
+        "Name                                                         Id                                     Version              Available           Source\n",
+        "---------------------------------------------------------------------------------------------------------------------------------------------------\n",
+        "Lefthook                                                     evilmartians.lefthook                  2.1.10               2.1.17              winget\n",
+        "shfmt                                                        mvdan.shfmt                            3.13.1               3.14.1              winget\n",
+        "34 upgrades available.\n",
+        "2 package(s) have version numbers that cannot be determined. Use --include-unknown to see all results.\n",
+    );
+
+    #[test]
+    fn a_package_winget_would_upgrade_is_read_with_the_version_it_offers() {
+        assert_eq!(
+            winget_row(UPGRADES, "mvdan.shfmt"),
+            Ok(Some(WingetRow {
+                version: "3.13.1".to_owned(),
+                available: Some("3.14.1".to_owned()),
+            }))
+        );
+    }
+
+    #[test]
+    fn the_lines_closing_an_upgrade_listing_are_not_read_as_packages() {
+        assert_eq!(winget_row(UPGRADES, "jqlang.jq"), Ok(None));
+    }
+
+    fn declared(version: &str) -> WingetVersion {
+        WingetVersion::from(version)
+    }
+
+    #[test]
+    fn a_package_at_the_version_declared_is_converged() {
+        assert_eq!(
+            assess_winget_version(&declared("2025.1.2.11"), "2025.1.2.11"),
+            Assessment::Converged
+        );
+    }
+
+    #[test]
+    fn a_package_newer_than_the_version_declared_is_drifted() {
+        assert_eq!(
+            assess_winget_version(&declared("3.13.1"), "3.14.1"),
+            Assessment::Drifted("3.14.1 is installed, and the version declared is 3.13.1".into())
+        );
+    }
+
+    #[test]
+    fn a_package_winget_knows_no_one_version_of_is_unassessable_rather_than_drifted() {
+        let Assessment::Unassessable(_) =
+            assess_winget_version(&declared("17.14.41"), "< 17.14.37")
+        else {
+            panic!("a version winget gives only a bound for was read as one version");
+        };
     }
 
     #[test]

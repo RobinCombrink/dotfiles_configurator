@@ -112,6 +112,14 @@ name!(
 );
 
 name!(
+    #[schemars(
+        description = "A version written as winget reports it, such as 2025.1.2.11, and compared \
+                       whole rather than read as a semantic version."
+    )]
+    WingetVersion
+);
+
+name!(
     #[schemars(description = "The name Cargo knows a crate by.")]
     CrateName
 );

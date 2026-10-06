@@ -44,7 +44,7 @@ pub use {
     names::{
         ApplicationName, BinaryName, ConfigurationName, CrateName, CrateVersion, GitHubAccount,
         McpServerName, PythonInterpreter, RepositoryName, RepositoryOwner, UvToolName,
-        UvToolVersion, VariableName, VariableValue, WingetPackageId,
+        UvToolVersion, VariableName, VariableValue, WingetPackageId, WingetVersion,
     },
     package_currency::PackageCurrency,
     presence_check::{Answer, Candidates, PresenceCheck},

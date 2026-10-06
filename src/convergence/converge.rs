@@ -3,8 +3,8 @@ use {
         configuration::{
             Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
             EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, MachineManifest,
-            Package, Registration, ReleasedBinary, RepositoryClone, Resource, Symlink,
-            UvToolPackage, WingetPackage,
+            Package, PackageCurrency, Registration, ReleasedBinary, RepositoryClone, Resource,
+            Symlink, UvToolPackage, WingetPackage,
         },
         convergence::{Change, SourceReadings, search_path_directory, symlink_location},
         desired_state::ResolvedResource,
@@ -52,7 +52,7 @@ pub async fn converge(
                 .await;
         }
         Resource::Package(Package::Winget(package)) => {
-            converge_winget_package(package, machine).await
+            converge_winget_package(package, machine, readings).await
         }
         Resource::Package(Package::UvTool(package)) => {
             return converge_uv_tool(package, machine, readings).await;
@@ -278,13 +278,28 @@ async fn converge_claude_mcp_server(
 async fn converge_winget_package(
     package: &WingetPackage,
     machine: &impl WriteMachine,
+    readings: &SourceReadings,
 ) -> Result<()> {
-    machine
-        .write(&WriteInvocation::InstallWingetPackage {
+    let invocation = match &package.version {
+        PackageCurrency::Exactly(version) => WriteInvocation::InstallWingetPackage {
             id: package.id.clone(),
-        })
-        .await
-        .map(|_| ())
+            version: Some(version.clone()),
+        },
+        PackageCurrency::Latest => match readings
+            .winget_upgrade_of(&package.id)
+            .map_err(|impediment| anyhow!("{impediment}"))?
+        {
+            Some(_) => WriteInvocation::UpgradeWingetPackage {
+                id: package.id.clone(),
+            },
+            None => WriteInvocation::InstallWingetPackage {
+                id: package.id.clone(),
+                version: None,
+            },
+        },
+    };
+
+    machine.write(&invocation).await.map(|_| ())
 }
 
 async fn converge_uv_tool(
