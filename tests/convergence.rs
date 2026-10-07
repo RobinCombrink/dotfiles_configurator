@@ -618,6 +618,13 @@ fn uv_holds_tool(world: &mut MachineWorld, name: String, version: String) {
         .install_uv_tool(&name.into(), &UvToolVersion::from(version));
 }
 
+#[given(expr = "uv holds {string} pinned at {string} by an earlier declaration on Alice's machine")]
+fn uv_holds_pinned_tool(world: &mut MachineWorld, name: String, version: String) {
+    world
+        .machine
+        .install_uv_tool_pinned(&name.into(), &UvToolVersion::from(version));
+}
+
 #[given(expr = "the newest version of {string} that resolves is {string}")]
 fn newest_uv_tool_version(world: &mut MachineWorld, name: String, version: String) {
     world

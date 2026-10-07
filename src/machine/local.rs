@@ -1024,6 +1024,9 @@ impl WriteMachine for LocalMachine<'_, '_> {
         if output.exited.succeeded() {
             return Ok(Placement::Placed);
         }
+        if let Some(reason) = invocation.held_by(&output) {
+            return Ok(Placement::Held(reason));
+        }
 
         let Some(copy) = invocation.refused_copy(&output) else {
             return Err(refused(invocation.tool(), &arguments, &output));

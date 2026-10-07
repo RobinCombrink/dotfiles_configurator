@@ -63,6 +63,7 @@ struct MachineState {
     uv_tool_interpreters: BTreeMap<UvToolName, Option<PythonInterpreter>>,
     uv_running_launchers: BTreeMap<PathBuf, LauncherCopy>,
     uv_tools_failing_to_upgrade: BTreeSet<UvToolName>,
+    uv_pinned_tools: BTreeSet<UvToolName>,
     failing_applications: BTreeSet<ApplicationName>,
     silent_applications: BTreeSet<ApplicationName>,
     install_attempts: Vec<ApplicationName>,
@@ -590,6 +591,7 @@ impl FakeMachine {
                 version: Some(version),
             } => {
                 state.uv_tools.insert(name.clone(), version.clone());
+                state.uv_pinned_tools.insert(name.clone());
                 state
                     .uv_tool_interpreters
                     .entry(name.clone())
@@ -618,9 +620,23 @@ impl FakeMachine {
                     .dart_readings
                     .insert(package.name.clone(), Ok(DartReading::Current));
             }
+            WriteInvocation::ReinstallUvToolAtLatest { name, .. } => {
+                let Some(newest) = state.uv_newest_versions.get(name).cloned() else {
+                    bail!("no version of {name} resolves");
+                };
+                state.uv_tools.insert(name.clone(), newest);
+                state.uv_pinned_tools.remove(name);
+            }
             WriteInvocation::UpgradeUvTool { name } => {
                 if !state.uv_tools.contains_key(name) {
                     bail!("Failed to upgrade {name}: `{name}` is not installed");
+                }
+                if state.uv_pinned_tools.contains(name) {
+                    return Ok(CommandOutput {
+                        exited: Exited::Code(0),
+                        standard_output: "Nothing to upgrade\n".to_owned(),
+                        standard_error: String::new(),
+                    });
                 }
                 if state.uv_tools_failing_to_upgrade.contains(name) {
                     standard_error = format!(
@@ -991,6 +1007,11 @@ impl FakeMachine {
             .insert(name.clone(), version.clone());
     }
 
+    pub fn install_uv_tool_pinned(&self, name: &UvToolName, version: &UvToolVersion) {
+        self.install_uv_tool(name, version);
+        self.state.borrow_mut().uv_pinned_tools.insert(name.clone());
+    }
+
     pub fn publish_uv_tool(&self, name: &UvToolName, version: &UvToolVersion) {
         self.state
             .borrow_mut()
@@ -1110,6 +1131,7 @@ impl FakeMachine {
             uv_tool_interpreters,
             uv_running_launchers,
             uv_tools_failing_to_upgrade,
+            uv_pinned_tools,
             failing_applications,
             silent_applications,
             install_attempts,
@@ -1159,7 +1181,8 @@ impl FakeMachine {
              {winget_versions:?}|{winget_offers:?}|{winget_upgrade_refusals:?}|\
              {dart_readings:?}|{dart_install_refusals:?}|{uv_tools:?}|\
              {uv_newest_versions:?}|{uv_tool_interpreters:?}|{uv_running_launchers:?}|\
-             {uv_tools_failing_to_upgrade:?}|{failing_applications:?}|{silent_applications:?}|\
+             {uv_tools_failing_to_upgrade:?}|{uv_pinned_tools:?}|{failing_applications:?}|\
+             {silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
              {earlier_cargo_workspaces:?}|{install_records:?}|{uninstalls_refused:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
@@ -1227,7 +1250,13 @@ fn uv_tool_listing(state: &MachineState) -> String {
     state
         .uv_tools
         .iter()
-        .map(|(name, installed)| format!("{name} v{installed}\n- {name}\n"))
+        .map(|(name, installed)| {
+            let required = match state.uv_pinned_tools.contains(name) {
+                true => format!(" [required: =={installed}]"),
+                false => String::new(),
+            };
+            format!("{name} v{installed}{required}\n- {name}\n")
+        })
         .collect()
 }
 
@@ -1811,6 +1840,9 @@ impl WriteMachine for FakeMachine {
         if output.exited.succeeded() {
             return Ok(Placement::Placed);
         }
+        if let Some(reason) = invocation.held_by(&output) {
+            return Ok(Placement::Held(reason));
+        }
 
         let Some(copy) = invocation.refused_copy(&output) else {
             bail!("{} failed: {}", invocation.tool(), output.standard_error);
@@ -1914,9 +1946,9 @@ fn work_of(invocation: &WriteInvocation) -> String {
         WriteInvocation::UpdateWingetSources => "winget source update".to_owned(),
         WriteInvocation::InstallWingetPackage { id, .. } => format!("winget install {id}"),
         WriteInvocation::UpgradeWingetPackage { id } => format!("winget upgrade {id}"),
-        WriteInvocation::InstallUvTool { name, .. } | WriteInvocation::UpgradeUvTool { name } => {
-            format!("uv {name}")
-        }
+        WriteInvocation::InstallUvTool { name, .. }
+        | WriteInvocation::UpgradeUvTool { name }
+        | WriteInvocation::ReinstallUvToolAtLatest { name, .. } => format!("uv {name}"),
         WriteInvocation::InstallDartPackage { package } => format!("dart install {}", package.name),
         WriteInvocation::UninstallCargoBinary { binary, .. } => format!("cargo uninstall {binary}"),
     }

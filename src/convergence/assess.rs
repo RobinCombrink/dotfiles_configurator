@@ -190,6 +190,24 @@ impl SourceReadings {
             .map_err(Impediment::ActualStateUnreadable)
     }
 
+    /// Whether uv holds a tool pinned to one version, which `uv tool upgrade` leaves in place.
+    ///
+    /// ```no_run
+    /// # use dotfiles_configurator::{
+    /// #     configuration::UvToolName, convergence::SourceReadings,
+    /// # };
+    /// # fn describe(readings: &SourceReadings) -> String {
+    /// match readings.uv_tool_is_pinned(&UvToolName::from("serena-agent")) {
+    ///     Ok(true) => "pinned".to_owned(),
+    ///     Ok(false) => "free to upgrade".to_owned(),
+    ///     Err(impediment) => impediment.to_string(),
+    /// }
+    /// # }
+    /// ```
+    pub fn uv_tool_is_pinned(&self, name: &UvToolName) -> Result<bool, Impediment> {
+        Ok(uv_tool_is_pinned_in(self.uv_tools.read()?, name))
+    }
+
     /// The newer version a tool would be upgraded to, or `None` where no newer one resolves.
     ///
     /// ```no_run
@@ -792,14 +810,8 @@ fn assess_uv_tool(package: &UvToolPackage, readings: &SourceReadings) -> Assessm
 
 const LATEST_MARKER: &str = "[latest: ";
 
-// 2026-09-25: `uv tool list` names each tool on a line of its own as `name vX.Y.Z`, with its
-// executables beneath as `- executable` lines, and `--outdated` appends `[latest: A.B.C]` to each
-// tool it lists. uv 0.10.12 on Windows 11.
-fn listed_uv_tool(
-    listing: &str,
-    name: &UvToolName,
-) -> Result<Option<(UvToolVersion, Option<UvToolVersion>)>, UnreadableReason> {
-    let Some(line) = listing
+fn uv_tool_line<'listing>(listing: &'listing str, name: &UvToolName) -> Option<&'listing str> {
+    listing
         .lines()
         .filter(|line| !line.trim_start().starts_with('-'))
         .find(|line| {
@@ -807,7 +819,22 @@ fn listed_uv_tool(
                 .next()
                 .is_some_and(|listed| name.is_listed_as(listed))
         })
-    else {
+}
+
+const PINNED_MARKER: &str = "[required: ==";
+
+fn uv_tool_is_pinned_in(listing: &str, name: &UvToolName) -> bool {
+    uv_tool_line(listing, name).is_some_and(|line| line.contains(PINNED_MARKER))
+}
+
+// 2026-09-25: `uv tool list` names each tool on a line of its own as `name vX.Y.Z`, with its
+// executables beneath as `- executable` lines, and `--outdated` appends `[latest: A.B.C]` to each
+// tool it lists. uv 0.10.12 on Windows 11.
+fn listed_uv_tool(
+    listing: &str,
+    name: &UvToolName,
+) -> Result<Option<(UvToolVersion, Option<UvToolVersion>)>, UnreadableReason> {
+    let Some(line) = uv_tool_line(listing, name) else {
         return Ok(None);
     };
 
@@ -1688,5 +1715,35 @@ mod tests {
     #[test]
     fn a_tool_listed_as_behind_nothing_it_names_is_refused_rather_than_read_as_current() {
         assert!(listed_uv_tool("serena-agent v1.5.3 [latest: ]\n", &serena()).is_err());
+    }
+
+    // 2026-10-07: shaped as `uv tool list --show-version-specifiers` printed `black v24.1.0
+    // [required: ==24.1.0]` for a pinned tool, under uv 0.10.12 on Windows 11.
+    const UV_TOOLS_ONE_PINNED: &str = concat!(
+        "cowsay v6.1\n",
+        "- cowsay\n",
+        "serena-agent v1.5.3 [required: ==1.5.3]\n",
+        "- serena\n",
+    );
+
+    #[test]
+    fn a_tool_uv_lists_with_an_exact_requirement_is_pinned() {
+        assert!(uv_tool_is_pinned_in(UV_TOOLS_ONE_PINNED, &serena()));
+    }
+
+    #[test]
+    fn a_tool_uv_lists_without_a_requirement_is_not_pinned() {
+        assert!(!uv_tool_is_pinned_in(
+            UV_TOOLS_ONE_PINNED,
+            &UvToolName::from("cowsay")
+        ));
+    }
+
+    #[test]
+    fn a_pinned_tool_is_still_read_at_the_version_it_is_installed_at() {
+        assert_eq!(
+            listed_uv_tool(UV_TOOLS_ONE_PINNED, &serena()),
+            Ok(Some((UvToolVersion::from("1.5.3"), None)))
+        );
     }
 }

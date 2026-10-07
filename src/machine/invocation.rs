@@ -80,7 +80,14 @@ impl ReadInvocation {
             }
             // 2026-09-25: `uv tool list` prints each tool as `name vX.Y.Z` with its executables
             // indented beneath as `- name` lines. uv 0.10.12 on Windows 11.
-            ReadInvocation::UvInstalledTools => vec!["tool".to_owned(), "list".to_owned()],
+            // 2026-10-07: `--show-version-specifiers` appends `[required: ==24.1.0]` to a tool
+            // installed as `black==24.1.0` and nothing to one installed as `black@latest`. uv
+            // 0.10.12 on Windows 11.
+            ReadInvocation::UvInstalledTools => vec![
+                "tool".to_owned(),
+                "list".to_owned(),
+                "--show-version-specifiers".to_owned(),
+            ],
             // 2026-09-25: `--outdated` lists only the tools a newer version resolves for, as
             // `name vX.Y.Z [latest: A.B.C]`, and exits non-zero when the index cannot be reached.
             // Offline — `--offline` or `UV_OFFLINE` — it silently leaves out every tool it cannot
@@ -113,6 +120,10 @@ pub enum WriteInvocation {
     },
     UpgradeUvTool {
         name: UvToolName,
+    },
+    ReinstallUvToolAtLatest {
+        name: UvToolName,
+        python: Option<PythonInterpreter>,
     },
     InstallDartPackage {
         package: Box<DartPackage>,
@@ -341,9 +352,9 @@ impl WriteInvocation {
             WriteInvocation::UpdateWingetSources
             | WriteInvocation::InstallWingetPackage { .. }
             | WriteInvocation::UpgradeWingetPackage { .. } => Tool::Winget,
-            WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => {
-                Tool::Uv
-            }
+            WriteInvocation::InstallUvTool { .. }
+            | WriteInvocation::UpgradeUvTool { .. }
+            | WriteInvocation::ReinstallUvToolAtLatest { .. } => Tool::Uv,
             WriteInvocation::InstallDartPackage { .. } => Tool::Dart,
             WriteInvocation::UninstallCargoBinary { .. } => Tool::Cargo,
         }
@@ -357,6 +368,7 @@ impl WriteInvocation {
             | WriteInvocation::UpgradeWingetPackage { .. }
             | WriteInvocation::InstallUvTool { .. }
             | WriteInvocation::UpgradeUvTool { .. }
+            | WriteInvocation::ReinstallUvToolAtLatest { .. }
             | WriteInvocation::UninstallCargoBinary { .. } => Vec::new(),
         }
     }
@@ -415,6 +427,17 @@ impl WriteInvocation {
             WriteInvocation::UpgradeUvTool { name } => {
                 vec!["tool".to_owned(), "upgrade".to_owned(), name.to_string()]
             }
+            // 2026-10-07: `uv tool install black@latest` over `black==24.1.0` installed the
+            // newest black and dropped the pin, keeping the interpreter the environment was built
+            // with, where `uv tool upgrade` answered "Nothing to upgrade". uv 0.10.12 on Windows 11.
+            WriteInvocation::ReinstallUvToolAtLatest { name, python } => {
+                let mut arguments = vec!["tool".to_owned(), "install".to_owned()];
+                if let Some(python) = python {
+                    arguments.extend(["--python".to_owned(), python.to_string()]);
+                }
+                arguments.push(format!("{name}@latest"));
+                arguments
+            }
             WriteInvocation::InstallDartPackage { package } => {
                 let DartSource::Git {
                     url,
@@ -459,6 +482,7 @@ impl WriteInvocation {
             | WriteInvocation::UpgradeWingetPackage { .. }
             | WriteInvocation::InstallUvTool { .. }
             | WriteInvocation::UpgradeUvTool { .. }
+            | WriteInvocation::ReinstallUvToolAtLatest { .. }
             | WriteInvocation::InstallDartPackage { .. } => false,
         }
     }
@@ -474,7 +498,9 @@ impl WriteInvocation {
             | WriteInvocation::UpgradeWingetPackage { .. }
             | WriteInvocation::InstallDartPackage { .. }
             | WriteInvocation::UninstallCargoBinary { .. } => None,
-            WriteInvocation::InstallUvTool { .. } | WriteInvocation::UpgradeUvTool { .. } => output
+            WriteInvocation::InstallUvTool { .. }
+            | WriteInvocation::UpgradeUvTool { .. }
+            | WriteInvocation::ReinstallUvToolAtLatest { .. } => output
                 .standard_error
                 .lines()
                 .find_map(copy_refused_by_a_running_image),
@@ -492,6 +518,11 @@ impl WriteInvocation {
                     .find(|line| line.contains(DART_BUNDLE_IN_USE))
                     .map(|line| HeldReason::ReportedInUse(line.trim().to_owned()))
             }
+            WriteInvocation::ReinstallUvToolAtLatest { .. } => output
+                .standard_error
+                .lines()
+                .find(|line| line.contains(UV_ENVIRONMENT_IN_USE) && line.contains(ACCESS_DENIED))
+                .map(|line| HeldReason::ReportedInUse(line.trim().to_owned())),
             WriteInvocation::UpdateWingetSources
             | WriteInvocation::InstallUvTool { .. }
             | WriteInvocation::UpgradeUvTool { .. }
@@ -518,6 +549,12 @@ const WINGET_REFUSES_TO_UPGRADE: &str = "cannot be upgraded using winget";
 // "Deletion failed. The application might be in use." on its standard error after it had already
 // deleted the package's bin shim. Dart 3.11.1 on Windows 11.
 const DART_BUNDLE_IN_USE: &str = "The application might be in use.";
+
+// 2026-10-07: `uv tool install black@latest` with black.exe running exited 2, printing "error:
+// failed to remove directory `<tool directory>\black\Scripts`: Access is denied. (os error 5)",
+// after which `uv tool list` could not find black in its environment until a later install with
+// nothing running restored it. uv 0.10.12 on Windows 11.
+const UV_ENVIRONMENT_IN_USE: &str = "failed to remove directory";
 
 fn winget_held_by(output: &CommandOutput) -> Option<HeldReason> {
     let said = format!("{}\n{}", output.standard_output, output.standard_error);
@@ -1138,6 +1175,43 @@ mod tests {
             installing.arguments(),
             vec!["tool", "install", "serena-agent==1.5.3"]
         );
+    }
+
+    fn reinstalling_serena_at_latest() -> WriteInvocation {
+        WriteInvocation::ReinstallUvToolAtLatest {
+            name: UvToolName::from("serena-agent"),
+            python: Some(PythonInterpreter::from("3.13")),
+        }
+    }
+
+    #[test]
+    fn a_pinned_uv_tool_is_reinstalled_at_the_latest_with_its_declared_interpreter() {
+        assert_eq!(
+            reinstalling_serena_at_latest().arguments(),
+            vec!["tool", "install", "--python", "3.13", "serena-agent@latest"]
+        );
+    }
+
+    #[test]
+    fn a_reinstall_refused_over_a_running_launcher_is_held() {
+        let output = cargo_said(
+            "error: failed to remove directory `C:\\t\\uvprobe\\tools\\serena-agent\\Scripts`: \
+             Access is denied. (os error 5)\n",
+        );
+
+        let Some(HeldReason::ReportedInUse(reported)) =
+            reinstalling_serena_at_latest().held_by(&output)
+        else {
+            panic!("expected the reinstall to be held as in use");
+        };
+        assert!(reported.contains("Scripts"), "{reported}");
+    }
+
+    #[test]
+    fn a_reinstall_failing_for_any_other_reason_is_not_held() {
+        let output = cargo_said("error: Failed to fetch the index (os error 10061)\n");
+
+        assert_eq!(reinstalling_serena_at_latest().held_by(&output), None);
     }
 
     fn upgrading_serena() -> WriteInvocation {

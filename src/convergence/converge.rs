@@ -342,6 +342,16 @@ async fn converge_uv_tool(
         .installed_uv_tool(&package.name)
         .map_err(|impediment| anyhow!("{impediment}"))?;
     let invocation = match (&package.version, installed) {
+        (PackageCurrency::Latest, Some(_))
+            if readings
+                .uv_tool_is_pinned(&package.name)
+                .map_err(|impediment| anyhow!("{impediment}"))? =>
+        {
+            WriteInvocation::ReinstallUvToolAtLatest {
+                name: package.name.clone(),
+                python: package.python.clone(),
+            }
+        }
         (PackageCurrency::Latest, Some(_)) => WriteInvocation::UpgradeUvTool {
             name: package.name.clone(),
         },
