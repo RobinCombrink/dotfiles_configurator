@@ -31,7 +31,7 @@ use {
     std::{
         collections::{BTreeMap, BTreeSet},
         env,
-        ffi::OsStr,
+        ffi::{OsStr, OsString},
         fs,
         io::Read,
         path::{Path, PathBuf},
@@ -281,7 +281,7 @@ fn capture_with(
 ) -> Result<CommandOutput> {
     report.note(&rendered_invocation(program, arguments));
 
-    let output = ProcessCommand::new(program)
+    let output = ProcessCommand::new(launchable(program, environment))
         .args(arguments)
         .envs(environment.iter().map(|(name, value)| (name, value)))
         .stdin(Stdio::null())
@@ -316,7 +316,7 @@ async fn stream(
         &rendered_invocation(program, arguments),
     );
 
-    let mut command = tokio::process::Command::new(program);
+    let mut command = tokio::process::Command::new(launchable(program, environment));
     if let Some(directory) = working_directory {
         command.current_dir(directory);
     }
@@ -552,16 +552,52 @@ fn read_text_file(path: &Path) -> Result<Option<String>> {
 }
 
 fn program_is_on_path(program: &str) -> bool {
-    let Some(path) = env::var_os("PATH") else {
-        return false;
-    };
     let extensions = executable_extensions(env::var_os("PATHEXT").as_deref());
+    resolved_on(program, env::var_os("PATH").as_deref(), &extensions).is_some()
+}
 
-    env::split_paths(&path).any(|directory| {
+fn resolved_on(
+    program: &str,
+    search_path: Option<&OsStr>,
+    extensions: &[String],
+) -> Option<PathBuf> {
+    env::split_paths(search_path?).find_map(|directory| {
         extensions
             .iter()
-            .any(|extension| directory.join(format!("{program}{extension}")).is_file())
+            .map(|extension| directory.join(format!("{program}{extension}")))
+            .find(|candidate| candidate.is_file())
     })
+}
+
+fn launchable(program: &Path, environment: &[(String, String)]) -> PathBuf {
+    let is_a_bare_name = program.parent() == Some(Path::new(""));
+    if !is_a_bare_name {
+        return program.to_path_buf();
+    }
+
+    let search_path = environment
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("PATH"))
+        .map(|(_, value)| OsString::from(value))
+        .or_else(|| env::var_os("PATH"));
+    let extensions = launchable_extensions(env::var_os("PATHEXT").as_deref());
+    resolved_on(
+        &program.to_string_lossy(),
+        search_path.as_deref(),
+        &extensions,
+    )
+    .unwrap_or_else(|| program.to_path_buf())
+}
+
+fn launchable_extensions(pathext: Option<&OsStr>) -> Vec<String> {
+    let extensions = executable_extensions(pathext);
+    match pathext {
+        None => extensions,
+        Some(_) => extensions
+            .into_iter()
+            .filter(|extension| !extension.is_empty())
+            .collect(),
+    }
 }
 
 impl ReadMachine for LocalMachine<'_, '_> {
@@ -1470,6 +1506,34 @@ mod tests {
                 "second".to_owned(),
             ],
         )
+    }
+
+    #[test]
+    fn a_machine_naming_executable_extensions_launches_only_a_file_carrying_one() {
+        assert_eq!(
+            launchable_extensions(Some(OsStr::new(".EXE;.BAT"))),
+            vec![".exe".to_owned(), ".bat".to_owned()]
+        );
+    }
+
+    #[cfg(target_family = "windows")]
+    #[test]
+    fn a_batch_file_on_the_search_path_is_launched_by_its_bare_name_with_its_argument_whole() {
+        let directory = tempfile::tempdir().unwrap();
+        let report = RunReport::open_in(directory.path(), RunKind::Apply).unwrap();
+        a_binary_at(directory.path(), "echo-argument.bat", "@echo %~1\r\n");
+        let argument = "coderabbit_findings@{git: {url: https://example.invalid/dotfiles.git, \
+                        path: tools/coderabbit-findings, ref: main}}";
+
+        let output = capture_with(
+            Path::new("echo-argument"),
+            &[argument.to_owned()],
+            &[("PATH".to_owned(), directory.path().display().to_string())],
+            &report,
+        )
+        .unwrap();
+
+        assert_eq!(output.standard_output.trim(), argument);
     }
 
     #[tokio::test]
