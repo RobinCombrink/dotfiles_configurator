@@ -6,9 +6,10 @@ status: accepted
 
 A uv tool is a package whose desired state is the newest version that resolves, so an assessment
 needs two facts: the version installed, and whether a newer one resolves. Both are read once per
-change set, as ADR 0010 requires of a source that answers for a whole set: `uv tool list` for what
-is installed, and `uv tool list --outdated --no-offline` for the tools a newer version resolves
-for, each listed with that version. A tool the first names and the second does not is converged.
+change set, as ADR 0010 requires of a source that answers for a whole set: `uv tool list
+--show-version-specifiers` for what is installed and whether it is pinned, and `uv tool list
+--outdated --no-offline` for the tools a newer version resolves for, each listed with that version.
+A tool the first names and the second does not is converged.
 
 Measured 2026-09-25 with uv 0.10.12 on Windows 11, against serena-agent installed at 1.5.3 with
 1.7.0 on PyPI:
@@ -49,6 +50,28 @@ Measured 2026-09-25 with uv 0.10.12 on Windows 11, in a scratch tool and bin dir
   identical to its copy in the environment, and an upgrade through this program reported the tool
   converged, left the running process in place, and `uv tool list --outdated` then listed nothing.
 
+## A pinned tool
+
+A tool declaring one version is installed as `name==version`, which pins it: `uv tool upgrade`
+then answers "Nothing to upgrade" and exits 0 while the outdated listing still names it as behind.
+A tool behind the newest version and listed with an exact requirement is therefore reinstalled as
+`uv tool install [--python <interpreter>] name@latest`, which installs the newest version and drops
+the pin. Every other tool behind the newest version is upgraded as above, keeping the
+running-launcher handling `uv tool upgrade` affords.
+
+Measured 2026-10-07 with uv 0.10.12 on Windows 11, in a scratch tool and bin directory:
+
+- `uv tool list --show-version-specifiers` printed `black v24.1.0 [required: ==24.1.0]` for black
+  installed as `black==24.1.0`, and `black v26.10.0` with no requirement once it had been
+  reinstalled as `black@latest`.
+- `uv tool install cowsay@latest` over cowsay pinned at 6.0 installed 6.1 and kept the CPython
+  3.13 the environment had been built with (measured 2026-10-06).
+- `uv tool install black@latest` with `black.exe` running exited 2 with "failed to remove directory
+  `…\black\Scripts`: Access is denied. (os error 5)", after which `uv tool list` printed "Failed
+  find package `black` in tool environment" until the same install, run with nothing running,
+  restored black at the newest version. That refusal is `held`, and the next apply reads the tool
+  as not installed and installs it.
+
 ## Considered options
 
 - **Displace the launchers, as ADR 0022 does for cargo**, either ahead of the upgrade or on its
@@ -68,10 +91,9 @@ Measured 2026-09-25 with uv 0.10.12 on Windows 11, in a scratch tool and bin dir
 
 ## Consequences
 
-- **A tool installed with an exact pin stays drifted.** `uv tool list --outdated` reports 6.1 for
-  a tool pinned to 5.0 while `uv tool upgrade` answers "Nothing to upgrade" and exits 0, so an
-  apply reports the resource as not having taken. Only a hand install carries a pin, since this
-  program installs by name alone.
+- **A pin comes from a declared version or a hand install, and either way it is cleared** once the
+  tool is declared without a version, through the reinstall above. A pin other than an exact one,
+  such as `>=1`, is left to `uv tool upgrade`, which honours it.
 - **A tool whose newest version uv cannot look up for a reason other than the network is read as
   converged**, because the listing leaves it out rather than failing. Nothing this program
   installs is sourced from anywhere but an index.
