@@ -42,7 +42,17 @@ impl DartLocations {
     pub fn binaries(&self) -> PathBuf {
         self.install_directory.join("bin")
     }
+
+    pub fn shim_of(&self, executable: &str) -> PathBuf {
+        self.binaries().join(format!("{executable}{SHIM_SUFFIX}"))
+    }
 }
+
+#[cfg(target_family = "windows")]
+const SHIM_SUFFIX: &str = ".bat";
+
+#[cfg(target_family = "unix")]
+const SHIM_SUFFIX: &str = "";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DartReading {
@@ -55,6 +65,7 @@ pub enum DartDrift {
     NoBundle,
     SeveralBundles(usize),
     InstalledFromElsewhere(String),
+    MissingShims(Vec<String>),
     NoMirror,
     AtAnotherCommit {
         installed: GitCommit,
@@ -75,6 +86,11 @@ impl Display for DartDrift {
             DartDrift::InstalledFromElsewhere(source) => {
                 write!(formatter, "installed from {source}")
             }
+            DartDrift::MissingShims(executables) => write!(
+                formatter,
+                "dart's bin directory holds no shim for {}",
+                executables.join(", ")
+            ),
             DartDrift::NoMirror => {
                 formatter.write_str("pub holds no copy of the repository it is installed from")
             }

@@ -55,6 +55,14 @@ pub fn read(
         }
     };
 
+    let missing: Vec<String> = executables_of(bundle)?
+        .into_iter()
+        .filter(|executable| !locations.shim_of(executable).is_file())
+        .collect();
+    if !missing.is_empty() {
+        return Ok(DartReading::Drifted(DartDrift::MissingShims(missing)));
+    }
+
     let Some(mirror) = mirror_of(&locations.mirrors(), url, git)? else {
         return Ok(DartReading::Drifted(DartDrift::NoMirror));
     };
@@ -107,6 +115,48 @@ fn directories_in(directory: &Path) -> Result<Vec<PathBuf>> {
     }
     bundles.sort();
     Ok(bundles)
+}
+
+const PUBSPEC_FILE: &str = "pubspec.yaml";
+const COMPILED_SUFFIX: &str = std::env::consts::EXE_SUFFIX;
+
+#[derive(Debug, Deserialize)]
+struct BundlePubspec {
+    #[serde(default)]
+    executables: Option<BTreeMap<String, Option<String>>>,
+}
+
+// 2026-10-07: dhttpd 4.3.0's bundle held its own pubspec.yaml declaring `executables: dhttpd:`
+// with no value, and `dart install` wrote the shim `install\bin\dhttpd.bat` for that key and
+// compiled `bundle\bin\dhttpd.exe`; `dart install --help` says a package declaring no executables
+// section has every `bin/*.dart` entry point installed. Dart 3.11.1 on Windows 11.
+fn executables_of(bundle: &Path) -> Result<Vec<String>> {
+    let path = bundle.join(PUBSPEC_FILE);
+    let text =
+        fs::read_to_string(&path).with_context(|| format!("Could not read {}", path.display()))?;
+    let pubspec: BundlePubspec = serde_saphyr::from_str(&text)
+        .map_err(|error| anyhow!("{} could not be read as a pubspec: {error}", path.display()))?;
+
+    if let Some(declared) = pubspec.executables {
+        return Ok(declared.into_keys().collect());
+    }
+
+    let compiled = bundle.join("bundle").join("bin");
+    let entries = fs::read_dir(&compiled)
+        .with_context(|| format!("Could not read {}", compiled.display()))?;
+    let mut executables = Vec::new();
+    for entry in entries {
+        let name = entry
+            .with_context(|| format!("Could not read {}", compiled.display()))?
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        if let Some(executable) = name.strip_suffix(COMPILED_SUFFIX) {
+            executables.push(executable.to_owned());
+        }
+    }
+    executables.sort();
+    Ok(executables)
 }
 
 #[derive(Debug, Deserialize)]

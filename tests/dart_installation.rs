@@ -23,6 +23,9 @@ use {
 
 const PACKAGE: &str = "coderabbit_findings";
 const SUBDIRECTORY: &str = "tools/coderabbit-findings";
+const EXECUTABLES: [&str; 2] = ["findings", "findings-server"];
+const DECLARING_TWO_EXECUTABLES: &str = "name: coderabbit_findings\nversion: 1.0.0\n\
+                                         executables:\n  findings:\n  findings-server: server\n";
 
 fn git_in(directory: &Path, arguments: &[&str]) -> CommandOutput {
     let output = Command::new("git")
@@ -135,12 +138,32 @@ impl Machine {
     }
 
     fn bundle(&self, commit: &GitCommit, lock: &str) {
+        self.bundle_declaring(commit, lock, DECLARING_TWO_EXECUTABLES);
+        for executable in EXECUTABLES {
+            self.shim(executable);
+        }
+    }
+
+    fn bundle_declaring(&self, commit: &GitCommit, lock: &str, pubspec: &str) -> PathBuf {
         let bundle = self
             .locations()
             .bundles_of(&DartPackageName::from(PACKAGE))
             .join(commit.as_ref());
         fs::create_dir_all(&bundle).expect("the bundle directory is creatable");
         fs::write(bundle.join("pubspec.lock"), lock).expect("the lock is writable");
+        fs::write(bundle.join("pubspec.yaml"), pubspec).expect("the pubspec is writable");
+        bundle
+    }
+
+    fn shim(&self, executable: &str) {
+        let shim = self.locations().shim_of(executable);
+        fs::create_dir_all(shim.parent().expect("a shim sits in a directory"))
+            .expect("the bin directory is creatable");
+        fs::write(shim, "@ECHO OFF\r\n").expect("the shim is writable");
+    }
+
+    fn remove_shim(&self, executable: &str) {
+        fs::remove_file(self.locations().shim_of(executable)).expect("the shim is removable");
     }
 
     fn read(&self, package: &DartPackage) -> Result<DartReading> {
@@ -422,4 +445,42 @@ fn a_bundle_whose_lock_holds_no_entry_for_the_package_is_unassessable() {
     let refusal = machine.read(&declared(origin.url(), "main")).unwrap_err();
 
     assert!(refusal.to_string().contains(PACKAGE), "{refusal:#}");
+}
+
+#[test]
+fn a_package_missing_the_shim_of_one_executable_it_declares_has_drifted_naming_it() {
+    let origin = the_package_alone();
+    let machine = Machine::new();
+    installed_from_head(&machine, &origin, "");
+    machine.remove_shim("findings-server");
+
+    assert_eq!(
+        machine.read(&declared(origin.url(), "main")).unwrap(),
+        DartReading::Drifted(DartDrift::MissingShims(vec!["findings-server".to_owned()]))
+    );
+}
+
+#[test]
+fn a_package_declaring_no_executables_needs_a_shim_for_each_executable_its_bundle_compiled() {
+    let origin = the_package_alone();
+    let machine = Machine::new();
+    let installed = origin.head();
+    let bundle = machine.bundle_declaring(
+        &installed,
+        &lock_installing(&origin.url(), &installed, ""),
+        "name: coderabbit_findings\nversion: 1.0.0\n",
+    );
+    let compiled = bundle.join("bundle").join("bin");
+    fs::create_dir_all(&compiled).expect("the compiled directory is creatable");
+    fs::write(
+        compiled.join(format!("findings{}", std::env::consts::EXE_SUFFIX)),
+        "",
+    )
+    .expect("the compiled executable is writable");
+    machine.mirror(&origin, "coderabbit_findings-0a1b2c");
+
+    assert_eq!(
+        machine.read(&declared(origin.url(), "main")).unwrap(),
+        DartReading::Drifted(DartDrift::MissingShims(vec!["findings".to_owned()]))
+    );
 }
