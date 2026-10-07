@@ -489,7 +489,7 @@ impl WriteInvocation {
                 [&output.standard_error, &output.standard_output]
                     .into_iter()
                     .flat_map(|said| said.lines())
-                    .find(|line| line.contains(FILE_IN_USE))
+                    .find(|line| line.contains(DART_BUNDLE_IN_USE))
                     .map(|line| HeldReason::ReportedInUse(line.trim().to_owned()))
             }
             WriteInvocation::UpdateWingetSources
@@ -514,9 +514,10 @@ const WINGET_PACKAGE_IN_USE: [i32; 2] =
 
 const WINGET_REFUSES_TO_UPGRADE: &str = "cannot be upgraded using winget";
 
-// 2026-09-25: Windows words a sharing violation "The process cannot access the file because it is
-// being used by another process", as uv 0.10.12 relayed it on Windows 11.
-const FILE_IN_USE: &str = "being used by another process";
+// 2026-10-07: `dart install dhttpd --overwrite` with dhttpd.exe running exited 255, printing
+// "Deletion failed. The application might be in use." on its standard error after it had already
+// deleted the package's bin shim. Dart 3.11.1 on Windows 11.
+const DART_BUNDLE_IN_USE: &str = "The application might be in use.";
 
 fn winget_held_by(output: &CommandOutput) -> Option<HeldReason> {
     let said = format!("{}\n{}", output.standard_output, output.standard_error);
@@ -1397,23 +1398,29 @@ mod tests {
         );
     }
 
+    // 2026-10-07: taken verbatim from `dart install dhttpd --overwrite` with dhttpd.exe running,
+    // under Dart 3.11.1 on Windows 11.
+    const DART_REFUSED_A_RUNNING_BUNDLE: &str = concat!(
+        "Generated: c:\\users\\alice\\appdata\\local\\temp\\3fc21ebb\\build\\bundle\\bin\\dhttpd.exe\n",
+        "Uninstalling C:\\Users\\Alice\\AppData\\Local\\Dart\\install\\app-bundles\\dhttpd\\hosted\\4.3.0\\.\n",
+        "Deleting C:\\Users\\Alice\\AppData\\Local\\Dart\\install\\bin\\dhttpd.bat\n",
+        "Deleting C:\\Users\\Alice\\AppData\\Local\\Dart\\install\\app-bundles\\dhttpd\\hosted\\4.3.0\\\n",
+    );
+
     #[test]
-    fn a_dart_install_refused_by_a_running_executable_is_held() {
+    fn a_dart_install_refused_by_a_running_executable_is_held_in_dart_words() {
         let output = CommandOutput {
-            exited: Exited::Code(1),
-            standard_output: String::new(),
-            standard_error: "PathAccessException: Cannot delete file, path = 'C:\\bundle\\\
-                             coderabbit_findings.exe' (OS Error: The process cannot access the \
-                             file because it is being used by another process., errno = 32)\n"
-                .to_owned(),
+            exited: Exited::Code(255),
+            standard_output: DART_REFUSED_A_RUNNING_BUNDLE.to_owned(),
+            standard_error: "Deletion failed. The application might be in use.\n".to_owned(),
         };
 
-        let held = installing_coderabbit_findings("main").held_by(&output);
-
-        let Some(HeldReason::ReportedInUse(reported)) = held else {
-            panic!("expected the install to be held as in use, got {held:?}");
-        };
-        assert!(reported.contains("coderabbit_findings.exe"), "{reported}");
+        assert_eq!(
+            installing_coderabbit_findings("main").held_by(&output),
+            Some(HeldReason::ReportedInUse(
+                "Deletion failed. The application might be in use.".to_owned()
+            ))
+        );
     }
 
     #[test]

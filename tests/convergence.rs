@@ -1048,11 +1048,9 @@ fn dart_cannot_replace_a_running_package(world: &mut MachineWorld, name: String)
     world.machine.refuse_dart_install(
         &name.into(),
         CommandOutput {
-            exited: Exited::Code(1),
+            exited: Exited::Code(255),
             standard_output: String::new(),
-            standard_error: "The process cannot access the file because it is being used by \
-                             another process.\n"
-                .to_owned(),
+            standard_error: "Deletion failed. The application might be in use.\n".to_owned(),
         },
     );
 }
