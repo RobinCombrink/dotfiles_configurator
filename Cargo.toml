@@ -6,8 +6,8 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace]
-members = ["crates/workspace-lock"]
-default-members = [".", "crates/workspace-lock"]
+members = ["crates/github-owner", "crates/workspace-lock"]
+default-members = [".", "crates/github-owner", "crates/workspace-lock"]
 
 [dependencies]
 github_authentication  = { git = "https://github.com/RobinCombrink/GitHubAuthentication" }

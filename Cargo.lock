@@ -861,6 +861,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "github-owner"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "github_authentication"
 version = "0.1.0"
 source = "git+https://github.com/RobinCombrink/GitHubAuthentication#f7adbebb5e5c745b52bade2fdfd94a5e2d2b9962"

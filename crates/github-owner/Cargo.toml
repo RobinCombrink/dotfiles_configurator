@@ -1,0 +1,19 @@
+[package]
+name = "github-owner"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "A GitHub account or organisation as it owns repositories: spelled as GitHub admits an owner, kept as declared, and compared without regard to case."
+
+[features]
+schema = ["dep:schemars"]
+
+[dependencies]
+schemars = { version = "1.0.4", optional = true }
+serde = "1.0.219"
+thiserror = "2.0.12"
+
+[dev-dependencies]
+regex = "1.11.1"
+serde_json = "1.0.142"
