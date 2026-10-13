@@ -34,10 +34,8 @@ pub mod unreadable;
 pub mod workspace;
 
 pub use {
-    context::{Context, MachineClass},
-    estate::{
-        EstateConflict, EstateDeclaration, EstateName, EstateOwner, Estates, resolve_estates,
-    },
+    context::Context,
+    estate::{EstateConflict, EstateDeclaration, resolve_estates},
     generation::{BUILD_GENERATION, Generation, OLDEST_READABLE_GENERATION},
     identity::{Identity, LinkPath},
     migration::Migration,
@@ -53,13 +51,17 @@ pub use {
     resource::{
         Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,
         ClaudeMcpServer, CloneDepth, Command, DartPackage, DartReference, DartSource,
-        EnvironmentVariable, GitHubRepository, Installer, MachineManifest, McpScope, Package,
-        RecordedRun, RecordedSource, Registration, ReleasedBinary, RenderedManifest,
-        RepositoryClone, Resource, ResourceKind, SearchPathDirectory, SearchPathEntry, Shell,
-        Symlink, UvToolPackage, Variable, VersionWord, WingetPackage,
+        EnvironmentVariable, GitHubRepository, Installer, McpScope, Package, Registration,
+        ReleasedBinary, RenderedManifest, RepositoryClone, Resource, ResourceKind,
+        SearchPathDirectory, SearchPathEntry, Shell, Symlink, UvToolPackage, Variable, VersionWord,
+        WingetPackage, recorded_run_in,
     },
     unreadable::Unreadable,
     workspace::CargoWorkspace,
+};
+
+pub use machine_manifest_document::{
+    EstateName, Estates, EstatesRefused, MachineClass, MachineManifest, RecordedRun, RecordedSource,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

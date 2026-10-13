@@ -41,6 +41,8 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 semver = "1.0.28"
 workspace-lock = { path = "crates/workspace-lock" }
 sha2 = "0.11.0"
+github-owner = { path = "crates/github-owner", features = ["schema"] }
+machine-manifest-document = { path = "crates/machine-manifest-document", features = ["schema"] }
 
 [dev-dependencies]
 bytes = "1.10.1"
@@ -62,6 +64,8 @@ semver = "1.0.28"
 serde_path_to_error = "0.1.17"
 strum = { version = "0.28.0", features = ["derive"] }
 url = { version = "2.5.4", features = ["serde"] }
+github-owner = { path = "crates/github-owner", features = ["schema"] }
+machine-manifest-document = { path = "crates/machine-manifest-document", features = ["schema"] }
 
 [target.'cfg(target_family = "windows")'.build-dependencies]
 winresource = "0.1.23"

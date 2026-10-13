@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Machine manifest",
+  "description": "What dotfiles_configurator apply records about this machine, for the tools that read it.",
+  "type": "object",
+  "properties": {
+    "machine": {
+      "$ref": "#/$defs/MachineManifest"
+    }
+  },
+  "required": [
+    "machine"
+  ],
+  "$defs": {
+    "EstateName": {
+      "description": "The name of an estate, which also names its directory: letters, digits, '-' and '_' alone.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "Estates": {
+      "description": "Each estate on this machine and the owners it groups. An estate is named once, lists an owner once, and an owner belongs to one estate.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/Owner"
+        },
+        "uniqueItems": true
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/EstateName"
+      }
+    },
+    "MachineClass": {
+      "description": "The class of machine the run that wrote this manifest applied.",
+      "type": "string",
+      "enum": [
+        "personal",
+        "work"
+      ]
+    },
+    "MachineManifest": {
+      "type": "object",
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/MachineClass"
+        },
+        "configuration_sources": {
+          "description": "The configuration sources the run that wrote this manifest was given, as it was given them.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "estates": {
+          "$ref": "#/$defs/Estates"
+        },
+        "repositories_directory_path": {
+          "description": "The directory this machine's class of repositories is cloned into; the directory above it is where discovery starts.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositories_directory_path",
+        "estates",
+        "class",
+        "configuration_sources"
+      ]
+    },
+    "Owner": {
+      "description": "An account or organisation that owns repositories on GitHub, compared without regard to case.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9-]+$"
+    }
+  }
+}

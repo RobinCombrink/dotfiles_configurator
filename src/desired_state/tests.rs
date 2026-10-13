@@ -69,8 +69,8 @@ fn merged(configurations: Vec<ResolvedConfiguration>) -> Result<DesiredState, Ir
         configurations,
         RenderedManifest::try_from(crate::configuration::MachineManifest {
             repositories_directory_path: Path::new(REPOSITORIES_ROOT)
-                .join(MachineClass::Personal.repositories_leaf()),
-            estates: crate::configuration::Estates::new(),
+                .join(Context::from(MachineClass::Personal).repositories_leaf()),
+            estates: crate::configuration::Estates::default(),
             recorded_run: crate::configuration::RecordedRun {
                 class: MachineClass::Personal,
                 configuration_sources: Vec::new(),
@@ -138,7 +138,7 @@ fn the_machine_manifest_names_the_repositories_directory_of_the_class_the_run_is
         vec![format!(
             "registration machine manifest naming {}",
             Path::new(REPOSITORIES_ROOT)
-                .join(MachineClass::Personal.repositories_leaf())
+                .join(Context::from(MachineClass::Personal).repositories_leaf())
                 .display()
         )]
     );

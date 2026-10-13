@@ -88,8 +88,9 @@ pub const RECORDED_SOURCE: &str = "github:Alice/dotfiles/config";
 
 pub fn manifest_for(machine: MachineClass) -> MachineManifest {
     MachineManifest {
-        repositories_directory_path: repositories_root_path().join(machine.repositories_leaf()),
-        estates: Estates::new(),
+        repositories_directory_path: repositories_root_path()
+            .join(Context::from(machine).repositories_leaf()),
+        estates: Estates::default(),
         recorded_run: RecordedRun {
             class: machine,
             configuration_sources: vec![RecordedSource::from(RECORDED_SOURCE.to_owned())],

@@ -227,7 +227,8 @@ pub async fn load_desired_state(
     }
 
     let machine_manifest = RenderedManifest::try_from(MachineManifest {
-        repositories_directory_path: repositories_root.join(machine.repositories_leaf()),
+        repositories_directory_path: repositories_root
+            .join(Context::from(machine).repositories_leaf()),
         estates,
         recorded_run: RecordedRun {
             class: machine,

@@ -17,12 +17,12 @@ use {
             Application, ApplicationName, ApplicationSource, AssetPattern, BUILD_GENERATION,
             BinaryName, Candidates, CargoWorkspace, ClaudeMcpServer, CloneDepth, Configuration,
             ConfigurationName, Context, CrateName, CrateVersion, DartPackage, DartReference,
-            DartSource, DeclaredNotice, EnvironmentVariable, EstateName, EstateOwner, Estates,
-            GitHubAccount, Installer, MachineClass, MachineManifest, McpScope, McpServerName,
-            Migration, Notice, OLDEST_READABLE_GENERATION, Package, PackageCurrency, PresenceCheck,
-            PythonInterpreter, RecordedRun, RecordedSource, Registration, RepositoryClone,
-            Resource, SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
-            UvToolVersion, Variable, VariableName, VariableValue, WingetVersion,
+            DartSource, DeclaredNotice, EnvironmentVariable, EstateName, Estates, GitHubAccount,
+            Installer, MachineClass, MachineManifest, McpScope, McpServerName, Migration, Notice,
+            OLDEST_READABLE_GENERATION, Package, PackageCurrency, PresenceCheck, PythonInterpreter,
+            RecordedRun, RecordedSource, Registration, RepositoryClone, Resource,
+            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
+            UvToolVersion, Variable, VariableName, VariableValue, WingetVersion, recorded_run_in,
         },
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -50,6 +50,8 @@ use {
         CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED, FakeMachine, LauncherCopy,
         dotfiles_repository_path, filesystem_root, repositories_root_path,
     },
+    github_owner::Owner,
+    machine_manifest_document::Document,
     std::{
         cell::Cell,
         collections::{BTreeMap, BTreeSet},
@@ -1551,10 +1553,10 @@ impl MachineWorld {
     }
 
     fn loaded_estates(&self) -> Estates {
-        let document: serde_json::Value =
-            serde_json::from_str(&self.loaded_manifest()).expect("a manifest is JSON");
-        serde_json::from_value(document["machine"]["estates"].clone())
-            .expect("a manifest names its estates")
+        serde_json::from_str::<Document>(&self.loaded_manifest())
+            .expect("a manifest decodes whole")
+            .machine
+            .estates
     }
 }
 
@@ -1567,7 +1569,7 @@ fn manifest_records_the_run(world: &mut MachineWorld) {
         .collect();
 
     assert_eq!(
-        RecordedRun::read_from(&world.loaded_manifest()).expect("a manifest records its run"),
+        recorded_run_in(&world.loaded_manifest()).expect("a manifest records its run"),
         RecordedRun {
             class: MachineClass::Personal,
             configuration_sources: named,
@@ -1578,10 +1580,11 @@ fn manifest_records_the_run(world: &mut MachineWorld) {
 #[then(expr = "the machine's manifest places {string} in the estate {string}")]
 fn manifest_places_owner_in_estate(world: &mut MachineWorld, owner: String, estate: String) {
     let estates = world.loaded_estates();
-    let owners = estates.get(&EstateName::try_from(estate.as_str()).unwrap());
+    let placed = estates.estate_of(&Owner::try_from(owner.as_str()).expect("an owner"));
 
-    assert!(
-        owners.is_some_and(|owners| owners.contains(&EstateOwner::from(owner.as_str()))),
+    assert_eq!(
+        placed,
+        Some(&EstateName::try_from(estate.as_str()).unwrap()),
         "expected {owner} in the estate {estate}, got {estates:?}"
     );
 }
@@ -1590,10 +1593,9 @@ fn manifest_places_owner_in_estate(world: &mut MachineWorld, owner: String, esta
 fn manifest_places_owner_in_no_estate(world: &mut MachineWorld, owner: String) {
     let estates = world.loaded_estates();
 
-    assert!(
-        !estates
-            .values()
-            .any(|owners| owners.contains(&EstateOwner::from(owner.as_str()))),
+    assert_eq!(
+        estates.estate_of(&Owner::try_from(owner.as_str()).expect("an owner")),
+        None,
         "expected {owner} in no estate, got {estates:?}"
     );
 }

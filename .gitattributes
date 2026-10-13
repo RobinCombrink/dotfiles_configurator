@@ -1,4 +1,5 @@
 schema/configuration_schema.json text eol=lf
+schema/machine.schema.json text eol=lf
 
 # The migration fixtures are compared byte for byte against what a writeback produces, and a
 # writeback writes LF. Without this, core.autocrlf checks them out with CRLF and the comparison

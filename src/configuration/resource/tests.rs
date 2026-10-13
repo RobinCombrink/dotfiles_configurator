@@ -1,7 +1,8 @@
 use {
     super::*,
-    crate::configuration::estate::{EstateName, EstateOwner},
-    std::collections::BTreeSet,
+    github_owner::Owner,
+    machine_manifest_document::{EstateName, Estates, MachineClass, RecordedSource},
+    std::path::Path,
 };
 
 fn repository_resource(fields: &str) -> Result<Resource, serde_json::Error> {
@@ -119,7 +120,7 @@ fn rendered(manifest: MachineManifest) -> String {
 fn a_registered_manifest_is_written_out_as_the_document_it_renders() {
     let manifest = RenderedManifest::try_from(MachineManifest {
         repositories_directory_path: PathBuf::from("/repositories/Personal"),
-        estates: Estates::new(),
+        estates: Estates::default(),
         recorded_run: RecordedRun {
             class: MachineClass::Personal,
             configuration_sources: Vec::new(),
@@ -147,7 +148,7 @@ fn a_registered_manifest_is_written_out_as_the_document_it_renders() {
 fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own() {
     let document = rendered(MachineManifest {
         repositories_directory_path: PathBuf::from("/repositories/Personal"),
-        estates: Estates::new(),
+        estates: Estates::default(),
         recorded_run: RecordedRun {
             class: MachineClass::Personal,
             configuration_sources: Vec::new(),
@@ -165,7 +166,7 @@ fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own()
 fn the_manifest_records_the_class_and_the_sources_of_the_run_that_wrote_it_as_written() {
     let document = rendered(MachineManifest {
         repositories_directory_path: PathBuf::from("/repositories/Work"),
-        estates: Estates::new(),
+        estates: Estates::default(),
         recorded_run: RecordedRun {
             class: MachineClass::Work,
             configuration_sources: vec![
@@ -190,19 +191,19 @@ fn the_manifest_records_the_class_and_the_sources_of_the_run_that_wrote_it_as_wr
 
 #[test]
 fn the_manifest_names_each_estate_with_its_owners_as_they_were_spelled() {
-    let estates = Estates::from([
-        (
+    let owner = |spelled: &str| Owner::try_from(spelled).expect("an owner");
+    let estates = Estates::default()
+        .with(
             EstateName::try_from("personal").unwrap(),
-            BTreeSet::from([EstateOwner::from("RobinCombrink")]),
-        ),
-        (
-            EstateName::try_from("work").unwrap(),
-            BTreeSet::from([
-                EstateOwner::from("skynamo"),
-                EstateOwner::from("Robin-Combrink"),
-            ]),
-        ),
-    ]);
+            [owner("RobinCombrink")],
+        )
+        .and_then(|estates| {
+            estates.with(
+                EstateName::try_from("work").unwrap(),
+                [owner("skynamo"), owner("Robin-Combrink")],
+            )
+        })
+        .expect("estates no owner is in twice");
 
     let document = rendered(MachineManifest {
         repositories_directory_path: PathBuf::from("/repositories/Work"),

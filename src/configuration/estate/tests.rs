@@ -17,13 +17,18 @@ fn configuration(account: &str, estate: Option<EstateDeclaration>) -> Configurat
     }
 }
 
+fn owner(spelled: &str) -> Owner {
+    Owner::try_from(spelled).expect("an owner")
+}
+
+fn estate(named: &str) -> EstateName {
+    EstateName::try_from(named).expect("an estate name")
+}
+
 fn declaring(name: &str, owners: &[&str]) -> Option<EstateDeclaration> {
     Some(EstateDeclaration {
-        name: EstateName::try_from(name).unwrap(),
-        owners: owners
-            .iter()
-            .map(|owner| EstateOwner::from(*owner))
-            .collect(),
+        name: estate(name),
+        owners: owners.iter().map(|spelled| owner(spelled)).collect(),
     })
 }
 
@@ -41,8 +46,8 @@ fn resolved(configurations: &[Configuration]) -> Result<Estates, EstateConflict>
     resolve_estates(names.iter().zip(configurations))
 }
 
-fn owners(names: &[&str]) -> BTreeSet<EstateOwner> {
-    names.iter().map(|name| EstateOwner::from(*name)).collect()
+fn owners(names: &[&str]) -> BTreeSet<Owner> {
+    names.iter().map(|name| owner(name)).collect()
 }
 
 #[test]
@@ -55,8 +60,8 @@ fn an_estate_holds_its_account_its_workspaces_owners_and_the_owners_it_names() {
     let estates = resolved(&[work]).unwrap();
 
     assert_eq!(
-        estates[&EstateName::try_from("work").unwrap()],
-        owners(&["Robin-Combrink", "RobinTools", "skynamo"])
+        estates.owners_of(&estate("work")),
+        Some(&owners(&["Robin-Combrink", "RobinTools", "skynamo"]))
     );
 }
 
@@ -70,8 +75,8 @@ fn the_owner_of_a_repository_an_estate_only_clones_is_not_one_of_its_owners() {
     let estates = resolved(&[personal]).unwrap();
 
     assert_eq!(
-        estates[&EstateName::try_from("personal").unwrap()],
-        owners(&["RobinCombrink"])
+        estates.owners_of(&estate("personal")),
+        Some(&owners(&["RobinCombrink"]))
     );
 }
 
@@ -90,7 +95,10 @@ fn one_owner_named_twice_within_an_estate_is_one_owner() {
 
     let estates = resolved(&[personal]).unwrap();
 
-    assert_eq!(estates[&EstateName::try_from("personal").unwrap()].len(), 1);
+    assert_eq!(
+        estates.owners_of(&estate("personal")).map(BTreeSet::len),
+        Some(1)
+    );
 }
 
 #[test]
@@ -101,10 +109,10 @@ fn an_estate_declared_by_two_configurations_is_refused() {
     ])
     .unwrap_err();
 
-    let EstateConflict::DeclaredTwice { estate, .. } = refusal else {
+    let EstateConflict::DeclaredTwice { estate: twice, .. } = refusal else {
         panic!("expected the estate to be refused as declared twice, got: {refusal}");
     };
-    assert_eq!(estate, EstateName::try_from("personal").unwrap());
+    assert_eq!(twice, estate("personal"));
 }
 
 #[test]
@@ -115,24 +123,25 @@ fn an_owner_in_two_estates_is_refused_whatever_its_capitalisation() {
     ])
     .unwrap_err();
 
-    let EstateConflict::OwnerInTwoEstates { owner, .. } = refusal else {
+    let EstateConflict::Refused(EstatesRefused::OwnerInTwoEstates { owner: twice, .. }) = refusal
+    else {
         panic!("expected the owner to be refused as in two estates, got: {refusal}");
     };
-    assert_eq!(owner, EstateOwner::from("RobinCombrink"));
+    assert_eq!(twice, owner("RobinCombrink"));
 }
 
 #[test]
-fn an_estate_name_holding_a_separator_is_refused() {
-    assert!(EstateName::try_from("work/skynamo").is_err());
-    assert!(EstateName::try_from("work\\skynamo").is_err());
+fn an_estate_acting_as_an_account_github_would_not_name_is_refused() {
+    let refusal =
+        resolved(&[configuration("Robin Combrink", declaring("personal", &[]))]).unwrap_err();
+
+    let EstateConflict::NotAnOwner { cause, .. } = refusal else {
+        panic!("expected the account to be refused as no owner, got: {refusal}");
+    };
+    assert_eq!(cause, NotAnOwner("Robin Combrink".to_owned()));
 }
 
 #[test]
-fn an_empty_estate_name_is_refused() {
-    assert!(EstateName::try_from("").is_err());
-}
-
-#[test]
-fn an_estate_named_for_a_windows_device_is_refused_in_any_case() {
-    assert!(EstateName::try_from("Com1").is_err());
+fn a_configuration_declaring_no_estate_may_act_as_any_account() {
+    assert!(resolved(&[configuration("Robin Combrink", None)]).is_ok());
 }

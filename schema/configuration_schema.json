@@ -449,7 +449,7 @@
         "owners": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/EstateOwner"
+            "$ref": "#/$defs/Owner"
           }
         }
       },
@@ -461,10 +461,6 @@
       "description": "The name of an estate, which also names its directory: letters, digits, '-' and '_' alone.",
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]+$"
-    },
-    "EstateOwner": {
-      "description": "An account or organisation that owns repositories on GitHub.",
-      "type": "string"
     },
     "Generation": {
       "type": "string",
@@ -524,6 +520,11 @@
     "McpServerName": {
       "description": "The name Claude Code holds an MCP server under.",
       "type": "string"
+    },
+    "Owner": {
+      "description": "An account or organisation that owns repositories on GitHub, compared without regard to case.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9-]+$"
     },
     "Package": {
       "description": "A resource whose installation is owned by a package manager, which is consequently also what\ncan be asked whether it is installed. Which manager owns it is part of what the resource is,\nso it is the variant rather than a field.",

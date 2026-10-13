@@ -1,8 +1,6 @@
 use {
     crate::{
         configuration::{
-            context::MachineClass,
-            estate::Estates,
             names::{
                 ApplicationName, BinaryName, CrateName, CrateVersion, DartPackageName, GitCommit,
                 GitHubAccount, GitReferenceName, GitRemoteUrl, McpServerName, PythonInterpreter,
@@ -15,13 +13,14 @@ use {
         },
         version::Version,
     },
+    machine_manifest_document::{Document, MachineManifest, RecordedRun},
     schemars::JsonSchema,
     serde::{Deserialize, Serialize},
     std::{
         collections::BTreeMap,
         fmt::Display,
         num::{NonZeroU32, NonZeroUsize},
-        path::{Path, PathBuf},
+        path::PathBuf,
     },
     strum::EnumDiscriminants,
     url::Url,
@@ -802,54 +801,13 @@ pub struct ClaudeMcpServer {
     pub environment: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct MachineManifest {
-    pub repositories_directory_path: PathBuf,
-    pub estates: Estates,
-    #[serde(flatten)]
-    pub recorded_run: RecordedRun,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RecordedRun {
-    pub class: MachineClass,
-    pub configuration_sources: Vec<RecordedSource>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct RecordedSource(String);
-
-impl RecordedSource {
-    pub fn as_written(&self) -> &str {
-        &self.0
+pub fn recorded_run_in(manifest: &str) -> Result<RecordedRun, serde_json::Error> {
+    #[derive(Deserialize)]
+    struct RecordedOnly {
+        machine: RecordedRun,
     }
-}
 
-impl RecordedRun {
-    pub fn read_from(manifest: &str) -> Result<Self, serde_json::Error> {
-        #[derive(Deserialize)]
-        struct Document {
-            machine: RecordedRun,
-        }
-
-        serde_json::from_str::<Document>(manifest).map(|document| document.machine)
-    }
-}
-
-impl From<String> for RecordedSource {
-    fn from(written: String) -> Self {
-        Self(written)
-    }
-}
-
-const MANIFEST_DIRECTORY: &str = ".dotconfig";
-const MANIFEST_FILE: &str = "machine.json";
-
-impl MachineManifest {
-    pub fn path_within(home_directory: &Path) -> PathBuf {
-        home_directory.join(MANIFEST_DIRECTORY).join(MANIFEST_FILE)
-    }
+    serde_json::from_str::<RecordedOnly>(manifest).map(|document| document.machine)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -862,14 +820,11 @@ impl TryFrom<MachineManifest> for RenderedManifest {
     type Error = serde_json::Error;
 
     fn try_from(manifest: MachineManifest) -> Result<Self, Self::Error> {
-        #[derive(Serialize)]
-        struct Document<'manifest> {
-            machine: &'manifest MachineManifest,
-        }
+        let repositories_directory_path = manifest.repositories_directory_path.clone();
 
         Ok(Self {
-            document: serde_json::to_string_pretty(&Document { machine: &manifest })?,
-            repositories_directory_path: manifest.repositories_directory_path,
+            document: serde_json::to_string_pretty(&Document { machine: manifest })?,
+            repositories_directory_path,
         })
     }
 }

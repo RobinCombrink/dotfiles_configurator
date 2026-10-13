@@ -1,6 +1,6 @@
 use {
     crate::{
-        configuration::{MachineClass, MachineManifest, RecordedRun, RecordedSource},
+        configuration::{MachineClass, MachineManifest, RecordedSource, recorded_run_in},
         configuration_source::{ConfigurationSource, DEFAULT_SOURCE},
         machine::ReadMachine,
     },
@@ -127,7 +127,7 @@ impl PlannedRun {
             }
         };
         let recorded =
-            RecordedRun::read_from(&document).map_err(|error| UnrecordedRun::NoRecordedRun {
+            recorded_run_in(&document).map_err(|error| UnrecordedRun::NoRecordedRun {
                 manifest: manifest.clone(),
                 cause: error.to_string(),
             })?;
