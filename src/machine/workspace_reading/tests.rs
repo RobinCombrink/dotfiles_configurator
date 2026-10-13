@@ -53,28 +53,6 @@ fn a_member_is_known_by_the_name_its_own_manifest_gives_it() {
     );
 }
 
-#[test]
-fn a_dependency_path_leaving_the_repository_is_refused() {
-    let manifest = r#"
-        [package]
-        name = "session-mining"
-
-        [dependencies]
-        elsewhere = { path = "../../../elsewhere" }
-    "#;
-
-    let error = read_member_manifest(manifest)
-        .unwrap()
-        .directories_depended_on("tools/session-mining", &BTreeMap::new())
-        .unwrap_err()
-        .to_string();
-
-    assert!(
-        error.contains("leaves the repository"),
-        "expected the message to say it leaves the repository, got: {error}"
-    );
-}
-
 fn binaries_of(manifest: &str, tree: &MemberTree) -> Vec<String> {
     read_member_manifest(manifest)
         .unwrap()

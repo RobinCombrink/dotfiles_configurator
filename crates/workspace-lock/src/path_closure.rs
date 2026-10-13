@@ -23,7 +23,7 @@ impl RepositoryDirectory {
         Self(String::new())
     }
 
-    pub(crate) fn manifest(&self) -> String {
+    pub fn manifest(&self) -> String {
         if self.0.is_empty() {
             return "Cargo.toml".to_owned();
         }

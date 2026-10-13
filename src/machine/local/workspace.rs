@@ -2,9 +2,8 @@ use {
     crate::{
         configuration::{BinaryName, CrateName},
         machine::workspace_reading::{
-            Fingerprint, InferableBinary, MemberManifest, MemberReading, MemberTree, ObjectHash,
-            Revision, WorkspaceReading, inherited_dependency_paths, member_paths,
-            read_member_manifest,
+            Fingerprint, InferableBinary, MemberReading, MemberTree, ObjectHash, Revision,
+            WorkspaceReading, member_paths, read_member_manifest,
         },
     },
     anyhow::{Context, Result, anyhow},
@@ -13,7 +12,7 @@ use {
         collections::{BTreeMap, BTreeSet},
         path::Path,
     },
-    workspace_lock::{WorkspaceLock, inherited_by},
+    workspace_lock::{BuildClosure, WorkspaceLock, inherited_by},
 };
 
 struct MemberAtRevision {
@@ -98,7 +97,6 @@ fn members_at(
 
     let manifest = blob_text(repository, &tree, "Cargo.toml")?;
     let lock = WorkspaceLock::read(&blob_text(repository, &tree, "Cargo.lock")?)?;
-    let inherited_paths = inherited_dependency_paths(&manifest)?;
 
     let mut members = BTreeMap::new();
     for path in member_paths(&manifest)? {
@@ -116,14 +114,7 @@ fn members_at(
 
         let binaries = member.binaries(&member_tree);
         if !binaries.is_empty() {
-            let mut closure = path_dependency_closure(
-                repository,
-                &tree,
-                &path,
-                &member,
-                &manifest,
-                &inherited_paths,
-            )?;
+            let mut closure = path_dependency_closure(repository, &tree, &path, &manifest)?;
             closure.workspace_bindings.insert(path, workspace_binding);
             let lock_closure = content_hash(lock.closure_of(member.name.as_ref())?.as_str())?;
             members.insert(
@@ -164,31 +155,29 @@ fn path_dependency_closure(
     repository: &Repository,
     tree: &Tree,
     member_path: &str,
-    member: &MemberManifest,
     workspace_manifest: &str,
-    inherited_paths: &BTreeMap<String, String>,
 ) -> Result<PathDependencyClosure> {
+    let build_closure = BuildClosure::of(workspace_manifest, member_path, |directory| {
+        blob_text(repository, tree, &directory.manifest()).ok()
+    })
+    .with_context(|| format!("the path dependencies of \"{member_path}\" could not be walked"))?;
+
     let mut closure = PathDependencyClosure {
         subtrees: BTreeMap::new(),
         workspace_bindings: BTreeMap::new(),
     };
-    let mut pending = member.directories_depended_on(member_path, inherited_paths)?;
-    while let Some(directory) = pending.pop() {
-        if directory == member_path || closure.subtrees.contains_key(&directory) {
-            continue;
-        }
-        let subtree = entry_hash(tree, &directory).ok_or_else(|| {
+    for reached in build_closure.directories() {
+        let directory = reached.as_str();
+        let subtree = entry_hash(tree, directory).ok_or_else(|| {
             anyhow!("\"{directory}\", which \"{member_path}\" depends on, is not in the repository")
         })?;
-        closure.subtrees.insert(directory.clone(), subtree);
+        closure.subtrees.insert(directory.to_owned(), subtree);
 
-        let dependency_manifest = blob_text(repository, tree, &format!("{directory}/Cargo.toml"))?;
+        let dependency_manifest = blob_text(repository, tree, &reached.manifest())?;
         closure.workspace_bindings.insert(
-            directory.clone(),
-            workspace_binding(workspace_manifest, &directory, &dependency_manifest)?,
+            directory.to_owned(),
+            workspace_binding(workspace_manifest, directory, &dependency_manifest)?,
         );
-        let dependency = read_member_manifest(&dependency_manifest)?;
-        pending.extend(dependency.directories_depended_on(&directory, inherited_paths)?);
     }
     Ok(closure)
 }
