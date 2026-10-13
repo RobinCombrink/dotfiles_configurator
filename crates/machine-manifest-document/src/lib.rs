@@ -1,0 +1,95 @@
+#![cfg_attr(test, allow(clippy::disallowed_macros))]
+
+mod estates;
+mod machine_class;
+
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+pub use estates::{EstateName, Estates, EstatesRefused, NotAnEstateName};
+pub use machine_class::MachineClass;
+
+pub const MANIFEST_DIRECTORY: &str = ".dotconfig";
+pub const MANIFEST_FILE: &str = "machine.json";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(
+        title = "Machine manifest",
+        description = "What dotfiles_configurator apply records about this machine, for the tools \
+                       that read it."
+    )
+)]
+pub struct Document {
+    pub machine: MachineManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct MachineManifest {
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "The directory this machine's class of repositories is cloned into; the \
+                           directory above it is where discovery starts."
+        )
+    )]
+    pub repositories_directory_path: PathBuf,
+    pub estates: Estates,
+    #[serde(flatten)]
+    pub recorded_run: RecordedRun,
+}
+
+/// ```
+/// use std::path::Path;
+///
+/// use machine_manifest_document::MachineManifest;
+///
+/// assert_eq!(
+///     MachineManifest::path_within(Path::new("/home/alice")),
+///     Path::new("/home/alice").join(".dotconfig").join("machine.json")
+/// );
+/// ```
+impl MachineManifest {
+    pub fn path_within(home_directory: &Path) -> PathBuf {
+        home_directory.join(MANIFEST_DIRECTORY).join(MANIFEST_FILE)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RecordedRun {
+    pub class: MachineClass,
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            description = "The configuration sources the run that wrote this manifest was given, \
+                           as it was given them."
+        )
+    )]
+    pub configuration_sources: Vec<RecordedSource>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(transparent)]
+#[repr(transparent)]
+pub struct RecordedSource(String);
+
+impl RecordedSource {
+    pub fn as_written(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for RecordedSource {
+    fn from(written: String) -> Self {
+        Self(written)
+    }
+}
+
+#[cfg(test)]
+mod tests;
