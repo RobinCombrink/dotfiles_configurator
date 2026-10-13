@@ -1,3 +1,7 @@
+mod path_closure;
+
+pub use path_closure::{BuildClosure, RepositoryDirectory, TestClosure};
+
 use {
     cargo_lock::{Lockfile, dependency::Tree},
     std::{
@@ -61,6 +65,45 @@ impl Display for ManifestRefusal {
 }
 
 impl std::error::Error for ManifestRefusal {}
+
+#[derive(Debug)]
+pub enum PathClosureRefusal {
+    OutsideTheRepository {
+        declared_in: RepositoryDirectory,
+        path: String,
+    },
+    Unanswered(RepositoryDirectory),
+    Unparsable {
+        directory: RepositoryDirectory,
+        error: toml::de::Error,
+    },
+}
+
+impl Display for PathClosureRefusal {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutsideTheRepository { declared_in, path } => write!(
+                formatter,
+                "the path \"{path}\" declared in {} is not inside the repository",
+                declared_in.manifest()
+            ),
+            Self::Unanswered(directory) => write!(
+                formatter,
+                "{}, which the closure reaches, could not be read",
+                directory.manifest()
+            ),
+            Self::Unparsable { directory, error } => {
+                write!(
+                    formatter,
+                    "{} does not parse: {error}",
+                    directory.manifest()
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for PathClosureRefusal {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LockClosure(String);
@@ -134,7 +177,7 @@ impl WorkspaceLock {
 
 const BOUND_WITHOUT_OPTING_IN: [&str; 3] = ["profile", "patch", "replace"];
 
-const DEPENDENCY_TABLES: [&str; 5] = [
+pub(crate) const DEPENDENCY_TABLES: [&str; 5] = [
     "dependencies",
     "dev-dependencies",
     "dev_dependencies",
@@ -222,7 +265,7 @@ fn effective_resolver(
     Ok(toml::Value::String(resolver.to_owned()))
 }
 
-fn opts_into_the_workspace(value: &toml::Value) -> bool {
+pub(crate) fn opts_into_the_workspace(value: &toml::Value) -> bool {
     value
         .as_table()
         .and_then(|table| table.get("workspace"))
