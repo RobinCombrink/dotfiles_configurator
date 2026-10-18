@@ -51,8 +51,29 @@ fn a_manifest_carrying_keys_no_reader_reads_still_decodes() {
     let document = decoded(carrying).expect("a manifest with keys nobody reads");
 
     assert_eq!(
-        document.machine.repositories_directory_path,
-        PathBuf::from("/repositories/Personal")
+        document.machine.repositories_directory_path.as_path(),
+        Path::new("/repositories/Personal")
+    );
+}
+
+#[test]
+fn a_relative_repositories_directory_is_refused_when_the_manifest_decodes() {
+    let mut relative = written();
+    relative["machine"]["repositories_directory_path"] = json!("Repositories");
+
+    let refusal = decoded(relative).expect_err("a manifest naming a relative directory");
+
+    assert!(refusal.is_data(), "{refusal}");
+}
+
+#[test]
+fn a_directory_is_rooted_or_it_names_itself_in_its_refusal() {
+    let rooted = RepositoriesDirectory::try_from(PathBuf::from("/repositories/Personal"))
+        .expect("a rooted directory");
+    assert_eq!(rooted.as_path(), Path::new("/repositories/Personal"));
+    assert_eq!(
+        RepositoriesDirectory::try_from(PathBuf::from("Repositories")),
+        Err(NotRooted(PathBuf::from("Repositories")))
     );
 }
 

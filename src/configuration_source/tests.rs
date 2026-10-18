@@ -530,6 +530,34 @@ async fn a_manifest_that_cannot_be_written_out_is_refused_at_load_naming_why() {
 }
 
 #[tokio::test]
+async fn a_relative_repositories_root_is_refused_at_load_naming_the_directory() {
+    let checkout = temporary_checkout("relative_repositories_root");
+    write_configuration(&checkout, "everywhere.dotconfig.json", "everywhere", "");
+    write_configuration(&checkout, "personal.dotconfig.json", "personal", "");
+
+    let error = load_desired_state(
+        &[ConfigurationSource::LocalDirectory(absolute(
+            checkout.join("config"),
+        ))],
+        MachineClass::Personal,
+        Path::new("Repositories"),
+        &GitHubAccess::new(),
+    )
+    .await
+    .unwrap_err();
+
+    let LoadFailure::Irreconcilable(Irreconcilable::RelativeRepositoriesDirectory(refusal)) =
+        &error
+    else {
+        panic!("expected the relative directory to be refused, got {error:?}");
+    };
+    assert_eq!(
+        refusal.0,
+        Path::new("Repositories").join(Context::from(MachineClass::Personal).repositories_leaf())
+    );
+}
+
+#[tokio::test]
 async fn a_directory_inside_no_checkout_has_nothing_to_read_a_configurations_files_out_of() {
     let outside_any_checkout = env::temp_dir()
         .join("dotfiles_configuration_source_tests")

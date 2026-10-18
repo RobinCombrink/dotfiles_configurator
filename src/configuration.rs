@@ -61,7 +61,8 @@ pub use {
 };
 
 pub use machine_manifest_document::{
-    EstateName, Estates, EstatesRefused, MachineClass, MachineManifest, RecordedRun, RecordedSource,
+    EstateName, Estates, EstatesRefused, MachineClass, MachineManifest, NotRooted, RecordedRun,
+    RecordedSource, RepositoriesDirectory,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

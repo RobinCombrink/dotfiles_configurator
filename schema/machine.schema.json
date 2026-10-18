@@ -56,8 +56,7 @@
           "$ref": "#/$defs/Estates"
         },
         "repositories_directory_path": {
-          "description": "The directory this machine's class of repositories is cloned into; the directory above it is where discovery starts.",
-          "type": "string"
+          "$ref": "#/$defs/RepositoriesDirectory"
         }
       },
       "required": [
@@ -71,6 +70,10 @@
       "description": "An account or organisation that owns repositories on GitHub, compared without regard to case.",
       "type": "string",
       "pattern": "^[A-Za-z0-9-]+$"
+    },
+    "RepositoriesDirectory": {
+      "description": "The directory this machine's class of repositories is cloned into, rooted at a filesystem root; the directory above it is where discovery starts.",
+      "type": "string"
     }
   }
 }

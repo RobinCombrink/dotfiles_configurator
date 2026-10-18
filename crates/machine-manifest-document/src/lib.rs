@@ -2,6 +2,7 @@
 
 mod estates;
 mod machine_class;
+mod repositories_directory;
 
 use std::path::{Path, PathBuf};
 
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 pub use estates::{EstateName, Estates, EstatesRefused, NotAnEstateName};
 pub use machine_class::MachineClass;
+pub use repositories_directory::{NotRooted, RepositoriesDirectory};
 
 pub const MANIFEST_DIRECTORY: &str = ".dotconfig";
 pub const MANIFEST_FILE: &str = "machine.json";
@@ -30,14 +32,7 @@ pub struct Document {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct MachineManifest {
-    #[cfg_attr(
-        feature = "schema",
-        schemars(
-            description = "The directory this machine's class of repositories is cloned into; the \
-                           directory above it is where discovery starts."
-        )
-    )]
-    pub repositories_directory_path: PathBuf,
+    pub repositories_directory_path: RepositoriesDirectory,
     pub estates: Estates,
     #[serde(flatten)]
     pub recorded_run: RecordedRun,

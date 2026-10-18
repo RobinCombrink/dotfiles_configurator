@@ -68,8 +68,11 @@ fn merged(configurations: Vec<ResolvedConfiguration>) -> Result<DesiredState, Ir
     DesiredState::of(
         configurations,
         RenderedManifest::try_from(crate::configuration::MachineManifest {
-            repositories_directory_path: Path::new(REPOSITORIES_ROOT)
-                .join(Context::from(MachineClass::Personal).repositories_leaf()),
+            repositories_directory_path: crate::configuration::RepositoriesDirectory::try_from(
+                Path::new(REPOSITORIES_ROOT)
+                    .join(Context::from(MachineClass::Personal).repositories_leaf()),
+            )
+            .expect("a rooted directory"),
             estates: crate::configuration::Estates::default(),
             recorded_run: crate::configuration::RecordedRun {
                 class: MachineClass::Personal,

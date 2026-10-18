@@ -2,8 +2,8 @@ use {
     crate::{
         configuration::{
             Application, CargoWorkspace, Configuration, ConfigurationName, Context, DeclaredNotice,
-            EnvironmentVariable, GitHubAccount, GitHubRepository, Identity, Migration, Notice,
-            Registration, RenderedManifest, Requirement, Resource, ResourceKind,
+            EnvironmentVariable, GitHubAccount, GitHubRepository, Identity, Migration, NotRooted,
+            Notice, Registration, RenderedManifest, Requirement, Resource, ResourceKind,
             SearchPathDirectory, SearchPathEntry,
         },
         configuration_source::AbsoluteDirectory,
@@ -408,6 +408,7 @@ pub enum Irreconcilable {
         second: Box<Claim>,
     },
     UnrenderableManifest(serde_json::Error),
+    RelativeRepositoriesDirectory(NotRooted),
 }
 
 const ONE_FOR_EACH: &str =
@@ -437,6 +438,10 @@ impl Display for Irreconcilable {
             Irreconcilable::UnrenderableManifest(failure) => write!(
                 formatter,
                 "The machine manifest could not be written out: {failure}"
+            ),
+            Irreconcilable::RelativeRepositoriesDirectory(refusal) => write!(
+                formatter,
+                "The machine manifest could not be written out: {refusal}"
             ),
         }
     }

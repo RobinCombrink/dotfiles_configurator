@@ -13,7 +13,7 @@ use {
         },
         version::Version,
     },
-    machine_manifest_document::{Document, MachineManifest, RecordedRun},
+    machine_manifest_document::{Document, MachineManifest, RecordedRun, RepositoriesDirectory},
     schemars::JsonSchema,
     serde::{Deserialize, Serialize},
     std::{
@@ -813,7 +813,7 @@ pub fn recorded_run_in(manifest: &str) -> Result<RecordedRun, serde_json::Error>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderedManifest {
     document: String,
-    repositories_directory_path: PathBuf,
+    repositories_directory_path: RepositoriesDirectory,
 }
 
 impl TryFrom<MachineManifest> for RenderedManifest {
@@ -840,7 +840,7 @@ impl Display for RenderedManifest {
         write!(
             formatter,
             "machine manifest naming {}",
-            self.repositories_directory_path.display()
+            self.repositories_directory_path.as_path().display()
         )
     }
 }

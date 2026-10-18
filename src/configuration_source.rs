@@ -3,8 +3,8 @@ use {
         configuration::{
             Configuration, ConfigurationName, Context, EstateConflict, GitHubAccount,
             GitHubRepository, MachineClass, MachineManifest, Migration, Notice, RecordedRun,
-            RecordedSource, RenderedManifest, RepositoryName, RepositoryOwner, Unreadable,
-            parse_configuration, resolve_estates,
+            RecordedSource, RenderedManifest, RepositoriesDirectory, RepositoryName,
+            RepositoryOwner, Unreadable, parse_configuration, resolve_estates,
         },
         desired_state::{DesiredState, Irreconcilable, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
@@ -226,9 +226,15 @@ pub async fn load_desired_state(
         ));
     }
 
+    let repositories_directory_path = RepositoriesDirectory::try_from(
+        repositories_root.join(Context::from(machine).repositories_leaf()),
+    )
+    .map_err(|refusal| {
+        LoadFailure::Irreconcilable(Irreconcilable::RelativeRepositoriesDirectory(refusal))
+    })?;
+
     let machine_manifest = RenderedManifest::try_from(MachineManifest {
-        repositories_directory_path: repositories_root
-            .join(Context::from(machine).repositories_leaf()),
+        repositories_directory_path,
         estates,
         recorded_run: RecordedRun {
             class: machine,

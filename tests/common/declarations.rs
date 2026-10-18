@@ -9,7 +9,8 @@ use {
             ArchiveEntry, AssetPattern, BUILD_GENERATION, CargoWorkspace, Configuration,
             ConfigurationName, Context, DeclaredNotice, Estates, GitHubAccount, GitHubRepository,
             MachineClass, MachineManifest, RecordedRun, RecordedSource, ReleasedBinary,
-            RenderedManifest, RepositoryName, RepositoryOwner, Resource, VersionWord,
+            RenderedManifest, RepositoriesDirectory, RepositoryName, RepositoryOwner, Resource,
+            VersionWord,
         },
         configuration_source::AbsoluteDirectory,
         desired_state::{DesiredState, ResolvedConfiguration, SourceLocation},
@@ -88,8 +89,10 @@ pub const RECORDED_SOURCE: &str = "github:Alice/dotfiles/config";
 
 pub fn manifest_for(machine: MachineClass) -> MachineManifest {
     MachineManifest {
-        repositories_directory_path: repositories_root_path()
-            .join(Context::from(machine).repositories_leaf()),
+        repositories_directory_path: RepositoriesDirectory::try_from(
+            repositories_root_path().join(Context::from(machine).repositories_leaf()),
+        )
+        .expect("a rooted directory"),
         estates: Estates::default(),
         recorded_run: RecordedRun {
             class: machine,

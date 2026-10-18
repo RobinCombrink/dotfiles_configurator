@@ -1,9 +1,15 @@
 use {
     super::*,
     github_owner::Owner,
-    machine_manifest_document::{EstateName, Estates, MachineClass, RecordedSource},
+    machine_manifest_document::{
+        EstateName, Estates, MachineClass, RecordedSource, RepositoriesDirectory,
+    },
     std::path::Path,
 };
+
+fn rooted(directory: &str) -> RepositoriesDirectory {
+    RepositoriesDirectory::try_from(PathBuf::from(directory)).expect("a rooted directory")
+}
 
 fn repository_resource(fields: &str) -> Result<Resource, serde_json::Error> {
     serde_json::from_str(&format!(
@@ -119,7 +125,7 @@ fn rendered(manifest: MachineManifest) -> String {
 #[test]
 fn a_registered_manifest_is_written_out_as_the_document_it_renders() {
     let manifest = RenderedManifest::try_from(MachineManifest {
-        repositories_directory_path: PathBuf::from("/repositories/Personal"),
+        repositories_directory_path: rooted("/repositories/Personal"),
         estates: Estates::default(),
         recorded_run: RecordedRun {
             class: MachineClass::Personal,
@@ -147,7 +153,7 @@ fn a_registered_manifest_is_written_out_as_the_document_it_renders() {
 #[test]
 fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own() {
     let document = rendered(MachineManifest {
-        repositories_directory_path: PathBuf::from("/repositories/Personal"),
+        repositories_directory_path: rooted("/repositories/Personal"),
         estates: Estates::default(),
         recorded_run: RecordedRun {
             class: MachineClass::Personal,
@@ -165,7 +171,7 @@ fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own()
 #[test]
 fn the_manifest_records_the_class_and_the_sources_of_the_run_that_wrote_it_as_written() {
     let document = rendered(MachineManifest {
-        repositories_directory_path: PathBuf::from("/repositories/Work"),
+        repositories_directory_path: rooted("/repositories/Work"),
         estates: Estates::default(),
         recorded_run: RecordedRun {
             class: MachineClass::Work,
@@ -206,7 +212,7 @@ fn the_manifest_names_each_estate_with_its_owners_as_they_were_spelled() {
         .expect("estates no owner is in twice");
 
     let document = rendered(MachineManifest {
-        repositories_directory_path: PathBuf::from("/repositories/Work"),
+        repositories_directory_path: rooted("/repositories/Work"),
         estates,
         recorded_run: RecordedRun {
             class: MachineClass::Work,
