@@ -4,7 +4,7 @@ use {
     std::{borrow::Cow, fmt::Display},
 };
 
-pub const BUILD_GENERATION: Generation = Generation(10);
+pub const BUILD_GENERATION: Generation = Generation(11);
 
 // ADR 0026
 pub const OLDEST_READABLE_GENERATION: Generation = Generation(BUILD_GENERATION.0 - 1);
