@@ -57,6 +57,16 @@
         },
         "repositories_directory_path": {
           "$ref": "#/$defs/RepositoriesDirectory"
+        },
+        "slots_per_bank": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SlotsPerBank"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -74,6 +84,14 @@
     "RepositoriesDirectory": {
       "description": "The directory this machine's class of repositories is cloned into, rooted at a filesystem root; the directory above it is where discovery starts.",
       "type": "string"
+    },
+    "SlotsPerBank": {
+      "description": "How many session slots one bank of this machine's screen holds.",
+      "type": "integer",
+      "enum": [
+        2,
+        3
+      ]
     }
   }
 }

@@ -94,6 +94,7 @@ pub fn manifest_for(machine: MachineClass) -> MachineManifest {
         )
         .expect("a rooted directory"),
         estates: Estates::default(),
+        slots_per_bank: None,
         recorded_run: RecordedRun {
             class: machine,
             configuration_sources: vec![RecordedSource::from(RECORDED_SOURCE.to_owned())],

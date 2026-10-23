@@ -236,6 +236,7 @@ pub async fn load_desired_state(
     let machine_manifest = RenderedManifest::try_from(MachineManifest {
         repositories_directory_path,
         estates,
+        slots_per_bank: None,
         recorded_run: RecordedRun {
             class: machine,
             configuration_sources: sources.iter().map(ConfigurationSource::recorded).collect(),

@@ -3,6 +3,7 @@
 mod estates;
 mod machine_class;
 mod repositories_directory;
+mod slots_per_bank;
 
 use std::path::{Path, PathBuf};
 
@@ -11,6 +12,7 @@ use serde::{Deserialize, Serialize};
 pub use estates::{EstateName, Estates, EstatesRefused, NotAnEstateName};
 pub use machine_class::MachineClass;
 pub use repositories_directory::{NotRooted, RepositoriesDirectory};
+pub use slots_per_bank::{SlotsPerBank, UnsupportedSlotsPerBank};
 
 pub const MANIFEST_DIRECTORY: &str = ".dotconfig";
 pub const MANIFEST_FILE: &str = "machine.json";
@@ -34,6 +36,8 @@ pub struct Document {
 pub struct MachineManifest {
     pub repositories_directory_path: RepositoriesDirectory,
     pub estates: Estates,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slots_per_bank: Option<SlotsPerBank>,
     #[serde(flatten)]
     pub recorded_run: RecordedRun,
 }

@@ -78,6 +78,37 @@ fn a_directory_is_rooted_or_it_names_itself_in_its_refusal() {
 }
 
 #[test]
+fn a_manifest_naming_no_slots_per_bank_decodes_as_naming_none() {
+    let document = decoded(written()).expect("a manifest without the setting");
+
+    assert_eq!(document.machine.slots_per_bank, None);
+}
+
+#[test]
+fn a_manifest_naming_its_slots_per_bank_reads_back_as_it_was_written() {
+    let mut naming = written();
+    naming["machine"]["slots_per_bank"] = json!(2);
+
+    let document = decoded(naming.clone()).expect("a manifest naming two slots per bank");
+
+    assert_eq!(document.machine.slots_per_bank, Some(SlotsPerBank::Two));
+    assert_eq!(
+        serde_json::to_value(&document).expect("a manifest serialises"),
+        naming
+    );
+}
+
+#[test]
+fn a_manifest_naming_an_unsupported_slots_per_bank_is_refused() {
+    let mut unsupported = written();
+    unsupported["machine"]["slots_per_bank"] = json!(4);
+
+    let refusal = decoded(unsupported).expect_err("a manifest naming four slots per bank");
+
+    assert!(refusal.is_data(), "{refusal}");
+}
+
+#[test]
 fn a_manifest_missing_a_field_the_configurator_writes_is_refused_naming_it() {
     for field in [
         "repositories_directory_path",

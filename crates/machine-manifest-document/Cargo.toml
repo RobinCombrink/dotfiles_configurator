@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 publish = false
-description = "The machine manifest as dotfiles_configurator writes it and every tool reads it: where this machine keeps its repositories, its estates, and the run that wrote it."
+description = "The machine manifest as dotfiles_configurator writes it and every tool reads it: where this machine keeps its repositories, its estates, how many slots a bank holds, and the run that wrote it."
 
 [features]
 schema = ["dep:schemars", "github-owner/schema"]

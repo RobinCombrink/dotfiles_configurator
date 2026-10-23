@@ -127,6 +127,7 @@ fn a_registered_manifest_is_written_out_as_the_document_it_renders() {
     let manifest = RenderedManifest::try_from(MachineManifest {
         repositories_directory_path: rooted("/repositories/Personal"),
         estates: Estates::default(),
+        slots_per_bank: None,
         recorded_run: RecordedRun {
             class: MachineClass::Personal,
             configuration_sources: Vec::new(),
@@ -155,6 +156,7 @@ fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own()
     let document = rendered(MachineManifest {
         repositories_directory_path: rooted("/repositories/Personal"),
         estates: Estates::default(),
+        slots_per_bank: None,
         recorded_run: RecordedRun {
             class: MachineClass::Personal,
             configuration_sources: Vec::new(),
@@ -173,6 +175,7 @@ fn the_manifest_records_the_class_and_the_sources_of_the_run_that_wrote_it_as_wr
     let document = rendered(MachineManifest {
         repositories_directory_path: rooted("/repositories/Work"),
         estates: Estates::default(),
+        slots_per_bank: None,
         recorded_run: RecordedRun {
             class: MachineClass::Work,
             configuration_sources: vec![
@@ -214,6 +217,7 @@ fn the_manifest_names_each_estate_with_its_owners_as_they_were_spelled() {
     let document = rendered(MachineManifest {
         repositories_directory_path: rooted("/repositories/Work"),
         estates,
+        slots_per_bank: None,
         recorded_run: RecordedRun {
             class: MachineClass::Work,
             configuration_sources: Vec::new(),

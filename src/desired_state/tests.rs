@@ -74,6 +74,7 @@ fn merged(configurations: Vec<ResolvedConfiguration>) -> Result<DesiredState, Ir
             )
             .expect("a rooted directory"),
             estates: crate::configuration::Estates::default(),
+            slots_per_bank: None,
             recorded_run: crate::configuration::RecordedRun {
                 class: MachineClass::Personal,
                 configuration_sources: Vec::new(),
