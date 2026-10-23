@@ -6,7 +6,9 @@ fn written() -> serde_json::Value {
     json!({
         "machine": {
             "repositories_directory_path": "/repositories/Personal",
-            "estates": { "personal": ["RobinCombrink"] },
+            "estates": {
+                "personal": { "owners": ["RobinCombrink"], "account": "RobinCombrink" }
+            },
             "class": "personal",
             "configuration_sources": ["github:RobinCombrink/dotfiles/config"]
         }

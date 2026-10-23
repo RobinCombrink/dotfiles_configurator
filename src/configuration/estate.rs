@@ -4,7 +4,7 @@ use {
         names::{ConfigurationName, GitHubAccount, RepositoryOwner},
     },
     github_owner::{NotAnOwner, Owner},
-    machine_manifest_document::{EstateName, Estates, EstatesRefused},
+    machine_manifest_document::{Account, EstateName, Estates, EstatesRefused},
     schemars::JsonSchema,
     serde::{Deserialize, Serialize},
     std::{
@@ -71,6 +71,10 @@ impl Display for EstateConflict {
 impl std::error::Error for EstateConflict {}
 
 impl Configuration {
+    fn estate_account(&self) -> Result<Account, NotAnOwner> {
+        Account::try_from(GitHubAccount::as_ref(&self.github_account))
+    }
+
     fn estate_owners(&self) -> Result<BTreeSet<Owner>, NotAnOwner> {
         std::iter::once(Owner::try_from(GitHubAccount::as_ref(&self.github_account)))
             .chain(self.workspaces.iter().map(|workspace| {
@@ -108,15 +112,15 @@ pub fn resolve_estates<'configuration>(
             });
         }
 
-        let owners = configuration
-            .estate_owners()
-            .map_err(|cause| EstateConflict::NotAnOwner {
-                estate: declaration.name.clone(),
-                configuration: name.clone(),
-                cause,
-            })?;
+        let not_an_owner = |cause| EstateConflict::NotAnOwner {
+            estate: declaration.name.clone(),
+            configuration: name.clone(),
+            cause,
+        };
+        let owners = configuration.estate_owners().map_err(not_an_owner)?;
+        let account = configuration.estate_account().map_err(not_an_owner)?;
         estates = estates
-            .with(declaration.name.clone(), owners)
+            .with(declaration.name.clone(), owners, account)
             .map_err(EstateConflict::Refused)?;
     }
 

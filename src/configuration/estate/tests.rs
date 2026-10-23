@@ -67,6 +67,27 @@ fn an_estate_holds_its_account_its_workspaces_owners_and_the_owners_it_names() {
 }
 
 #[test]
+fn each_estate_acts_as_the_account_of_the_configuration_declaring_it_as_spelled_there() {
+    let estates = resolved(&[
+        configuration("RobinCombrink", declaring("personal", &[])),
+        configuration("Robin-Combrink", declaring("work", &["skynamo"])),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        (
+            estates
+                .account_of(&owner("robincombrink"))
+                .map(Account::as_declared),
+            estates
+                .account_of(&owner("skynamo"))
+                .map(Account::as_declared),
+        ),
+        (Some("RobinCombrink"), Some("Robin-Combrink"))
+    );
+}
+
+#[test]
 fn the_owner_of_a_repository_an_estate_only_clones_is_not_one_of_its_owners() {
     let mut personal = configuration("RobinCombrink", declaring("personal", &[]));
     personal.resources.push(Resource::Repository(

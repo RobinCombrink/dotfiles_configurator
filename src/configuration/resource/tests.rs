@@ -2,7 +2,7 @@ use {
     super::*,
     github_owner::Owner,
     machine_manifest_document::{
-        EstateName, Estates, MachineClass, RecordedSource, RepositoriesDirectory,
+        Account, EstateName, Estates, MachineClass, RecordedSource, RepositoriesDirectory,
     },
     std::path::Path,
 };
@@ -210,17 +210,20 @@ fn the_manifest_records_the_class_and_the_sources_of_the_run_that_wrote_it_as_wr
 }
 
 #[test]
-fn the_manifest_names_each_estate_with_its_owners_as_they_were_spelled() {
+fn the_manifest_names_each_estate_with_its_owners_and_account_as_they_were_spelled() {
     let owner = |spelled: &str| Owner::try_from(spelled).expect("an owner");
+    let account = |spelled: &str| Account::try_from(spelled).expect("an account");
     let estates = Estates::default()
         .with(
             EstateName::try_from("personal").unwrap(),
             [owner("RobinCombrink")],
+            account("RobinCombrink"),
         )
         .and_then(|estates| {
             estates.with(
                 EstateName::try_from("work").unwrap(),
                 [owner("skynamo"), owner("Robin-Combrink")],
+                account("Robin-Combrink"),
             )
         })
         .expect("estates no owner is in twice");
@@ -238,8 +241,8 @@ fn the_manifest_names_each_estate_with_its_owners_as_they_were_spelled() {
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&document).unwrap()["machine"]["estates"],
         serde_json::json!({
-            "personal": ["RobinCombrink"],
-            "work": ["Robin-Combrink", "skynamo"]
+            "personal": { "owners": ["RobinCombrink"], "account": "RobinCombrink" },
+            "work": { "owners": ["Robin-Combrink", "skynamo"], "account": "Robin-Combrink" }
         })
     );
 }

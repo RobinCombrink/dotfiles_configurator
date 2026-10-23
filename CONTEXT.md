@@ -277,8 +277,9 @@ _Avoid_: clone directory, workspace, projects directory
 
 **Machine manifest**:
 The document this program writes for programs it does not own, naming the repositories directory
-belonging to the class of machine a run names, the machine's owners grouped by estate, its slots
-per bank where a configuration declares them, and the recorded run. A fact about the machine, which is what tells it apart from the repositories directory whose formula it
+belonging to the class of machine a run names, the machine's owners grouped by estate beside the
+account each estate acts as, its slots per bank where a configuration declares them, and the
+recorded run. A fact about the machine, which is what tells it apart from the repositories directory whose formula it
 shares: a work machine has two of those, and only one of them is the machine's. No configuration
 can declare it.
 _Avoid_: machine config, machine state, dotconfig
@@ -299,7 +300,8 @@ _Avoid_: last run, saved arguments, defaults
 A named body of work a configuration governs, and the owners whose repositories belong to it: the
 account the configuration acts as, the owners of its workspaces, and any it names besides. Each
 estate is declared by one configuration, and each owner belongs to one estate. The owner of a
-repository a configuration only clones is in none.
+repository a configuration only clones is in none. An estate acts as the account its configuration
+acts as, which answers for its owners without having to be one of them.
 _Avoid_: context, organisation, owner, tenant
 
 **Tool directory**:

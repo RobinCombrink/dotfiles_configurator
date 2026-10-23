@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub use estates::{EstateName, Estates, EstatesRefused, NotAnEstateName};
+pub use estates::{Account, EstateName, Estates, EstatesRefused, NotAnEstateName};
 pub use machine_class::MachineClass;
 pub use repositories_directory::{NotRooted, RepositoriesDirectory};
 pub use slots_per_bank::{SlotsPerBank, UnsupportedSlotsPerBank};

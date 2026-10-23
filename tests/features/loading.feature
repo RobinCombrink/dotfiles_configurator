@@ -226,6 +226,13 @@ Feature: Loading a configuration
     Then the machine's manifest places "Alice" in the estate "personal"
     And the machine's manifest places "Bob" in the estate "hobby"
 
+  Scenario: Each estate acts as the account its configuration acts as
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And Alice has a configuration for personal machines acting as "AliceHobbies", declaring the estate "hobby" with the owner "Bob"
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest answers for "Alice" as the account "Alice"
+    And the machine's manifest answers for "Bob" as the account "AliceHobbies"
+
   Scenario: An estate whose name cannot be a directory's is refused
     Given Alice has a configuration for every machine declaring the estate "../personal"
     And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"

@@ -12,20 +12,37 @@
     "machine"
   ],
   "$defs": {
+    "Account": {
+      "description": "The GitHub login an estate acts as, spelled as the configuration declaring the estate spells it. It answers for the estate's owners and need not be one of them.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9-]+$"
+    },
     "EstateName": {
       "description": "The name of an estate, which also names its directory: letters, digits, '-' and '_' alone.",
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]+$"
     },
     "Estates": {
-      "description": "Each estate on this machine and the owners it groups. An estate is named once, lists an owner once, and an owner belongs to one estate.",
+      "description": "Each estate on this machine, the owners it groups and the account it acts as. An estate is named once, lists an owner once, and an owner belongs to one estate.",
       "type": "object",
       "additionalProperties": {
-        "type": "array",
-        "items": {
-          "$ref": "#/$defs/Owner"
+        "type": "object",
+        "properties": {
+          "account": {
+            "$ref": "#/$defs/Account"
+          },
+          "owners": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Owner"
+            },
+            "uniqueItems": true
+          }
         },
-        "uniqueItems": true
+        "required": [
+          "owners",
+          "account"
+        ]
       },
       "propertyNames": {
         "$ref": "#/$defs/EstateName"

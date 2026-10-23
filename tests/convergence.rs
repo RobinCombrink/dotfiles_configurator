@@ -1600,6 +1600,19 @@ fn manifest_places_owner_in_no_estate(world: &mut MachineWorld, owner: String) {
     );
 }
 
+#[then(expr = "the machine's manifest answers for {string} as the account {string}")]
+fn manifest_answers_for_owner_as_account(world: &mut MachineWorld, owner: String, account: String) {
+    let estates = world.loaded_estates();
+
+    assert_eq!(
+        estates
+            .account_of(&Owner::try_from(owner.as_str()).expect("an owner"))
+            .map(machine_manifest_document::Account::as_declared),
+        Some(account.as_str()),
+        "expected {owner} answered for as {account}, got {estates:?}"
+    );
+}
+
 #[then(expr = "the machine's manifest names no estate")]
 fn manifest_names_no_estate(world: &mut MachineWorld) {
     let estates = world.loaded_estates();
