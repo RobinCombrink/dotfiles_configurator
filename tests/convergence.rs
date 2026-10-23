@@ -51,7 +51,7 @@ use {
         dotfiles_repository_path, filesystem_root, repositories_root_path,
     },
     github_owner::Owner,
-    machine_manifest_document::Document,
+    machine_manifest_document::{Document, SlotsPerBank},
     std::{
         cell::Cell,
         collections::{BTreeMap, BTreeSet},
@@ -1607,6 +1607,66 @@ fn manifest_names_no_estate(world: &mut MachineWorld) {
     assert!(estates.is_empty(), "{estates:?}");
 }
 
+fn document_giving_each_bank(applies_to: &str, slots: u64) -> String {
+    format!(
+        r#"{{
+            "version": "{BUILD_GENERATION}",
+            "applies_to": "{applies_to}",
+            "github_account": "Alice",
+            "slots_per_bank": {slots},
+            "resources": []
+        }}"#
+    )
+}
+
+fn slots_per_bank_of(count: u64) -> SlotsPerBank {
+    SlotsPerBank::try_from(count).expect("a bank size the manifest can hold")
+}
+
+fn slots_per_bank_in(manifest: &str) -> Option<SlotsPerBank> {
+    serde_json::from_str::<Document>(manifest)
+        .expect("a manifest decodes whole")
+        .machine
+        .slots_per_bank
+}
+
+#[given(expr = "Alice has a configuration for every machine giving each bank {int} slots")]
+fn every_machine_giving_each_bank(world: &mut MachineWorld, slots: u64) {
+    world
+        .documents
+        .push(document_giving_each_bank("everywhere", slots));
+}
+
+#[given(expr = "Alice has a configuration for personal machines giving each bank {int} slots")]
+fn personal_giving_each_bank(world: &mut MachineWorld, slots: u64) {
+    world
+        .documents
+        .push(document_giving_each_bank("personal", slots));
+}
+
+#[then(expr = "the machine's manifest gives each bank {int} slots")]
+fn manifest_gives_each_bank(world: &mut MachineWorld, slots: u64) {
+    assert_eq!(
+        slots_per_bank_in(&world.loaded_manifest()),
+        Some(slots_per_bank_of(slots))
+    );
+}
+
+#[then(expr = "the machine's manifest names no slots per bank")]
+fn manifest_names_no_slots_per_bank(world: &mut MachineWorld) {
+    assert_eq!(slots_per_bank_in(&world.loaded_manifest()), None);
+}
+
+#[then(expr = "Alice's machine holds a manifest giving each bank {int} slots")]
+fn machine_holds_a_manifest_giving_each_bank(world: &mut MachineWorld, slots: u64) {
+    let held = world
+        .machine
+        .machine_manifest()
+        .expect("the machine holds a manifest");
+
+    assert_eq!(slots_per_bank_in(&held), Some(slots_per_bank_of(slots)));
+}
+
 #[given(expr = "Alice declares the cargo package {string}")]
 fn declare_cargo_package(world: &mut MachineWorld, crate_name: String) {
     world.resources.push(Resource::Package(
@@ -2869,6 +2929,7 @@ fn a_configuration_a_generation_behind() -> Migration {
         applies_to: Context::Everywhere,
         github_account: GitHubAccount::from("Alice"),
         estate: None,
+        slots_per_bank: None,
         workspaces: Vec::new(),
         resources: Vec::new(),
         notices: Vec::new(),

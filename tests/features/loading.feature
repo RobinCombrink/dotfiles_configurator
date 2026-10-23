@@ -232,3 +232,34 @@ Feature: Loading a configuration
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "../personal"
+
+  Scenario Outline: The configuration declaring how many slots a bank holds sets it in the machine's manifest
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines giving each bank <slots> slots
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest gives each bank <slots> slots
+
+    Examples:
+      | slots |
+      | 2     |
+      | 3     |
+
+  Scenario: Configurations declaring no slots per bank leave the manifest naming none
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest names no slots per bank
+
+  Scenario: Two configurations declaring how many slots a bank holds are refused
+    Given Alice has a configuration for every machine giving each bank 2 slots
+    And Alice has a configuration for personal machines giving each bank 2 slots
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "slots per bank"
+
+  Scenario: A bank given a number of slots other than two or three is refused
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines giving each bank 4 slots
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "two or three"

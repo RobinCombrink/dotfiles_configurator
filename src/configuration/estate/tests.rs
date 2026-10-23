@@ -11,6 +11,7 @@ fn configuration(account: &str, estate: Option<EstateDeclaration>) -> Configurat
         applies_to: Context::Everywhere,
         github_account: GitHubAccount::from(account),
         estate,
+        slots_per_bank: None,
         workspaces: Vec::new(),
         resources: Vec::new(),
         notices: Vec::new(),

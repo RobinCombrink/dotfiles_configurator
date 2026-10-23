@@ -277,11 +277,17 @@ _Avoid_: clone directory, workspace, projects directory
 
 **Machine manifest**:
 The document this program writes for programs it does not own, naming the repositories directory
-belonging to the class of machine a run names, the machine's owners grouped by estate, and the
-recorded run. A fact about the machine, which is what tells it apart from the repositories directory whose formula it
+belonging to the class of machine a run names, the machine's owners grouped by estate, its slots
+per bank where a configuration declares them, and the recorded run. A fact about the machine, which is what tells it apart from the repositories directory whose formula it
 shares: a work machine has two of those, and only one of them is the machine's. No configuration
 can declare it.
 _Avoid_: machine config, machine state, dotconfig
+
+**Slots per bank**:
+How many session slots one bank of this machine's screen holds, two or three, recorded in the
+machine manifest for the session daemon to read. Declared by at most one of the configurations a
+run applies; two declaring it are refused, and none declaring it leaves the manifest naming none.
+_Avoid_: bank size, slot count, panes
 
 **Recorded run**:
 The machine class and the configuration sources the run that wrote the machine manifest was given,

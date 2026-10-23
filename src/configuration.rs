@@ -28,6 +28,8 @@ pub mod presence_check;
 pub mod requirement;
 #[path = "configuration/resource.rs"]
 pub mod resource;
+#[path = "configuration/slots_per_bank.rs"]
+pub mod slots_per_bank;
 #[path = "configuration/unreadable.rs"]
 pub mod unreadable;
 #[path = "configuration/workspace.rs"]
@@ -56,13 +58,14 @@ pub use {
         SearchPathDirectory, SearchPathEntry, Shell, Symlink, UvToolPackage, Variable, VersionWord,
         WingetPackage, recorded_run_in,
     },
+    slots_per_bank::{SlotsPerBankDeclaredTwice, resolve_slots_per_bank},
     unreadable::Unreadable,
     workspace::CargoWorkspace,
 };
 
 pub use machine_manifest_document::{
     EstateName, Estates, EstatesRefused, MachineClass, MachineManifest, NotRooted, RecordedRun,
-    RecordedSource, RepositoriesDirectory,
+    RecordedSource, RepositoriesDirectory, SlotsPerBank,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -92,6 +95,13 @@ pub struct Configuration {
     pub github_account: GitHubAccount,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estate: Option<EstateDeclaration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "How many session slots one bank of this machine's screen holds, recorded \
+                       in the machine manifest. Declared by at most one of the configurations a \
+                       machine applies."
+    )]
+    pub slots_per_bank: Option<SlotsPerBank>,
     #[serde(default)]
     pub workspaces: Vec<CargoWorkspace>,
     #[serde(default)]

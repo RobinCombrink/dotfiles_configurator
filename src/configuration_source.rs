@@ -4,7 +4,8 @@ use {
             Configuration, ConfigurationName, Context, EstateConflict, GitHubAccount,
             GitHubRepository, MachineClass, MachineManifest, Migration, Notice, RecordedRun,
             RecordedSource, RenderedManifest, RepositoriesDirectory, RepositoryName,
-            RepositoryOwner, Unreadable, parse_configuration, resolve_estates,
+            RepositoryOwner, SlotsPerBankDeclaredTwice, Unreadable, parse_configuration,
+            resolve_estates, resolve_slots_per_bank,
         },
         desired_state::{DesiredState, Irreconcilable, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
@@ -209,6 +210,13 @@ pub async fn load_desired_state(
     )
     .map_err(LoadFailure::Estates)?;
 
+    let slots_per_bank = resolve_slots_per_bank(
+        applicable
+            .iter()
+            .map(|(loaded, _)| (&loaded.name, &loaded.configuration)),
+    )
+    .map_err(LoadFailure::SlotsPerBank)?;
+
     let mut migrations: Vec<Migration> = Vec::new();
     let mut announcements: Vec<Notice> = Vec::new();
     let mut resolved: Vec<ResolvedConfiguration> = Vec::new();
@@ -236,7 +244,7 @@ pub async fn load_desired_state(
     let machine_manifest = RenderedManifest::try_from(MachineManifest {
         repositories_directory_path,
         estates,
-        slots_per_bank: None,
+        slots_per_bank,
         recorded_run: RecordedRun {
             class: machine,
             configuration_sources: sources.iter().map(ConfigurationSource::recorded).collect(),
@@ -404,6 +412,7 @@ pub enum LoadFailure {
     },
     SourceOutsideACheckout(PathBuf),
     Estates(EstateConflict),
+    SlotsPerBank(SlotsPerBankDeclaredTwice),
     Irreconcilable(Irreconcilable),
 }
 
@@ -427,6 +436,7 @@ impl LoadFailure {
             | LoadFailure::TwoTrees { .. }
             | LoadFailure::SourceOutsideACheckout(_)
             | LoadFailure::Estates(_)
+            | LoadFailure::SlotsPerBank(_)
             | LoadFailure::Irreconcilable(_) => &[],
         }
     }
@@ -478,6 +488,7 @@ impl Display for LoadFailure {
                 directory.display()
             ),
             LoadFailure::Estates(conflict) => Display::fmt(conflict, formatter),
+            LoadFailure::SlotsPerBank(conflict) => Display::fmt(conflict, formatter),
             LoadFailure::Irreconcilable(reason) => Display::fmt(reason, formatter),
         }
     }

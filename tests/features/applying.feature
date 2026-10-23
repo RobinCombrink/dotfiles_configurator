@@ -496,6 +496,14 @@ Feature: Applying a change set
     When Alice applies
     Then Alice's machine holds a manifest naming the repositories directory "Work"
 
+  Scenario: Applying records in the machine's manifest how many slots a bank holds
+    Given Alice's machine holds no manifest
+    And Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines giving each bank 2 slots
+    And Alice's checkout holds "gitconfig/.gitconfig"
+    When Alice applies her configurations for a personal machine
+    Then Alice's machine holds a manifest giving each bank 2 slots
+
   Scenario: A notice Alice declared is reported by an apply and not only by a plan
     Given Alice declares the notice "Sync the Android Studio settings repository"
     And Alice declares the application "Neovim"

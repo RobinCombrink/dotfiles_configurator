@@ -41,6 +41,7 @@ impl From<OutgoingConfiguration> for Configuration {
             applies_to: outgoing.applies_to,
             github_account: outgoing.github_account,
             estate: outgoing.estate,
+            slots_per_bank: None,
             workspaces: outgoing.workspaces,
             resources: outgoing.resources,
             notices: outgoing.notices,

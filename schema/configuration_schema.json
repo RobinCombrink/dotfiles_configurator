@@ -36,6 +36,17 @@
         "$ref": "#/$defs/Resource"
       }
     },
+    "slots_per_bank": {
+      "description": "How many session slots one bank of this machine's screen holds, recorded in the machine manifest. Declared by at most one of the configurations a machine applies.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SlotsPerBank"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "version": {
       "description": "The lowest generation of dotfiles_configurator that can read this configuration, written as a whole number. A build reads any configuration at or below its own generation and refuses one above.",
       "$ref": "#/$defs/Generation"
@@ -897,6 +908,14 @@
         "command_prompt",
         "power_shell",
         "wsl"
+      ]
+    },
+    "SlotsPerBank": {
+      "description": "How many session slots one bank of this machine's screen holds.",
+      "type": "integer",
+      "enum": [
+        2,
+        3
       ]
     },
     "Symlink": {
