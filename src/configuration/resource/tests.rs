@@ -115,6 +115,17 @@ fn an_archive_entry_is_known_by_a_name_carrying_no_platform_executable_suffix() 
     assert_eq!(entry.installed_name(), BinaryName::from("rg"));
 }
 
+#[test]
+fn a_released_binary_installs_at_its_name_within_the_binaries_directory() {
+    let binary = crate::currency::own_currency();
+    let binaries_directory = Path::new("binaries");
+
+    assert_eq!(
+        binary.path_within(binaries_directory),
+        binaries_directory.join(binary.installed_name().file_name())
+    );
+}
+
 fn rendered(manifest: MachineManifest) -> String {
     RenderedManifest::try_from(manifest)
         .expect("a manifest that serialises")

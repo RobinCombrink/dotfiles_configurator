@@ -20,7 +20,7 @@ use {
         collections::BTreeMap,
         fmt::Display,
         num::{NonZeroU32, NonZeroUsize},
-        path::PathBuf,
+        path::{Path, PathBuf},
     },
     strum::EnumDiscriminants,
     url::Url,
@@ -315,6 +315,10 @@ fn default_version_arguments() -> Vec<String> {
 impl ReleasedBinary {
     pub fn installed_name(&self) -> BinaryName {
         self.entry.installed_name()
+    }
+
+    pub fn path_within(&self, binaries_directory: &Path) -> PathBuf {
+        binaries_directory.join(self.installed_name().file_name())
     }
 
     pub fn rendered_version_invocation(&self) -> String {
