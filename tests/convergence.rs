@@ -3011,10 +3011,25 @@ fn alice_was_shown_before_converging(world: &mut MachineWorld, resource: String)
     assert!(shown < converged, "{written}");
 }
 
-#[tokio::main]
-async fn main() {
-    MachineWorld::cucumber()
-        .fail_on_skipped()
-        .run_and_exit("tests/features")
-        .await;
+// 2026-10-24: Windows gives the main thread a 1 MiB stack, and a debug build's scenarios ran within
+// 16 KiB of it.
+const SCENARIO_RUNNER_STACK_BYTES: usize = 8 * 1024 * 1024;
+
+fn main() {
+    let runner = std::thread::Builder::new()
+        .stack_size(SCENARIO_RUNNER_STACK_BYTES)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("the scenario runtime starts")
+                .block_on(
+                    MachineWorld::cucumber()
+                        .fail_on_skipped()
+                        .run_and_exit("tests/features"),
+                );
+        })
+        .expect("the scenario runner thread starts");
+
+    runner.join().expect("the scenario runner does not panic");
 }
