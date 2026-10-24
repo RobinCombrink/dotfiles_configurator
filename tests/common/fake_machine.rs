@@ -403,18 +403,13 @@ impl FakeMachine {
     }
 
     pub fn leave_a_superseded_image_of_the_configurator(&self) {
-        let displaced = superseded_name(
-            &self
-                .binaries_directory()
-                .join(own_currency().installed_name().file_name()),
-        );
+        let displaced = superseded_name(&own_currency().path_within(&self.binaries_directory()));
         self.state.borrow_mut().superseded_images.insert(displaced);
     }
 
     pub fn own_binary_is_executing_and_will_not_release(&self) {
         self.state.borrow_mut().executing_binaries.insert(
-            self.binaries_directory()
-                .join(own_currency().installed_name().file_name()),
+            own_currency().path_within(&self.binaries_directory()),
             Displacement::Refused,
         );
     }
@@ -748,11 +743,7 @@ impl FakeMachine {
     }
 
     pub fn configurator_reports(&self) -> Option<String> {
-        self.binary_reports(
-            &self
-                .binaries_directory()
-                .join(own_currency().installed_name().file_name()),
-        )
+        self.binary_reports(&own_currency().path_within(&self.binaries_directory()))
     }
 
     pub fn publish_release(&self, repository: GitHubRepository, reading: ReleaseReading) {
@@ -1996,9 +1987,7 @@ impl FakeMachine {
     }
 
     fn installing_released_binary(&self, binary: &ReleasedBinary) -> Result<Placement> {
-        let installed_path = self
-            .binaries_directory()
-            .join(binary.installed_name().file_name());
+        let installed_path = binary.path_within(&self.binaries_directory());
         let mut state = self.state.borrow_mut();
 
         if state.executing_binaries.get(&installed_path) == Some(&Displacement::Refused) {
