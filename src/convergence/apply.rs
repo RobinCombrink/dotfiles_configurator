@@ -10,7 +10,7 @@ use {
             withdrawal::{Withdrawal, Withdrawn, withdraw},
         },
         currency::{self, SelfReplacement},
-        desired_state::{ChangeSetResource, DesiredState},
+        desired_state::{ChangeSetResource, DesiredState, ResolvedWorkspace},
         machine::{
             ElevatedBatch, ElevatedOutcome, ElevatedWork, Elevation, HeldReason, Placement,
             ReadMachine, WriteInvocation, WriteMachine,
@@ -43,6 +43,7 @@ pub struct ApplyOutcome {
     pub failed: Vec<Failure>,
     pub held: Vec<Held>,
     pub blocked: Vec<Blocked>,
+    pub uncloned: Vec<ResolvedWorkspace>,
     pub unverified: Vec<Change>,
     pub removed: Vec<Withdrawal>,
     pub unremoved: Vec<Withdrawal>,
@@ -56,6 +57,7 @@ impl ApplyOutcome {
         self.failed.is_empty()
             && self.held.is_empty()
             && self.blocked.is_empty()
+            && self.uncloned.is_empty()
             && self.unverified.is_empty()
             && self.unremoved.is_empty()
     }
@@ -73,6 +75,7 @@ impl ApplyOutcome {
                 .iter()
                 .map(|blocked| (entry_for(&blocked.resource), blocked.impediment.to_string()))
                 .collect(),
+            uncloned: self.uncloned.iter().map(ToString::to_string).collect(),
             did_not_take: self
                 .unverified
                 .iter()
@@ -168,6 +171,7 @@ pub async fn apply(
                 failed,
                 held,
                 blocked: Vec::new(),
+                uncloned: Vec::new(),
                 unverified: Vec::new(),
                 removed,
                 unremoved: Vec::new(),
@@ -211,6 +215,7 @@ pub async fn apply(
         failed,
         held,
         blocked: change_set.blocked,
+        uncloned: change_set.uncloned,
         unverified,
         removed,
         unremoved: change_set.withdrawals,

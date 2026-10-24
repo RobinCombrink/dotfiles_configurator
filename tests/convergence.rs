@@ -2496,6 +2496,29 @@ fn resources_blocked(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.outcome().blocked.len(), expected);
 }
 
+#[then(expr = "the outcome names the cargo workspace in the dotfiles repository as uncloned")]
+fn outcome_names_the_workspace_as_uncloned(world: &mut MachineWorld) {
+    let uncloned: Vec<&CargoWorkspace> = world
+        .outcome()
+        .uncloned
+        .iter()
+        .map(|workspace| workspace.declared())
+        .collect();
+
+    assert_eq!(
+        uncloned,
+        [&CargoWorkspace {
+            repository: dotfiles_repository(),
+        }]
+    );
+}
+
+#[then(expr = "the outcome names no workspace as uncloned")]
+fn outcome_names_no_workspace_as_uncloned(world: &mut MachineWorld) {
+    let uncloned = &world.outcome().uncloned;
+    assert!(uncloned.is_empty(), "{uncloned:?}");
+}
+
 #[then(expr = "{int} resource(s) is/are reported as not having taken")]
 fn resources_unverified(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.outcome().unverified.len(), expected);

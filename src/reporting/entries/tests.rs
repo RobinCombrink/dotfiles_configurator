@@ -114,7 +114,8 @@ fn without_a_terminal_each_state_change_is_a_line_then_the_diagnostics_then_the_
          [cargo] cargo-llvm-cov: blocked\n\
          \x20 cargo is not on the path\n\
          notice open a new shell\n\
-         1 converged, 1 failed, 1 held, 1 still blocked, 0 did not take, 0 removed, \
+         1 converged, 1 failed, 1 held, 1 still blocked, 0 still uncloned, 0 did not take, \
+         0 removed, \
          0 migrated, over 2 pass(es) in 1m40s\n"
     );
 }
@@ -146,7 +147,8 @@ fn an_entry_that_converged_but_still_reads_as_drifted_is_reported_as_not_having_
          diagnostics\n\
          [cargo] stop-gate: did not take\n\
          \x20 still at 0.1.0\n\
-         1 converged, 0 failed, 0 held, 0 still blocked, 1 did not take, 0 removed, \
+         1 converged, 0 failed, 0 held, 0 still blocked, 0 still uncloned, 1 did not take, \
+         0 removed, \
          0 migrated, over 1 pass(es) in 0s\n"
     );
 }
@@ -179,7 +181,8 @@ fn a_run_that_changed_nothing_still_closes_on_its_tally() {
 
     assert_eq!(
         transcript.text(),
-        "0 converged, 0 failed, 0 held, 0 still blocked, 0 did not take, 0 removed, \
+        "0 converged, 0 failed, 0 held, 0 still blocked, 0 still uncloned, 0 did not take, \
+         0 removed, \
          0 migrated, over 1 pass(es) in 0s\n"
     );
 }

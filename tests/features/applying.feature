@@ -20,6 +20,23 @@ Feature: Applying a change set
     And the link ".gitconfig" points into the dotfiles repository
     And the machine is reported as converged
 
+  Scenario: A workspace whose repository is still not cloned at the last pass is carried into the outcome
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the workspace holds the crate "stop-gate"
+    And the dotfiles repository has not been cloned on Alice's machine
+    When Alice applies
+    Then the outcome names the cargo workspace in the dotfiles repository as uncloned
+    And the machine is not reported as converged
+
+  Scenario: A workspace whose repository the run clones is not carried into the outcome as uncloned
+    Given Alice's configurations come from the dotfiles repository
+    And Alice declares the cargo workspace in the dotfiles repository
+    And the workspace holds the crate "stop-gate"
+    And the dotfiles repository has not been cloned on Alice's machine
+    When Alice applies
+    Then the outcome names no workspace as uncloned
+    And the machine is reported as converged
+
   Scenario: A build behind its own latest release installs the newer one over itself
     Given a newer configurator than this machine holds has been released
     When Alice applies

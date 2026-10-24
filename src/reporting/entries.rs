@@ -232,6 +232,7 @@ pub struct Closing {
     pub failed: usize,
     pub held: usize,
     pub blocked: Vec<(Entry, String)>,
+    pub uncloned: Vec<String>,
     pub did_not_take: Vec<(Entry, String)>,
     pub removed: usize,
     pub migrated: Vec<String>,
@@ -425,12 +426,13 @@ impl Display for Tally<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{} converged, {} failed, {} held, {} still blocked, {} did not take, {} removed, \
-             {} migrated, over {} pass(es) in {}",
+            "{} converged, {} failed, {} held, {} still blocked, {} still uncloned, {} did not \
+             take, {} removed, {} migrated, over {} pass(es) in {}",
             self.closing.converged,
             self.closing.failed,
             self.closing.held,
             self.closing.blocked.len(),
+            self.closing.uncloned.len(),
             self.closing.did_not_take.len(),
             self.closing.removed,
             self.closing.migrated.len(),
@@ -615,9 +617,17 @@ impl Presentation {
         }
         .to_string();
         let mut afterwards: Vec<String> = closing
-            .migrated
+            .uncloned
             .iter()
-            .map(|migration| format!("migrated {migration}"))
+            .map(|workspace| {
+                format!("uncloned {workspace} (its members are unknown until it is cloned)")
+            })
+            .chain(
+                closing
+                    .migrated
+                    .iter()
+                    .map(|migration| format!("migrated {migration}")),
+            )
             .chain(
                 closing
                     .notices
