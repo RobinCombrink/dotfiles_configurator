@@ -263,10 +263,7 @@ impl<'reading> WorkspaceBuild<'reading> {
         reading: &'reading WorkspaceReading,
         changed: impl IntoIterator<Item = CrateName>,
     ) -> Option<Self> {
-        let members: BTreeSet<CrateName> = changed
-            .into_iter()
-            .filter(|member| reading.members.contains_key(member))
-            .collect();
+        let members: BTreeSet<CrateName> = changed.into_iter().collect();
         if members.is_empty() {
             return None;
         }

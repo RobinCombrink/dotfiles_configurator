@@ -314,28 +314,11 @@ fn a_workspace_build_names_each_changed_member_and_keeps_going_past_one_that_fai
 }
 
 #[test]
-fn a_workspace_build_leaves_out_a_crate_its_workspace_does_not_hold() {
-    let reading = workspace_at("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c", &["stop-gate"]);
-
-    let build = WorkspaceBuild::of(
-        clone_directory(),
-        &reading,
-        changed(&["stop-gate", "ripgrep"]),
-    )
-    .expect("one member to build");
-
-    assert_eq!(
-        build.members(),
-        &BTreeSet::from([CrateName::from("stop-gate")])
-    );
-}
-
-#[test]
 fn a_workspace_with_no_member_to_change_has_nothing_to_build() {
     let reading = workspace_at("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c", &["stop-gate"]);
 
     assert_eq!(
-        WorkspaceBuild::of(clone_directory(), &reading, changed(&["ripgrep"])),
+        WorkspaceBuild::of(clone_directory(), &reading, changed(&[])),
         None
     );
 }
