@@ -307,7 +307,10 @@ pub enum Handled {
 
 impl Handled {
     fn of(change: &Change, home_directory: &Path) -> Self {
-        let ChangeSetResource::Declared(resource) = &change.resource;
+        let resource = match &change.resource {
+            ChangeSetResource::Declared(resource) => resource,
+            ChangeSetResource::Member(member) => return Handled::Claimed(member.identity()),
+        };
         match resource.identity(home_directory) {
             Some(identity) => Handled::Claimed(identity),
             None => Handled::Unclaimable(Invocation::from(resource.declared())),
@@ -638,6 +641,7 @@ async fn fetch_ahead_of_the_lanes<'change>(
 fn download_of(change: &Change) -> Option<Download<'_>> {
     match &change.resource {
         ChangeSetResource::Declared(resource) => Download::of(resource.declared()),
+        ChangeSetResource::Member(_) => None,
     }
 }
 

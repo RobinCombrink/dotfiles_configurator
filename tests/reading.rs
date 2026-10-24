@@ -250,6 +250,7 @@ fn crate_names_of<'resource>(
                 Resource::Package(Package::Cargo(package)) => Some(package.crate_name.to_string()),
                 _ => None,
             },
+            ChangeSetResource::Member(member) => Some(member.crate_name().to_string()),
         })
         .collect()
 }

@@ -20,7 +20,10 @@ pub enum Lane {
 
 impl Lane {
     pub fn of(resource: &ChangeSetResource) -> Self {
-        let ChangeSetResource::Declared(resource) = resource;
+        let resource = match resource {
+            ChangeSetResource::Declared(resource) => resource,
+            ChangeSetResource::Member(_) => return Lane::Cargo,
+        };
         if resource.replaces_the_running_build() {
             return Lane::Replacement;
         }

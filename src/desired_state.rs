@@ -1,13 +1,14 @@
 use {
     crate::{
         configuration::{
-            Application, CargoWorkspace, Configuration, ConfigurationName, Context, DeclaredNotice,
-            EnvironmentVariable, GitHubAccount, GitHubRepository, Identity, Migration, NotRooted,
-            Notice, Registration, RenderedManifest, Requirement, Resource, ResourceKind,
-            SearchPathDirectory, SearchPathEntry,
+            Application, CargoWorkspace, Configuration, ConfigurationName, Context, CrateName,
+            DeclaredNotice, EnvironmentVariable, GitHubAccount, GitHubRepository, Identity,
+            Migration, NotRooted, Notice, Registration, RenderedManifest, Requirement, Resource,
+            ResourceKind, SearchPathDirectory, SearchPathEntry, Tool,
         },
         configuration_source::AbsoluteDirectory,
         currency,
+        machine::workspace_reading::WorkspaceReading,
     },
     std::{
         collections::BTreeMap,
@@ -93,12 +94,66 @@ impl<T> Resolved<T> {
             .repositories_directory
             .join(repository.repository.as_ref())
     }
+}
 
-    pub fn alongside<U>(&self, value: U) -> Resolved<U> {
-        Resolved {
-            value,
-            origin: self.origin.clone(),
-        }
+impl ResolvedWorkspace {
+    pub fn members(&self, reading: &WorkspaceReading) -> Vec<WorkspaceMember> {
+        reading
+            .members
+            .keys()
+            .map(|crate_name| WorkspaceMember {
+                crate_name: crate_name.clone(),
+                repository: self.value.repository.clone(),
+                origin: self.origin.clone(),
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceMember {
+    crate_name: CrateName,
+    repository: GitHubRepository,
+    origin: Origin,
+}
+
+impl WorkspaceMember {
+    pub fn crate_name(&self) -> &CrateName {
+        &self.crate_name
+    }
+
+    pub fn repository(&self) -> &GitHubRepository {
+        &self.repository
+    }
+
+    pub fn account(&self) -> &GitHubAccount {
+        &self.origin.account
+    }
+
+    pub fn clone_directory(&self) -> PathBuf {
+        self.origin
+            .repositories_directory
+            .join(self.repository.repository.as_ref())
+    }
+
+    pub fn identity(&self) -> Identity {
+        Identity::CargoCrate(self.crate_name.clone())
+    }
+
+    fn requirements(&self) -> Vec<Requirement> {
+        let mut requirements = vec![
+            Requirement::Tool(Tool::Cargo),
+            Requirement::Tool(Tool::Git),
+            Requirement::CargoBinariesOnSearchPath,
+        ];
+        requirements.sort();
+        requirements
+    }
+}
+
+impl Display for WorkspaceMember {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "package cargo {}", self.crate_name)
     }
 }
 
@@ -172,54 +227,63 @@ impl<T: std::fmt::Display> std::fmt::Display for Resolved<T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChangeSetResource {
     Declared(ResolvedResource),
+    Member(WorkspaceMember),
 }
 
 impl ChangeSetResource {
     pub fn kind(&self) -> ResourceKind {
         match self {
             ChangeSetResource::Declared(resource) => resource.kind(),
+            ChangeSetResource::Member(_) => ResourceKind::Package,
         }
     }
 
     pub fn name(&self) -> String {
         match self {
             ChangeSetResource::Declared(resource) => resource.declared().name(),
+            ChangeSetResource::Member(member) => member.crate_name.to_string(),
         }
     }
 
     pub fn identity(&self, home_directory: &Path) -> Option<Identity> {
         match self {
             ChangeSetResource::Declared(resource) => resource.identity(home_directory),
+            ChangeSetResource::Member(member) => Some(member.identity()),
         }
     }
 
     pub fn requirements(&self) -> Vec<Requirement> {
         match self {
             ChangeSetResource::Declared(resource) => resource.requirements(),
+            ChangeSetResource::Member(member) => member.requirements(),
         }
     }
 
     pub fn precedence(&self) -> Precedence {
         match self {
             ChangeSetResource::Declared(resource) => resource.precedence(),
+            ChangeSetResource::Member(_) => Precedence::Declared(ResourceKind::Package),
         }
     }
 
     pub fn replaces_the_running_build(&self) -> bool {
         match self {
             ChangeSetResource::Declared(resource) => resource.replaces_the_running_build(),
+            ChangeSetResource::Member(_) => false,
         }
     }
 
     pub fn can_be_read_back(&self) -> bool {
         match self {
             ChangeSetResource::Declared(resource) => resource.declared().can_be_read_back(),
+            ChangeSetResource::Member(_) => true,
         }
     }
 
     pub fn files_root(&self) -> &Path {
         match self {
             ChangeSetResource::Declared(resource) => resource.files_root(),
+            ChangeSetResource::Member(member) => member.origin.files_root.path(),
         }
     }
 }
@@ -228,6 +292,7 @@ impl Display for ChangeSetResource {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ChangeSetResource::Declared(resource) => Display::fmt(resource, formatter),
+            ChangeSetResource::Member(member) => Display::fmt(member, formatter),
         }
     }
 }

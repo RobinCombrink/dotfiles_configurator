@@ -1,6 +1,6 @@
 use {
     crate::{
-        configuration::{CargoPackage, CargoSource, Identity, Package, Resource},
+        configuration::Identity,
         convergence::assess::SourceReadings,
         desired_state::{ChangeSetResource, DesiredState},
     },
@@ -13,23 +13,22 @@ pub fn resolve(
     readings: &SourceReadings,
     home_directory: &Path,
 ) -> Result<Vec<ChangeSetResource>> {
-    let mut resources = desired_state.resources.clone();
+    let mut resources: Vec<ChangeSetResource> = desired_state
+        .resources
+        .iter()
+        .cloned()
+        .map(ChangeSetResource::Declared)
+        .collect();
 
     for workspace in &desired_state.workspaces {
         let repository = &workspace.declared().repository;
         match readings.workspace(&workspace.clone_directory(repository)) {
-            Ok(Some(reading)) => {
-                for crate_name in reading.members.keys() {
-                    resources.push(workspace.alongside(Resource::Package(Package::Cargo(
-                        CargoPackage {
-                            crate_name: crate_name.clone(),
-                            source: CargoSource::Workspace {
-                                repository: repository.clone(),
-                            },
-                        },
-                    ))));
-                }
-            }
+            Ok(Some(reading)) => resources.extend(
+                workspace
+                    .members(reading)
+                    .into_iter()
+                    .map(ChangeSetResource::Member),
+            ),
             Ok(None) => {}
             Err(impediment) => bail!(
                 "{} could not be read, so which crates it holds is unknown: {impediment}. Nothing \
@@ -39,10 +38,6 @@ pub fn resolve(
         }
     }
 
-    let resources: Vec<ChangeSetResource> = resources
-        .into_iter()
-        .map(ChangeSetResource::Declared)
-        .collect();
     reject_conflicting_claims(&resources, home_directory)?;
     Ok(resources)
 }

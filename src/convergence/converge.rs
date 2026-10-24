@@ -7,7 +7,7 @@ use {
             Symlink, UvToolPackage, WingetPackage,
         },
         convergence::{Change, SourceReadings, search_path_directory, symlink_location},
-        desired_state::{ChangeSetResource, ResolvedResource},
+        desired_state::{ChangeSetResource, ResolvedResource, WorkspaceMember},
         machine::{
             DisplacingInvocation, Downloaded, Placement, Replacement, ReplacingInvocation,
             ResolvedCargoSource, WriteInvocation, WriteMachine,
@@ -23,10 +23,15 @@ pub async fn converge(
     machine: &impl WriteMachine,
     readings: &SourceReadings,
 ) -> Result<Placement> {
-    let ChangeSetResource::Declared(resource) = &drifted.resource;
+    let resource = match &drifted.resource {
+        ChangeSetResource::Declared(resource) => resource,
+        ChangeSetResource::Member(member) => {
+            return converge_workspace_member(member, machine, readings).await;
+        }
+    };
     let closed = match resource.declared() {
         Resource::Package(Package::Cargo(package)) => {
-            return converge_cargo_package(package, resource, machine, readings).await;
+            return converge_cargo_package(package, machine).await;
         }
         Resource::Repository(clone) => {
             converge_repository(
@@ -372,40 +377,48 @@ async fn converge_uv_tool(
 
 async fn converge_cargo_package(
     package: &CargoPackage,
-    resource: &ResolvedResource,
     machine: &impl WriteMachine,
-    readings: &SourceReadings,
 ) -> Result<Placement> {
     let source = match &package.source {
         CargoSource::Registry { version } => ResolvedCargoSource::Registry {
             version: version.exact().cloned(),
         },
         CargoSource::Path { path } => ResolvedCargoSource::Path { path: path.clone() },
-        CargoSource::Workspace { repository } => {
-            let clone_directory = resource.clone_directory(repository);
-            let revision = match readings.workspace(&clone_directory) {
-                Ok(Some(reading)) => reading.revision.clone(),
-                Ok(None) => bail!(
-                    "{repository} has not been cloned, so there is no revision to install from"
-                ),
-                Err(impediment) => bail!(
-                    "{repository} could not be read, so there is no revision to install from: \
-                     {impediment}"
-                ),
-            };
-
-            ResolvedCargoSource::Repository {
-                repository: repository.clone(),
-                account: resource.account().clone(),
-                revision,
-            }
-        }
     };
 
     machine
         .write_displacing(&DisplacingInvocation::InstallCargoCrate {
             crate_name: package.crate_name.clone(),
             source,
+        })
+        .await
+}
+
+async fn converge_workspace_member(
+    member: &WorkspaceMember,
+    machine: &impl WriteMachine,
+    readings: &SourceReadings,
+) -> Result<Placement> {
+    let repository = member.repository();
+    let revision = match readings.workspace(&member.clone_directory()) {
+        Ok(Some(reading)) => reading.revision.clone(),
+        Ok(None) => {
+            bail!("{repository} has not been cloned, so there is no revision to install from")
+        }
+        Err(impediment) => bail!(
+            "{repository} could not be read, so there is no revision to install from: \
+             {impediment}"
+        ),
+    };
+
+    machine
+        .write_displacing(&DisplacingInvocation::InstallCargoCrate {
+            crate_name: member.crate_name().clone(),
+            source: ResolvedCargoSource::Repository {
+                repository: repository.clone(),
+                account: member.account().clone(),
+                revision,
+            },
         })
         .await
 }

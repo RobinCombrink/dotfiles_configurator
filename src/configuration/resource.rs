@@ -116,16 +116,7 @@ impl Resource {
                 Requirement::Tool(Tool::Git),
                 Requirement::DartBinariesOnSearchPath,
             ],
-            Resource::Package(Package::Cargo(package)) => match package.source {
-                CargoSource::Workspace { .. } => vec![
-                    Requirement::Tool(Tool::Cargo),
-                    Requirement::Tool(Tool::Git),
-                    Requirement::CargoBinariesOnSearchPath,
-                ],
-                CargoSource::Registry { .. } | CargoSource::Path { .. } => {
-                    vec![Requirement::Tool(Tool::Cargo)]
-                }
-            },
+            Resource::Package(Package::Cargo(_)) => vec![Requirement::Tool(Tool::Cargo)],
             Resource::EnvironmentVariable(_) | Resource::Symlink(_) => Vec::new(),
             Resource::Registration(_) => vec![Requirement::Tool(Tool::Claude)],
             Resource::Command(command) => {
@@ -673,11 +664,6 @@ pub enum CargoSource {
     },
     Path {
         path: PathBuf,
-    },
-    #[serde(skip_deserializing)]
-    #[schemars(skip)]
-    Workspace {
-        repository: GitHubRepository,
     },
 }
 

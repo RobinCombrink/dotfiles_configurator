@@ -1,6 +1,6 @@
 use {
     crate::{
-        configuration::{CargoPackage, CargoSource, CrateName, Package, Resource},
+        configuration::CrateName,
         convergence::{Change, SourceReadings},
         desired_state::ChangeSetResource,
         machine::{WorkspaceBuild, WriteMachine},
@@ -18,19 +18,14 @@ pub fn workspace_builds<'readings, 'change>(
 ) -> Vec<WorkspaceBuild<'readings>> {
     let mut changed: BTreeMap<PathBuf, BTreeSet<CrateName>> = BTreeMap::new();
     for change in changes {
-        let ChangeSetResource::Declared(resource) = &change.resource;
-        let Resource::Package(Package::Cargo(CargoPackage {
-            crate_name,
-            source: CargoSource::Workspace { repository },
-        })) = resource.declared()
-        else {
+        let ChangeSetResource::Member(member) = &change.resource else {
             continue;
         };
 
         changed
-            .entry(resource.clone_directory(repository))
+            .entry(member.clone_directory())
             .or_default()
-            .insert(crate_name.clone());
+            .insert(member.crate_name().clone());
     }
 
     changed

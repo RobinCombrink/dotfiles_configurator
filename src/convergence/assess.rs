@@ -388,6 +388,12 @@ pub fn assess(
 
     match resource {
         ChangeSetResource::Declared(resource) => assess_declared(resource, machine, readings),
+        ChangeSetResource::Member(member) => assess_workspace_member(
+            member.crate_name(),
+            &member.clone_directory(),
+            machine,
+            readings,
+        ),
     }
 }
 
@@ -412,7 +418,7 @@ fn assess_declared(
         Resource::Package(Package::UvTool(package)) => assess_uv_tool(package, readings),
         Resource::Package(Package::Dart(package)) => assess_dart_package(package, machine),
         Resource::Package(Package::Cargo(package)) => {
-            assess_cargo_package(package, resource, machine, readings)
+            assess_declared_cargo_package(package, machine, readings)
         }
         Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => {
             assess_variable(variable, machine)
@@ -875,25 +881,6 @@ fn listed_uv_tool(
     };
 
     Ok(Some((UvToolVersion::from(installed), latest)))
-}
-
-fn assess_cargo_package(
-    package: &CargoPackage,
-    resource: &ResolvedResource,
-    machine: &impl ReadMachine,
-    readings: &SourceReadings,
-) -> Assessment {
-    match &package.source {
-        CargoSource::Workspace { repository } => assess_workspace_member(
-            &package.crate_name,
-            &resource.clone_directory(repository),
-            machine,
-            readings,
-        ),
-        CargoSource::Registry { .. } | CargoSource::Path { .. } => {
-            assess_declared_cargo_package(package, machine, readings)
-        }
-    }
 }
 
 // ADR 0040

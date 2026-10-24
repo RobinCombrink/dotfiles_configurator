@@ -393,6 +393,7 @@ async fn the_configurators_own_installers_begin_only_once_every_winget_install_h
 fn declared(resource: &ChangeSetResource) -> Option<&Resource> {
     match resource {
         ChangeSetResource::Declared(resource) => Some(resource.declared()),
+        ChangeSetResource::Member(_) => None,
     }
 }
 
