@@ -2,17 +2,24 @@ use {
     crate::{
         configuration::Identity,
         convergence::assess::SourceReadings,
-        desired_state::{ChangeSetResource, DesiredState},
+        desired_state::{ChangeSetResource, DesiredState, ResolvedWorkspace},
     },
     anyhow::{Result, bail},
     std::{collections::BTreeMap, path::Path},
 };
 
+#[derive(Debug)]
+pub struct Resolution {
+    pub resources: Vec<ChangeSetResource>,
+    pub uncloned: Vec<ResolvedWorkspace>,
+}
+
 pub fn resolve(
     desired_state: &DesiredState,
     readings: &SourceReadings,
     home_directory: &Path,
-) -> Result<Vec<ChangeSetResource>> {
+) -> Result<Resolution> {
+    let mut uncloned = Vec::new();
     let mut resources: Vec<ChangeSetResource> = desired_state
         .resources
         .iter()
@@ -29,7 +36,7 @@ pub fn resolve(
                     .into_iter()
                     .map(ChangeSetResource::Member),
             ),
-            Ok(None) => {}
+            Ok(None) => uncloned.push(workspace.clone()),
             Err(impediment) => bail!(
                 "{} could not be read, so which crates it holds is unknown: {impediment}. Nothing \
                  was applied.",
@@ -39,7 +46,10 @@ pub fn resolve(
     }
 
     reject_conflicting_claims(&resources, home_directory)?;
-    Ok(resources)
+    Ok(Resolution {
+        resources,
+        uncloned,
+    })
 }
 
 fn reject_conflicting_claims(resources: &[ChangeSetResource], home_directory: &Path) -> Result<()> {

@@ -527,12 +527,14 @@ Feature: Planning what a machine needs
     Then the change set reports 2 changes
     And the change set mentions "claude-statusline"
 
-  Scenario: A workspace whose repository is not cloned yet contributes no crates
+  Scenario: A workspace whose repository is not cloned yet is named as uncloned
     Given Alice declares the cargo workspace in the dotfiles repository
     And the workspace holds the crate "stop-gate"
     And the dotfiles repository has not been cloned on Alice's machine
     When Alice plans
     Then the change set reports 0 changes
+    And the change set names the cargo workspace in the dotfiles repository as uncloned
+    And the change set does not report the machine as converged
 
   Scenario: A workspace crate is blocked without git, which is what fetches the repository it installs from
     Given Alice declares the cargo workspace in the dotfiles repository

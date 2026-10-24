@@ -1,7 +1,9 @@
 use {
     crate::{
         configuration::{Migration, Notice, Requirement, Symlink},
-        desired_state::{ChangeSetResource, DesiredState, Precedence, ResolvedResource},
+        desired_state::{
+            ChangeSetResource, DesiredState, Precedence, ResolvedResource, ResolvedWorkspace,
+        },
         reporting::RunReport,
     },
     std::fmt::Display,
@@ -22,7 +24,7 @@ pub use {
     assess::{SourceReadings, assess},
     converge::install_release,
     lane::Lane,
-    resolve::resolve,
+    resolve::{Resolution, resolve},
     source_reading::{ReadSource, SourceReading, UnreadableReason},
     withdrawal::{Withdrawal, withdrawals},
 };
@@ -139,6 +141,7 @@ pub struct ChangeSet {
     pub changes: Vec<Change>,
     pub withdrawals: Vec<Withdrawal>,
     pub blocked: Vec<Blocked>,
+    pub uncloned: Vec<ResolvedWorkspace>,
     pub converged: Vec<ChangeSetResource>,
     pub found: Vec<Found>,
     pub notices: Vec<Notice>,
@@ -147,7 +150,10 @@ pub struct ChangeSet {
 
 impl ChangeSet {
     pub fn is_converged(&self) -> bool {
-        self.changes.is_empty() && self.withdrawals.is_empty() && self.blocked.is_empty()
+        self.changes.is_empty()
+            && self.withdrawals.is_empty()
+            && self.blocked.is_empty()
+            && self.uncloned.is_empty()
     }
 
     // ADR 0013
@@ -167,7 +173,10 @@ pub async fn plan(
         let _doing = report.doing("reading what the machine already has");
         SourceReadings::read_for(desired_state, machine).await
     };
-    let resources = resolve(desired_state, &readings, machine.home_directory())?;
+    let Resolution {
+        resources,
+        uncloned,
+    } = resolve(desired_state, &readings, machine.home_directory())?;
 
     let mut assessed: Vec<(Precedence, usize, ChangeSetResource, Assessment)> = resources
         .iter()
@@ -222,6 +231,7 @@ pub async fn plan(
             changes,
             withdrawals: planned_withdrawals(desired_state, &readings),
             blocked,
+            uncloned,
             converged,
             found,
             notices,
@@ -266,6 +276,12 @@ impl Display for ChangeSet {
                 blocked.resource, blocked.impediment
             )?;
         }
+        for workspace in &self.uncloned {
+            writeln!(
+                formatter,
+                "  uncloned {workspace} (its members are unknown until it is cloned)"
+            )?;
+        }
         for found in &self.found {
             writeln!(
                 formatter,
@@ -281,10 +297,12 @@ impl Display for ChangeSet {
         }
         write!(
             formatter,
-            "\n{} to change, {} to remove, {} blocked, {} already converged, {} to migrate",
+            "\n{} to change, {} to remove, {} blocked, {} uncloned, {} already converged, {} to \
+             migrate",
             self.changes.len(),
             self.withdrawals.len(),
             self.blocked.len(),
+            self.uncloned.len(),
             self.converged.len(),
             self.migrations.len()
         )

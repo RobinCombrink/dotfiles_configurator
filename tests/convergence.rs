@@ -2391,6 +2391,23 @@ fn change_set_reports_blocked(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.change_set().blocked.len(), expected);
 }
 
+#[then(expr = "the change set names the cargo workspace in the dotfiles repository as uncloned")]
+fn change_set_names_the_workspace_as_uncloned(world: &mut MachineWorld) {
+    let uncloned: Vec<&CargoWorkspace> = world
+        .change_set()
+        .uncloned
+        .iter()
+        .map(|workspace| workspace.declared())
+        .collect();
+
+    assert_eq!(
+        uncloned,
+        [&CargoWorkspace {
+            repository: dotfiles_repository(),
+        }]
+    );
+}
+
 #[then(expr = "the change set mentions {string}")]
 fn change_set_mentions(world: &mut MachineWorld, text: String) {
     let rendered = world.change_set().to_string();
