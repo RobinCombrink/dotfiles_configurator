@@ -21,6 +21,7 @@ use {
         confirmation::Operator,
         convergence::{ApplyOutcome, Enactment, apply::apply},
         currency::{SelfReplacement, own_currency},
+        desired_state::ChangeSetResource,
         machine::{
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
@@ -389,6 +390,12 @@ async fn the_configurators_own_installers_begin_only_once_every_winget_install_h
     );
 }
 
+fn declared(resource: &ChangeSetResource) -> Option<&Resource> {
+    match resource {
+        ChangeSetResource::Declared(resource) => Some(resource.declared()),
+    }
+}
+
 #[tokio::test]
 async fn a_download_that_fails_fails_its_entry_without_installing_it() {
     let machine = machine_lacking_every_entry();
@@ -396,12 +403,12 @@ async fn a_download_that_fails_fails_its_entry_without_installing_it() {
 
     let outcome = applying(&machine).await;
 
-    let failed: Vec<Resource> = outcome
+    let failed: Vec<Option<&Resource>> = outcome
         .failed
         .iter()
-        .map(|failure| failure.resource.declared().clone())
+        .map(|failure| declared(&failure.resource))
         .collect();
-    assert_eq!(failed, vec![neovim()]);
+    assert_eq!(failed, vec![Some(&neovim())]);
     assert!(!Journal(machine.journal()).holds("install Neovim"));
 }
 
@@ -416,7 +423,7 @@ async fn a_download_that_fails_still_lets_every_other_download_install() {
         outcome
             .converged
             .iter()
-            .any(|resource| *resource.declared() == released_ripgrep()),
+            .any(|resource| declared(resource) == Some(&released_ripgrep())),
         "{outcome:#?}"
     );
 }
@@ -431,10 +438,10 @@ async fn winget_sources_that_fail_to_update_still_let_every_winget_install_conve
     assert!(
         [winget("Microsoft.PowerShell"), winget("Git.Git")]
             .iter()
-            .all(|declared| outcome
+            .all(|wanted| outcome
                 .converged
                 .iter()
-                .any(|resource| resource.declared() == declared)),
+                .any(|resource| declared(resource) == Some(wanted))),
         "{outcome:#?}"
     );
 }
@@ -449,12 +456,12 @@ async fn an_entry_that_fails_in_one_lane_lets_every_other_lane_finish() {
 
     let outcome = applying_also(&machine_lacking_every_entry(), vec![unpublished.clone()]).await;
 
-    let failed: Vec<Resource> = outcome
+    let failed: Vec<Option<&Resource>> = outcome
         .failed
         .iter()
-        .map(|failure| failure.resource.declared().clone())
+        .map(|failure| declared(&failure.resource))
         .collect();
-    assert_eq!(failed, vec![unpublished], "{outcome:#?}");
+    assert_eq!(failed, vec![Some(&unpublished)], "{outcome:#?}");
     assert_eq!(
         outcome.converged.len() + outcome.held.len(),
         one_entry_of_every_kind().len() + ["claude-session", "the configurator"].len(),

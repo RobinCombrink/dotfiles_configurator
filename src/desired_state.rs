@@ -169,6 +169,69 @@ impl<T: std::fmt::Display> std::fmt::Display for Resolved<T> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangeSetResource {
+    Declared(ResolvedResource),
+}
+
+impl ChangeSetResource {
+    pub fn kind(&self) -> ResourceKind {
+        match self {
+            ChangeSetResource::Declared(resource) => resource.kind(),
+        }
+    }
+
+    pub fn name(&self) -> String {
+        match self {
+            ChangeSetResource::Declared(resource) => resource.declared().name(),
+        }
+    }
+
+    pub fn identity(&self, home_directory: &Path) -> Option<Identity> {
+        match self {
+            ChangeSetResource::Declared(resource) => resource.identity(home_directory),
+        }
+    }
+
+    pub fn requirements(&self) -> Vec<Requirement> {
+        match self {
+            ChangeSetResource::Declared(resource) => resource.requirements(),
+        }
+    }
+
+    pub fn precedence(&self) -> Precedence {
+        match self {
+            ChangeSetResource::Declared(resource) => resource.precedence(),
+        }
+    }
+
+    pub fn replaces_the_running_build(&self) -> bool {
+        match self {
+            ChangeSetResource::Declared(resource) => resource.replaces_the_running_build(),
+        }
+    }
+
+    pub fn can_be_read_back(&self) -> bool {
+        match self {
+            ChangeSetResource::Declared(resource) => resource.declared().can_be_read_back(),
+        }
+    }
+
+    pub fn files_root(&self) -> &Path {
+        match self {
+            ChangeSetResource::Declared(resource) => resource.files_root(),
+        }
+    }
+}
+
+impl Display for ChangeSetResource {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChangeSetResource::Declared(resource) => Display::fmt(resource, formatter),
+        }
+    }
+}
+
 pub struct ResolvedConfiguration {
     name: ConfigurationName,
     origin: Origin,

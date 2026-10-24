@@ -32,7 +32,7 @@ use {
             plan,
         },
         currency::SelfReplacement,
-        desired_state::DesiredState,
+        desired_state::{ChangeSetResource, DesiredState},
         github::GitHubAccess,
         machine::{
             CommandOutput, Exited, ReadInvocation, ReadMachine, WriteMachine,
@@ -2567,6 +2567,7 @@ fn link_resolves_into_the_checkout(world: &mut MachineWorld, link_path: String, 
 fn link_is_planned_as_converged(world: &mut MachineWorld, link_path: String) {
     let change_set = world.change_set();
     let converged = change_set.converged.iter().any(|resource| {
+        let ChangeSetResource::Declared(resource) = resource;
         let Resource::Symlink(symlink) = resource.declared() else {
             return false;
         };

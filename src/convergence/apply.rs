@@ -10,7 +10,7 @@ use {
             withdrawal::{Withdrawal, Withdrawn, withdraw},
         },
         currency::{self, SelfReplacement},
-        desired_state::{DesiredState, ResolvedResource},
+        desired_state::{ChangeSetResource, DesiredState},
         machine::{
             ElevatedBatch, ElevatedOutcome, ElevatedWork, Elevation, HeldReason, Placement,
             ReadMachine, WriteInvocation, WriteMachine,
@@ -27,19 +27,19 @@ use {
 
 #[derive(Debug)]
 pub struct Failure {
-    pub resource: ResolvedResource,
+    pub resource: ChangeSetResource,
     pub error: anyhow::Error,
 }
 
 #[derive(Debug)]
 pub struct Held {
-    pub resource: ResolvedResource,
+    pub resource: ChangeSetResource,
     pub reason: HeldReason,
 }
 
 #[derive(Debug)]
 pub struct ApplyOutcome {
-    pub converged: Vec<ResolvedResource>,
+    pub converged: Vec<ChangeSetResource>,
     pub failed: Vec<Failure>,
     pub held: Vec<Held>,
     pub blocked: Vec<Blocked>,
@@ -63,8 +63,6 @@ impl ApplyOutcome {
 
 impl ApplyOutcome {
     fn closing(&self) -> Closing {
-        let entry_of =
-            |resource: &ResolvedResource| Entry::new(Lane::of(resource), resource.declared());
         Closing {
             converged: self.converged.len(),
             failed: self.failed.len() + self.unremoved.len(),
@@ -73,14 +71,14 @@ impl ApplyOutcome {
             blocked: self
                 .blocked
                 .iter()
-                .map(|blocked| (entry_of(&blocked.resource), blocked.impediment.to_string()))
+                .map(|blocked| (entry_for(&blocked.resource), blocked.impediment.to_string()))
                 .collect(),
             did_not_take: self
                 .unverified
                 .iter()
                 .map(|change| {
                     (
-                        entry_of(&change.resource),
+                        entry_of(change),
                         format!("converged, but still {}", change.reason),
                     )
                 })
@@ -125,7 +123,7 @@ pub async fn apply(
         }
     }
 
-    let mut converged: Vec<ResolvedResource> = Vec::new();
+    let mut converged: Vec<ChangeSetResource> = Vec::new();
     let mut failed: Vec<Failure> = Vec::new();
     let mut held: Vec<Held> = Vec::new();
     let mut handled: BTreeSet<Handled> = BTreeSet::new();
@@ -201,9 +199,7 @@ pub async fn apply(
     let unverified = change_set
         .changes
         .iter()
-        .filter(|change| {
-            converged.contains(&change.resource) && change.resource.declared().can_be_read_back()
-        })
+        .filter(|change| converged.contains(&change.resource) && change.resource.can_be_read_back())
         .cloned()
         .collect();
 
@@ -227,7 +223,7 @@ pub async fn apply(
 }
 
 // ADR 0017
-fn notice_of_an_environment_change(converged: &[ResolvedResource]) -> Option<Notice> {
+fn notice_of_an_environment_change(converged: &[ChangeSetResource]) -> Option<Notice> {
     let changed = converged
         .iter()
         .any(|resource| resource.kind() == ResourceKind::EnvironmentVariable);
@@ -311,9 +307,10 @@ pub enum Handled {
 
 impl Handled {
     fn of(change: &Change, home_directory: &Path) -> Self {
-        match change.resource.identity(home_directory) {
+        let ChangeSetResource::Declared(resource) = &change.resource;
+        match resource.identity(home_directory) {
             Some(identity) => Handled::Claimed(identity),
-            None => Handled::Unclaimable(Invocation::from(change.resource.declared())),
+            None => Handled::Unclaimable(Invocation::from(resource.declared())),
         }
     }
 }
@@ -334,7 +331,7 @@ enum Reached {
 
 #[derive(Debug, Default)]
 struct Pass {
-    converged: Vec<ResolvedResource>,
+    converged: Vec<ChangeSetResource>,
     failed: Vec<Failure>,
     held: Vec<Held>,
     handled: BTreeSet<Handled>,
@@ -474,20 +471,18 @@ async fn attempt(
     settled.extend(failed_downloads);
     let mut work_in = |lane: Lane| -> Vec<Work> {
         in_lane(lane)
-            .filter_map(
-                |(position, change)| match Download::of(change.resource.declared()) {
-                    None => Some(Work {
-                        position,
-                        change,
-                        fetched: None,
-                    }),
-                    Some(_) => fetched.remove(&position).map(|fetched| Work {
-                        position,
-                        change,
-                        fetched: Some(fetched),
-                    }),
-                },
-            )
+            .filter_map(|(position, change)| match download_of(change) {
+                None => Some(Work {
+                    position,
+                    change,
+                    fetched: None,
+                }),
+                Some(_) => fetched.remove(&position).map(|fetched| Work {
+                    position,
+                    change,
+                    fetched: Some(fetched),
+                }),
+            })
             .collect()
     };
     let (cargo, install, uv, dart, instant) = (
@@ -612,7 +607,7 @@ async fn fetch_ahead_of_the_lanes<'change>(
         .iter()
         .filter(|(_, change)| Lane::of(&change.resource) != Lane::Replacement)
         .filter_map(|&(position, change)| {
-            let download = Download::of(change.resource.declared())?;
+            let download = download_of(change)?;
             Some(async move {
                 let entry = entry_of(change);
                 let fetched = report
@@ -638,6 +633,12 @@ async fn fetch_ahead_of_the_lanes<'change>(
         }
     }
     (ready, failed)
+}
+
+fn download_of(change: &Change) -> Option<Download<'_>> {
+    match &change.resource {
+        ChangeSetResource::Declared(resource) => Download::of(resource.declared()),
+    }
 }
 
 async fn in_order<'change>(
@@ -732,7 +733,11 @@ fn refusal_to_replace_again(
 }
 
 fn entry_of(change: &Change) -> Entry {
-    Entry::new(Lane::of(&change.resource), change.resource.declared())
+    entry_for(&change.resource)
+}
+
+fn entry_for(resource: &ChangeSetResource) -> Entry {
+    Entry::resource(Lane::of(resource), resource.kind(), resource.name())
 }
 
 async fn converge_one(

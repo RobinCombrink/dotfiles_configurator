@@ -47,10 +47,14 @@ impl Display for Subject {
 
 impl Entry {
     pub fn new(lane: Lane, resource: &Resource) -> Self {
+        Self::resource(lane, resource.kind(), resource.name())
+    }
+
+    pub fn resource(lane: Lane, kind: ResourceKind, name: String) -> Self {
         Self {
             lane,
-            subject: Subject::Resource(resource.kind()),
-            name: resource.name(),
+            subject: Subject::Resource(kind),
+            name,
         }
     }
 

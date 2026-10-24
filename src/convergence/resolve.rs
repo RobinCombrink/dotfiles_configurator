@@ -2,7 +2,7 @@ use {
     crate::{
         configuration::{CargoPackage, CargoSource, Identity, Package, Resource},
         convergence::assess::SourceReadings,
-        desired_state::{DesiredState, ResolvedResource},
+        desired_state::{ChangeSetResource, DesiredState},
     },
     anyhow::{Result, bail},
     std::{collections::BTreeMap, path::Path},
@@ -12,7 +12,7 @@ pub fn resolve(
     desired_state: &DesiredState,
     readings: &SourceReadings,
     home_directory: &Path,
-) -> Result<Vec<ResolvedResource>> {
+) -> Result<Vec<ChangeSetResource>> {
     let mut resources = desired_state.resources.clone();
 
     for workspace in &desired_state.workspaces {
@@ -39,12 +39,16 @@ pub fn resolve(
         }
     }
 
+    let resources: Vec<ChangeSetResource> = resources
+        .into_iter()
+        .map(ChangeSetResource::Declared)
+        .collect();
     reject_conflicting_claims(&resources, home_directory)?;
     Ok(resources)
 }
 
-fn reject_conflicting_claims(resources: &[ResolvedResource], home_directory: &Path) -> Result<()> {
-    let mut claimed: BTreeMap<Identity, &ResolvedResource> = BTreeMap::new();
+fn reject_conflicting_claims(resources: &[ChangeSetResource], home_directory: &Path) -> Result<()> {
+    let mut claimed: BTreeMap<Identity, &ChangeSetResource> = BTreeMap::new();
 
     for resource in resources {
         let Some(identity) = resource.identity(home_directory) else {

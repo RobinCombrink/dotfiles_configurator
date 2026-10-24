@@ -14,7 +14,7 @@ use {
             search_path_directory, symlink_location,
             withdrawal::{InstallRecord, install_records},
         },
-        desired_state::{DesiredState, ResolvedResource},
+        desired_state::{ChangeSetResource, DesiredState, ResolvedResource},
         machine::{
             CommandOutput, Exited, ReadInvocation, ReadMachine, dart_reading::DartReading,
             environment_reading::SearchPathReading, release_reading::ReleaseReading,
@@ -378,7 +378,7 @@ fn read_listing(
 }
 
 pub fn assess(
-    resource: &ResolvedResource,
+    resource: &ChangeSetResource,
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Assessment {
@@ -386,6 +386,16 @@ pub fn assess(
         return Assessment::Unassessable(impediment);
     }
 
+    match resource {
+        ChangeSetResource::Declared(resource) => assess_declared(resource, machine, readings),
+    }
+}
+
+fn assess_declared(
+    resource: &ResolvedResource,
+    machine: &impl ReadMachine,
+    readings: &SourceReadings,
+) -> Assessment {
     match resource.declared() {
         Resource::Repository(clone) => {
             assess_repository(clone, &resource.clone_directory(&clone.repository), machine)
@@ -423,7 +433,7 @@ pub fn assess(
 
 // ADR 0004
 fn readiness(
-    resource: &ResolvedResource,
+    resource: &ChangeSetResource,
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Result<(), Impediment> {
@@ -437,7 +447,7 @@ fn readiness(
 
 fn requirement_is_met(
     requirement: &Requirement,
-    resource: &ResolvedResource,
+    resource: &ChangeSetResource,
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Result<bool, Impediment> {

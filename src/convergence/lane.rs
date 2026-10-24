@@ -1,7 +1,7 @@
 use {
     crate::{
         configuration::{Application, Package, Resource},
-        desired_state::ResolvedResource,
+        desired_state::ChangeSetResource,
     },
     std::fmt::Display,
 };
@@ -19,7 +19,8 @@ pub enum Lane {
 }
 
 impl Lane {
-    pub fn of(resource: &ResolvedResource) -> Self {
+    pub fn of(resource: &ChangeSetResource) -> Self {
+        let ChangeSetResource::Declared(resource) = resource;
         if resource.replaces_the_running_build() {
             return Lane::Replacement;
         }

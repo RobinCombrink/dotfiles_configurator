@@ -7,7 +7,7 @@ use {
             Symlink, UvToolPackage, WingetPackage,
         },
         convergence::{Change, SourceReadings, search_path_directory, symlink_location},
-        desired_state::ResolvedResource,
+        desired_state::{ChangeSetResource, ResolvedResource},
         machine::{
             DisplacingInvocation, Downloaded, Placement, Replacement, ReplacingInvocation,
             ResolvedCargoSource, WriteInvocation, WriteMachine,
@@ -23,7 +23,7 @@ pub async fn converge(
     machine: &impl WriteMachine,
     readings: &SourceReadings,
 ) -> Result<Placement> {
-    let resource = &drifted.resource;
+    let ChangeSetResource::Declared(resource) = &drifted.resource;
     let closed = match resource.declared() {
         Resource::Package(Package::Cargo(package)) => {
             return converge_cargo_package(package, resource, machine, readings).await;

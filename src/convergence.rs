@@ -1,7 +1,7 @@
 use {
     crate::{
         configuration::{Migration, Notice, Requirement, Symlink},
-        desired_state::{DesiredState, Precedence, ResolvedResource},
+        desired_state::{ChangeSetResource, DesiredState, Precedence, ResolvedResource},
         reporting::RunReport,
     },
     std::fmt::Display,
@@ -118,19 +118,19 @@ pub(crate) fn symlink_location(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
-    pub resource: ResolvedResource,
+    pub resource: ChangeSetResource,
     pub reason: DriftReason,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blocked {
-    pub resource: ResolvedResource,
+    pub resource: ChangeSetResource,
     pub impediment: Impediment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {
-    pub resource: ResolvedResource,
+    pub resource: ChangeSetResource,
     pub finding: Finding,
 }
 
@@ -139,7 +139,7 @@ pub struct ChangeSet {
     pub changes: Vec<Change>,
     pub withdrawals: Vec<Withdrawal>,
     pub blocked: Vec<Blocked>,
-    pub converged: Vec<ResolvedResource>,
+    pub converged: Vec<ChangeSetResource>,
     pub found: Vec<Found>,
     pub notices: Vec<Notice>,
     pub migrations: Vec<Migration>,
@@ -169,7 +169,7 @@ pub async fn plan(
     };
     let resources = resolve(desired_state, &readings, machine.home_directory())?;
 
-    let mut assessed: Vec<(Precedence, usize, ResolvedResource, Assessment)> = resources
+    let mut assessed: Vec<(Precedence, usize, ChangeSetResource, Assessment)> = resources
         .iter()
         .enumerate()
         .map(|(position, resource)| {

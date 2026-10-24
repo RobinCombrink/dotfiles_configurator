@@ -17,7 +17,7 @@ use {
             RepositoryOwner, Resource, UvToolPackage, WingetPackage,
         },
         convergence::plan,
-        desired_state::DesiredState,
+        desired_state::{ChangeSetResource, DesiredState},
         machine::{
             ReadInvocation,
             release_reading::ReleaseReading,
@@ -241,11 +241,15 @@ const WORKSPACE_REVISION: &str = "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c";
 const EARLIER_REVISION: &str = "1b9e0c1d2f3a4b5c6d7e8f90a1b2c3d4e5f60718";
 const UNKNOWN_REVISION: &str = "0123456789abcdef0123456789abcdef01234567";
 
-fn crate_names_of<'resource>(resources: impl Iterator<Item = &'resource Resource>) -> Vec<String> {
+fn crate_names_of<'resource>(
+    resources: impl Iterator<Item = &'resource ChangeSetResource>,
+) -> Vec<String> {
     resources
         .filter_map(|resource| match resource {
-            Resource::Package(Package::Cargo(package)) => Some(package.crate_name.to_string()),
-            _ => None,
+            ChangeSetResource::Declared(resource) => match resource.declared() {
+                Resource::Package(Package::Cargo(package)) => Some(package.crate_name.to_string()),
+                _ => None,
+            },
         })
         .collect()
 }
@@ -316,12 +320,7 @@ async fn a_member_installs_for_an_absent_or_stale_copy_of_its_own_and_a_shadow_i
     .await
     .unwrap();
 
-    let mut installed = crate_names_of(
-        change_set
-            .changes
-            .iter()
-            .map(|change| change.resource.declared()),
-    );
+    let mut installed = crate_names_of(change_set.changes.iter().map(|change| &change.resource));
     installed.sort();
     assert_eq!(
         installed,
@@ -335,12 +334,7 @@ async fn a_member_installs_for_an_absent_or_stale_copy_of_its_own_and_a_shadow_i
         ]
     );
     assert_eq!(
-        crate_names_of(
-            change_set
-                .found
-                .iter()
-                .map(|found| found.resource.declared())
-        ),
+        crate_names_of(change_set.found.iter().map(|found| &found.resource)),
         vec!["shadowed"]
     );
 }
@@ -377,12 +371,7 @@ async fn a_member_is_blocked_while_cargo_cannot_list_what_it_has_installed() {
     .unwrap();
 
     assert_eq!(
-        crate_names_of(
-            change_set
-                .blocked
-                .iter()
-                .map(|blocked| blocked.resource.declared())
-        ),
+        crate_names_of(change_set.blocked.iter().map(|blocked| &blocked.resource)),
         vec!["stop-gate"]
     );
 }
