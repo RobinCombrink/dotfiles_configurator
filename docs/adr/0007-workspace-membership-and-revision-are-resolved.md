@@ -90,11 +90,15 @@ kind, and the registry covers the ordinary way to install someone else's crate.
   around an entry it could not reach would read as a plausible fingerprint rather than as an
   error. ADR 0009 already refuses to apply any configuration it could not read; this is that rule
   reaching the resolved half of the configuration.
-- **A workspace whose repository is not cloned contributes no members, and says nothing about
-  them.** They cannot be named, so they cannot be reported. The clone is itself a declared
-  repository resource and appears in the change set as a change, so a first run on a bare machine
-  still reads correctly and the crates arrive on the pass after the clone. The cost is that
-  planning alone, on a machine that has not cloned yet, understates how much work an apply will do.
+- **A workspace whose repository is not cloned contributes no members, and the change set names
+  the workspace as uncloned.** Its members cannot be named, so the change set holds the workspace
+  itself in a category of its own, its members unknown until the clone, and a change set or an
+  apply's outcome holding one is not converged. Membership is not read over the network. The
+  clone is itself a declared repository resource and appears in the change set as a change, so a
+  first run on a bare machine still reads correctly and the crates arrive on the pass after the
+  clone; a workspace still uncloned at apply's last pass is carried into its outcome. The cost is
+  that planning alone, on a machine that has not cloned yet, names the workspace without counting
+  the work its members will need.
 - **Membership is the members that build a binary**, decided from the manifest's `[[bin]]` sections
   and from whether the tree holds `src/main.rs` or `src/bin/`. A library-only member cannot be
   installed at all, so admitting one would fail on every run forever rather than once; adding a
