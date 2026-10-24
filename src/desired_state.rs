@@ -66,6 +66,13 @@ struct Origin {
     repositories_directory: PathBuf,
 }
 
+impl Origin {
+    fn clone_directory(&self, repository: &GitHubRepository) -> PathBuf {
+        self.repositories_directory
+            .join(repository.repository.as_ref())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved<T> {
     value: T,
@@ -90,9 +97,7 @@ impl<T> Resolved<T> {
     }
 
     pub fn clone_directory(&self, repository: &GitHubRepository) -> PathBuf {
-        self.origin
-            .repositories_directory
-            .join(repository.repository.as_ref())
+        self.origin.clone_directory(repository)
     }
 }
 
@@ -131,9 +136,7 @@ impl WorkspaceMember {
     }
 
     pub fn clone_directory(&self) -> PathBuf {
-        self.origin
-            .repositories_directory
-            .join(self.repository.repository.as_ref())
+        self.origin.clone_directory(&self.repository)
     }
 
     pub fn identity(&self) -> Identity {
