@@ -252,14 +252,14 @@ Not a repository's owner — an owner is an address, and a public repository is 
 account at all. Defined by `GitHubAccount`.
 _Avoid_: identity, username, credential, login
 
-**Dotfile**:
+**Symlink**:
 Owned by the dotfiles repository of the configuration that declares it. Defined by `Symlink`.
-_Avoid_: config file, rc file, setting
+_Avoid_: dotfile, config file, rc file, setting
 
 **Dotfiles repository**:
-The repository holding the dotfiles a configuration declares, which is the repository that
-configuration was written in. One per configuration rather than one per machine, so a machine
-applying configurations from two repositories links from both.
+The repository holding the dotfiles a configuration's symlinks link to, which is the repository
+that configuration was written in. One per configuration rather than one per machine, so a
+machine applying configurations from two repositories links from both.
 _Avoid_: config repo, source repo
 
 **Files root**:
