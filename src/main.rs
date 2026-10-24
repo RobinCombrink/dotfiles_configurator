@@ -153,9 +153,7 @@ fn hand_over_to_the_installed_build(
     machine: &LocalMachine<'_, '_>,
     successor_arguments: Vec<OsString>,
 ) -> Result<Ending> {
-    let installed = machine
-        .binaries_directory()
-        .join(own_currency().installed_name().file_name());
+    let installed = own_currency().path_within(&machine.binaries_directory());
     let status = std::process::Command::new(&installed)
         .args(successor_arguments)
         .status()

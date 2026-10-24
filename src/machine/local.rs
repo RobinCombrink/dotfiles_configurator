@@ -974,9 +974,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
     fn install_released_binary(&self, downloaded: Downloaded<ReleasedBinary>) -> Result<Placement> {
         let binary = downloaded.declared();
         let contents = read_archive_entry(downloaded.file(), &binary.entry)?;
-        let installed_path = self
-            .binaries_directory()
-            .join(binary.installed_name().file_name());
+        let installed_path = binary.path_within(&self.binaries_directory());
 
         fs::create_dir_all(self.binaries_directory())
             .with_context(|| format!("Could not create {}", self.binaries_directory().display()))?;
