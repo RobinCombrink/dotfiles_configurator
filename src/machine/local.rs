@@ -52,6 +52,7 @@ const NOTHING_PUBLISHED: u16 = 404;
 
 pub struct LocalMachine<'report, 'access> {
     home_directory: PathBuf,
+    tool_directory: PathBuf,
     download_directory: PathBuf,
     cargo_binaries_directory: PathBuf,
     github: &'access GitHubAccess,
@@ -61,7 +62,11 @@ pub struct LocalMachine<'report, 'access> {
 }
 
 impl<'report, 'access> LocalMachine<'report, 'access> {
-    pub fn new(report: &'report RunReport, github: &'access GitHubAccess) -> Result<Self> {
+    pub fn new(
+        report: &'report RunReport,
+        github: &'access GitHubAccess,
+        tool_directory: PathBuf,
+    ) -> Result<Self> {
         let home_directory =
             env::home_dir().ok_or_else(|| anyhow!("Could not find the home directory"))?;
 
@@ -70,6 +75,7 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
                 .ok_or_else(|| anyhow!("Could not find the download directory"))?,
             cargo_binaries_directory: cargo_binaries_directory(&home_directory),
             home_directory,
+            tool_directory,
             github,
             http_client: Client::default(),
             report,
@@ -603,6 +609,10 @@ fn launchable_extensions(pathext: Option<&OsStr>) -> Vec<String> {
 impl ReadMachine for LocalMachine<'_, '_> {
     fn home_directory(&self) -> &Path {
         &self.home_directory
+    }
+
+    fn tool_directory(&self) -> &Path {
+        &self.tool_directory
     }
 
     fn superseded_images(&self) -> Vec<PathBuf> {

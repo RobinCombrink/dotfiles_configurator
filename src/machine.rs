@@ -1,6 +1,5 @@
 use {
     crate::{
-        TOOL_DIRECTORY,
         configuration::{
             Answer, CrateName, CrateVersion, DartPackage, GitHubAccount, GitHubRepository,
             McpServerName, PresenceCheck, Shell, Tool, VariableName, VariableValue, path_folding,
@@ -165,6 +164,8 @@ pub enum Replacement {
 pub trait ReadMachine {
     fn home_directory(&self) -> &Path;
 
+    fn tool_directory(&self) -> &Path;
+
     fn superseded_images(&self) -> Vec<PathBuf>;
 
     fn path_exists(&self, path: &Path) -> bool;
@@ -252,13 +253,11 @@ pub trait ReadMachine {
 
     // ADR 0015
     fn binaries_directory(&self) -> PathBuf {
-        self.home_directory().join(TOOL_DIRECTORY).join("bin")
+        self.tool_directory().join("bin")
     }
 
     fn build_cache_directory(&self) -> PathBuf {
-        self.home_directory()
-            .join(TOOL_DIRECTORY)
-            .join("build-cache")
+        self.tool_directory().join("build-cache")
     }
 
     fn dart_locations(&self) -> DartLocations {

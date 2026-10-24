@@ -21,6 +21,7 @@ use {
         newer_build::still_unreadable_by_the_newest_build,
         planned_run::{PlannedRun, ResolvingRun},
         reporting::{RunKind, RunReport},
+        tool_directory_within,
     },
     log::{LevelFilter, trace},
     std::{ffi::OsString, io::Write, path::PathBuf, process::ExitCode},
@@ -53,10 +54,13 @@ enum Ending {
 
 async fn run(task: Task) -> Result<Ending> {
     let github = GitHubAccess::new();
+    let tool_directory = tool_directory_within(
+        &std::env::home_dir().ok_or_else(|| anyhow!("Could not find the home directory"))?,
+    );
     match task {
         Task::Plan(arguments) => {
-            let report = RunReport::open(RunKind::Plan)?;
-            let machine = LocalMachine::new(&report, &github)?;
+            let report = RunReport::open(&tool_directory, RunKind::Plan)?;
+            let machine = LocalMachine::new(&report, &github, tool_directory.clone())?;
             let planned = PlannedRun::resolved(
                 ResolvingRun::Plan,
                 arguments.machine,
@@ -75,7 +79,7 @@ async fn run(task: Task) -> Result<Ending> {
             Ok(Ending::Concluded(Conclusion::of(change_set.is_converged())))
         }
         Task::Apply(arguments) => {
-            let report = RunReport::open(RunKind::Apply)?;
+            let report = RunReport::open(&tool_directory, RunKind::Apply)?;
             let operator = match Operator::of_this_run(arguments.yes) {
                 Ok(operator) => operator,
                 Err(refusal) => {
@@ -83,7 +87,7 @@ async fn run(task: Task) -> Result<Ending> {
                     return Ok(Ending::Concluded(Conclusion::DidNothing));
                 }
             };
-            let machine = LocalMachine::new(&report, &github)?;
+            let machine = LocalMachine::new(&report, &github, tool_directory.clone())?;
             let applied = PlannedRun::resolved(
                 ResolvingRun::Apply,
                 arguments.run.machine,
@@ -138,7 +142,7 @@ async fn run(task: Task) -> Result<Ending> {
             }
         }
         Task::ElevatedBatch(arguments) => {
-            let report = RunReport::open(RunKind::Elevated)?;
+            let report = RunReport::open(&tool_directory, RunKind::Elevated)?;
             elevation::perform(arguments.batch, &arguments.results, &report).await?;
             Ok(Ending::Concluded(Conclusion::Settled))
         }

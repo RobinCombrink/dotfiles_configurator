@@ -164,10 +164,8 @@ fn displacing_a_binary_reaps_the_image_an_earlier_run_left_under_that_exact_name
 fn superseded_images_are_found_in_every_directory_the_program_can_displace_into() {
     let home_directory = tempfile::tempdir().unwrap();
     let cargo_directory = tempfile::tempdir().unwrap();
-    let tool_binaries_directory = home_directory
-        .path()
-        .join(crate::TOOL_DIRECTORY)
-        .join("bin");
+    let tool_directory = crate::tool_directory_within(home_directory.path());
+    let tool_binaries_directory = tool_directory.join("bin");
     fs::create_dir_all(&tool_binaries_directory).unwrap();
     a_binary_at(
         &tool_binaries_directory,
@@ -184,6 +182,7 @@ fn superseded_images_are_found_in_every_directory_the_program_can_displace_into(
     let github = GitHubAccess::new();
     let machine = LocalMachine {
         home_directory: home_directory.path().to_path_buf(),
+        tool_directory,
         download_directory: home_directory.path().to_path_buf(),
         cargo_binaries_directory: cargo_directory.path().to_path_buf(),
         github: &github,

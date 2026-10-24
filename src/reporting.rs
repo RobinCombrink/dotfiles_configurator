@@ -1,12 +1,10 @@
 use {
-    crate::TOOL_DIRECTORY,
     anyhow::{Context, Result},
     chrono::Local,
     entries::{Advance, Presentation},
     indicatif::{MultiProgress, ProgressBar, ProgressStyle},
     std::{
         collections::BTreeMap,
-        env,
         fmt::Display,
         fs::{self, File, OpenOptions},
         io::Write,
@@ -159,8 +157,8 @@ impl Drop for SilenceWatchdog {
 }
 
 impl RunReport {
-    pub fn open(kind: RunKind) -> Result<Self> {
-        Self::open_in(&log_directory()?, kind)
+    pub fn open(tool_directory: &Path, kind: RunKind) -> Result<Self> {
+        Self::open_in(&tool_directory.join("logs"), kind)
     }
 
     pub fn open_in(directory: &Path, kind: RunKind) -> Result<Self> {
@@ -588,13 +586,6 @@ fn discard_all_but_newest(directory: &Path, keep: usize) -> Result<()> {
         let _ = fs::remove_file(path);
     }
     Ok(())
-}
-
-fn log_directory() -> Result<PathBuf> {
-    Ok(env::home_dir()
-        .context("Could not find the home directory to write a run log into")?
-        .join(TOOL_DIRECTORY)
-        .join("logs"))
 }
 
 #[cfg(test)]

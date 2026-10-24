@@ -11,7 +11,7 @@ pub mod machine;
 pub mod newer_build;
 pub mod planned_run;
 pub mod reporting;
+mod tool_directory;
 pub mod version;
 
-// ADR 0015
-pub const TOOL_DIRECTORY: &str = concat!(".", env!("CARGO_PKG_NAME"));
+pub use tool_directory::tool_directory_within;

@@ -7,12 +7,14 @@ use {
 };
 
 #[test]
-fn run_logs_are_written_into_the_tools_own_directory_under_the_home_directory() {
-    let home = env::home_dir().unwrap();
+fn run_logs_are_written_under_logs_beneath_the_tool_directory_it_is_given() {
+    let tool_directory = tempfile::tempdir().unwrap();
+
+    let report = RunReport::open(tool_directory.path(), RunKind::Apply).unwrap();
 
     assert_eq!(
-        log_directory().unwrap(),
-        home.join(".dotfiles_configurator").join("logs")
+        logs_in(&tool_directory.path().join("logs")),
+        vec![report.log_path()]
     );
 }
 

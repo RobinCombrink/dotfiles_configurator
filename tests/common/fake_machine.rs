@@ -25,6 +25,7 @@ use {
             superseded_name,
             workspace_reading::{Fingerprint, Revision, WorkspaceReading},
         },
+        tool_directory_within,
         version::Version,
     },
     std::{
@@ -38,6 +39,7 @@ use {
 #[derive(Debug)]
 pub struct FakeMachine {
     home_directory: PathBuf,
+    tool_directory: PathBuf,
     repositories_root: PathBuf,
     dotfiles_repository_path: PathBuf,
     cargo_binaries_directory: PathBuf,
@@ -202,6 +204,7 @@ impl Default for FakeMachine {
         let dotfiles_repository_path = dotfiles_repository_path();
         let machine = Self {
             cargo_binaries_directory: home_directory.join(".cargo").join("bin"),
+            tool_directory: tool_directory_within(&home_directory),
             home_directory,
             repositories_root,
             dotfiles_repository_path,
@@ -1350,6 +1353,10 @@ impl FakeMachine {
 impl ReadMachine for FakeMachine {
     fn home_directory(&self) -> &Path {
         &self.home_directory
+    }
+
+    fn tool_directory(&self) -> &Path {
+        &self.tool_directory
     }
 
     fn is_elevated(&self) -> bool {
