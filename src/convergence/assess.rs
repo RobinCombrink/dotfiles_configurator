@@ -533,9 +533,7 @@ fn assess_released_binary(
         Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
-    let installed_path = machine
-        .binaries_directory()
-        .join(binary.installed_name().file_name());
+    let installed_path = binary.path_within(&machine.binaries_directory());
     if !machine.path_exists(&installed_path) {
         return Assessment::Drifted(
             format!(
