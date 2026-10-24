@@ -14,7 +14,7 @@ use {
             search_path_directory, symlink_location,
             withdrawal::{InstallRecord, install_records},
         },
-        desired_state::{ChangeSetResource, DesiredState, ResolvedResource},
+        desired_state::{ChangeSetResource, DesiredState, ResolvedResource, WorkspaceMember},
         machine::{
             CommandOutput, Exited, ReadInvocation, ReadMachine, dart_reading::DartReading,
             environment_reading::SearchPathReading, release_reading::ReleaseReading,
@@ -388,12 +388,7 @@ pub fn assess(
 
     match resource {
         ChangeSetResource::Declared(resource) => assess_declared(resource, machine, readings),
-        ChangeSetResource::Member(member) => assess_workspace_member(
-            member.crate_name(),
-            &member.clone_directory(),
-            machine,
-            readings,
-        ),
+        ChangeSetResource::Member(member) => assess_workspace_member(member, machine, readings),
     }
 }
 
@@ -885,24 +880,16 @@ fn listed_uv_tool(
 
 // ADR 0040
 fn assess_workspace_member(
-    crate_name: &CrateName,
-    clone_directory: &Path,
+    member: &WorkspaceMember,
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Assessment {
-    let reading = match readings.resolved_workspace(clone_directory) {
-        Ok(reading) => reading,
-        Err(impediment) => return Assessment::Unassessable(impediment),
-    };
-    if !reading.members.contains_key(crate_name) {
-        return Assessment::Drifted("the workspace no longer holds it".into());
-    }
     if let Err(impediment) = readings.install_records() {
         return Assessment::Unassessable(impediment);
     }
 
     let (own_copies, search_path) = match (
-        readings.own_copies(clone_directory, crate_name),
+        readings.own_copies(&member.clone_directory(), member.crate_name()),
         readings.search_path(),
     ) {
         (Ok(own_copies), Ok(search_path)) => (own_copies, search_path),
