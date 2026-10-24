@@ -117,12 +117,12 @@ fn an_archive_entry_is_known_by_a_name_carrying_no_platform_executable_suffix() 
 
 #[test]
 fn a_released_binary_installs_at_its_name_within_the_binaries_directory() {
-    let binary = crate::currency::own_currency();
-    let binaries_directory = Path::new("binaries");
+    let installed = crate::currency::own_currency().path_within(Path::new("binaries"));
 
+    assert_eq!(installed.parent(), Some(Path::new("binaries")));
     assert_eq!(
-        binary.path_within(binaries_directory),
-        binaries_directory.join(binary.installed_name().file_name())
+        installed.file_stem(),
+        Some(std::ffi::OsStr::new("dotfiles_configurator"))
     );
 }
 
