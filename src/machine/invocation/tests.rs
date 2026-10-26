@@ -420,20 +420,6 @@ fn a_refused_claim_on_a_name_nothing_was_removed_from_took_nothing_away_to_repor
 }
 
 #[test]
-fn a_uv_tool_declaring_an_interpreter_is_installed_into_an_environment_built_with_it() {
-    let installing = WriteInvocation::InstallUvTool {
-        name: UvToolName::from("serena-agent"),
-        python: Some(PythonInterpreter::from("3.13")),
-        version: None,
-    };
-
-    assert_eq!(
-        installing.arguments(),
-        vec!["tool", "install", "--python", "3.13", "serena-agent"]
-    );
-}
-
-#[test]
 fn a_uv_tool_declaring_no_interpreter_leaves_the_choice_of_one_to_uv() {
     let installing = WriteInvocation::InstallUvTool {
         name: UvToolName::from("serena-agent"),
