@@ -41,7 +41,10 @@ fn a_crate_installed_at_the_version_declared_is_converged() {
 fn a_crate_installed_at_another_version_than_declared_is_drifted() {
     assert_eq!(
         assess_installed_version(&pinned("27.1.0"), "v27.0.0"),
-        Assessment::Drifted("27.0.0 is installed, and the version declared is 27.1.0".into())
+        Assessment::Drifted(DriftReason::CargoAtAnotherVersion {
+            installed: CrateVersion::try_from("27.0.0").unwrap(),
+            wanted: pinned("27.1.0"),
+        })
     );
 }
 
@@ -51,9 +54,10 @@ fn a_crate_behind_the_newest_published_is_drifted_naming_both_versions() {
 
     assert_eq!(
         assess_installed_version(&newest, "v14.1.1"),
-        Assessment::Drifted(
-            "14.1.1 is installed, and the newest published to crates.io is 15.1.0".into()
-        )
+        Assessment::Drifted(DriftReason::CargoAtAnotherVersion {
+            installed: CrateVersion::try_from("14.1.1").unwrap(),
+            wanted: newest.clone(),
+        })
     );
 }
 
@@ -183,7 +187,10 @@ fn a_package_at_the_version_declared_is_converged() {
 fn a_package_newer_than_the_version_declared_is_drifted() {
     assert_eq!(
         assess_winget_version(&declared("3.13.1"), "3.14.1"),
-        Assessment::Drifted("3.14.1 is installed, and the version declared is 3.13.1".into())
+        Assessment::Drifted(DriftReason::WingetAtAnotherVersion {
+            installed: "3.14.1".to_owned(),
+            declared: declared("3.13.1"),
+        })
     );
 }
 
@@ -299,7 +306,9 @@ fn a_registration_running_another_program_drifts_and_names_the_one_it_runs() {
 
     assert_eq!(
         first_difference(&declared, REGISTERED),
-        Some("registered to run my-program".to_owned())
+        Some(ServerDifference::RunsAnotherCommand(
+            "my-program".to_owned()
+        ))
     );
 }
 
@@ -312,7 +321,9 @@ fn a_registration_started_with_other_arguments_drifts_and_names_the_ones_it_hold
 
     assert_eq!(
         first_difference(&declared, REGISTERED),
-        Some("registered with the arguments start --port 1234".to_owned())
+        Some(ServerDifference::OtherArguments(
+            "start --port 1234".to_owned()
+        ))
     );
 }
 
@@ -327,7 +338,9 @@ fn a_registration_missing_a_declared_environment_entry_drifts_and_names_the_vari
 
     assert_eq!(
         first_difference(&declared, REGISTERED),
-        Some("registered without GAMMA set as declared".to_owned())
+        Some(ServerDifference::EnvironmentUnset {
+            key: "GAMMA".to_owned()
+        })
     );
 }
 
@@ -342,7 +355,9 @@ fn a_registration_holding_a_declared_variable_at_another_value_drifts() {
 
     assert_eq!(
         first_difference(&declared, REGISTERED),
-        Some("registered without ALPHA set as declared".to_owned())
+        Some(ServerDifference::EnvironmentUnset {
+            key: "ALPHA".to_owned()
+        })
     );
 }
 
@@ -353,7 +368,7 @@ fn a_registration_reporting_no_arguments_for_a_server_declaring_some_names_that_
 
     assert_eq!(
         first_difference(&probe_server(), reported),
-        Some("registered with no arguments".to_owned())
+        Some(ServerDifference::NoArguments)
     );
 }
 
@@ -375,7 +390,7 @@ fn a_report_naming_no_command_at_all_drifts_rather_than_reading_as_no_command_de
 
     assert_eq!(
         first_difference(&probe_server(), reported),
-        Some("claude reports no command for it".to_owned())
+        Some(ServerDifference::ReportsNoCommand)
     );
 }
 
@@ -393,7 +408,7 @@ fn a_claude_that_reports_no_server_under_the_name_has_drifted() {
 
     assert_eq!(
         claude_refusal(&claude_exiting_one_saying(refusal)),
-        Assessment::Drifted("claude holds no such server".into())
+        Assessment::Drifted(DriftReason::NoSuchServer)
     );
 }
 

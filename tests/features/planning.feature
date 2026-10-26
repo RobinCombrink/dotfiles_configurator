@@ -29,7 +29,7 @@ Feature: Planning what a machine needs
     And "Alice/notes" is already cloned on Alice's machine at a depth of 1
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "shallow"
+    And the change set reports the clone of "Alice/notes" as shallow
 
   Scenario: A shallow clone of a repository declaring a depth is reported as converged
     Given Alice declares the repository "flutter/flutter" at a depth of 1
@@ -60,14 +60,14 @@ Feature: Planning what a machine needs
     Given Alice declares the application "Docker" checked by the paths "Programs/Docker" and "AppData/Docker"
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "none of Programs/Docker, AppData/Docker exists"
+    And the change set reports "Docker" as at none of the paths "Programs/Docker" and "AppData/Docker"
 
   Scenario: A released binary the machine does not have is reported as a change
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
     And the latest release of "BurntSushi/ripgrep" is "v15.1.0"
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "15.1.0"
+    And the change set reports "rg" as not installed where the latest release is "15.1.0"
 
   Scenario: A released binary at the version of the latest release is reported as converged
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
@@ -83,8 +83,7 @@ Feature: Planning what a machine needs
     And "rg.exe" is installed and reports "ripgrep 14.0.0"
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "14.0.0"
-    And the change set mentions "15.1.0"
+    And the change set reports "rg" at "14.0.0" behind the latest release at "15.1.0"
 
   Scenario: A binary printing its version somewhere else than declared is refused, not misread
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
@@ -170,8 +169,7 @@ Feature: Planning what a machine needs
     And winget offers "mvdan.shfmt" at "3.14.1"
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "3.13.1"
-    And the change set mentions "3.14.1"
+    And the change set reports "mvdan.shfmt" at "3.13.1" where winget offers "3.14.1"
 
   Scenario: A winget package declaring a version is converged at that version whatever winget offers
     Given Alice declares the winget package "mvdan.shfmt" at "3.13.1"
@@ -186,8 +184,7 @@ Feature: Planning what a machine needs
     And winget holds "mvdan.shfmt" at "3.14.1" on Alice's machine
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "3.13.1"
-    And the change set mentions "3.14.1"
+    And the change set reports "mvdan.shfmt" at "3.14.1" where "3.13.1" is declared
 
   Scenario: A winget package declaring no version is blocked rather than converged when winget cannot list its upgrades
     Given Alice declares the winget package "mvdan.shfmt"
@@ -236,8 +233,7 @@ Feature: Planning what a machine needs
     And the newest version of "serena-agent" that resolves is "1.7.0"
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "1.5.3"
-    And the change set mentions "1.7.0"
+    And the change set reports "serena-agent" at "1.5.3" where "1.7.0" is the newest that resolves
 
   Scenario: A uv tool declaring a version is converged at it whatever newer version resolves
     Given Alice declares the uv tool "serena-agent" at "1.5.3"
@@ -252,8 +248,7 @@ Feature: Planning what a machine needs
     And uv holds "serena-agent" at "1.7.0" on Alice's machine
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "1.5.3"
-    And the change set mentions "1.7.0"
+    And the change set reports "serena-agent" at "1.7.0" where "1.5.3" is declared
 
   Scenario: A uv tool uv does not hold is reported as a change
     Given Alice declares the uv tool "serena-agent"
@@ -424,7 +419,7 @@ Feature: Planning what a machine needs
     And the binary "tool-use-statistics" of "session-mining" is gone from where cargo installs it
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "tool-use-statistics"
+    And the change set reports the binary "tool-use-statistics" of "session-mining" as absent
 
   Scenario: A workspace crate cargo installed from content the dotfiles repository cannot account for is a change
     Given Alice declares the cargo workspace in the dotfiles repository
@@ -444,7 +439,7 @@ Feature: Planning what a machine needs
     And the binary "sweep" of "session-mining" reports only the version of its package
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "sweep"
+    And the change set reports the binary "sweep" of "session-mining" as stale
 
   Scenario: A workspace crate whose binary another file shadows on the search path is converged and reported
     Given Alice declares the cargo workspace in the dotfiles repository
@@ -464,7 +459,7 @@ Feature: Planning what a machine needs
     And another "stop-gate" comes before cargo's on Alice's search path
     When Alice plans
     Then the change set reports 1 change to the workspace's crates
-    And the change set mentions "shadowed"
+    And the change set reports the binary "stop-gate" of "stop-gate" as shadowed
 
   Scenario: A binary an earlier install of a workspace crate left behind is planned for removal
     Given Alice declares the cargo workspace in the dotfiles repository
@@ -564,8 +559,7 @@ Feature: Planning what a machine needs
     And cargo holds "cargo-mutants" at "27.0.0" on Alice's machine
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "27.0.0"
-    And the change set mentions "27.1.0"
+    And the change set reports "cargo-mutants" at "27.0.0" where "27.1.0" is declared
 
   Scenario: A cargo package declaring no version is converged at the newest version crates.io publishes
     Given Alice declares the cargo package "ripgrep"
@@ -581,8 +575,7 @@ Feature: Planning what a machine needs
     And crates.io publishes "ripgrep" at "15.1.0" at the newest
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "14.1.1"
-    And the change set mentions "15.1.0"
+    And the change set reports "ripgrep" at "14.1.1" where crates.io publishes "15.1.0" at the newest
 
   Scenario: A cargo package declaring no version is blocked rather than converged when crates.io cannot be asked
     Given Alice declares the cargo package "ripgrep"
@@ -611,7 +604,7 @@ Feature: Planning what a machine needs
     And claude holds "serena" started with "start-mcp-server --context ide" on Alice's machine
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "start-mcp-server --context ide"
+    And the change set reports "serena" as registered with the arguments "start-mcp-server --context ide"
 
   Scenario: An environment variable the machine does not set is reported as a change
     Given Alice declares the environment variable "EDITOR" as "nvim"
@@ -631,7 +624,7 @@ Feature: Planning what a machine needs
     And "EDITOR" is set to "notepad" on Alice's machine
     When Alice plans
     Then the change set reports 1 change
-    And the change set mentions "notepad"
+    And the change set reports "EDITOR" as set to "notepad"
 
   Scenario: A directory absent from the search path is reported as a change
     Given Alice declares the search path entry "tools/bin" under her home directory

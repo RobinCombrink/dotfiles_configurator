@@ -1,7 +1,7 @@
 use {
     crate::{
         configuration::{BinaryName, CrateName, path_folding},
-        convergence::{Assessment, Finding},
+        convergence::{Assessment, DriftReason, Finding},
         machine::{
             CommandOutput, ReadMachine,
             environment_reading::SearchPathReading,
@@ -230,41 +230,67 @@ pub fn resolution_of(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CopyDrift {
+    Absent,
+    Stale(Staleness),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinaryDrift {
+    pub binary: BinaryName,
+    pub copy: CopyDrift,
+    pub shadowed_by: Option<PathBuf>,
+}
+
+impl Display for BinaryDrift {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.copy {
+            CopyDrift::Absent => write!(formatter, "{} is absent", self.binary)?,
+            CopyDrift::Stale(staleness) => {
+                write!(formatter, "{} is stale: {staleness}", self.binary)?;
+            }
+        }
+        match &self.shadowed_by {
+            None => Ok(()),
+            Some(path) => write!(formatter, ", and is shadowed by {}", path.display()),
+        }
+    }
+}
+
 pub fn judged(binaries: impl IntoIterator<Item = (BinaryName, OwnCopy, Resolution)>) -> Assessment {
     let mut installs = Vec::new();
     let mut findings = Vec::new();
     for (binary, own_copy, resolution) in binaries {
-        match (own_copy, resolution) {
-            (OwnCopy::Current, Resolution::Ours) => {}
-            (OwnCopy::Current, Resolution::Another(path)) => {
-                findings.push(format!("{binary} is shadowed by {}", path.display()));
+        let shadowed_by = match &resolution {
+            Resolution::Another(path) => Some(path.clone()),
+            Resolution::Ours | Resolution::Nothing => None,
+        };
+        let copy = match own_copy {
+            OwnCopy::Current => {
+                match resolution {
+                    Resolution::Ours => {}
+                    Resolution::Another(path) => {
+                        findings.push(format!("{binary} is shadowed by {}", path.display()));
+                    }
+                    Resolution::Nothing => {
+                        findings.push(format!("nothing on PATH resolves {binary}"));
+                    }
+                }
+                continue;
             }
-            (OwnCopy::Current, Resolution::Nothing) => {
-                findings.push(format!("nothing on PATH resolves {binary}"));
-            }
-            (OwnCopy::Absent, Resolution::Ours | Resolution::Nothing) => {
-                installs.push(format!("{binary} is absent"));
-            }
-            (OwnCopy::Absent, Resolution::Another(path)) => {
-                installs.push(format!(
-                    "{binary} is absent, and is shadowed by {}",
-                    path.display()
-                ));
-            }
-            (OwnCopy::Stale(staleness), Resolution::Ours | Resolution::Nothing) => {
-                installs.push(format!("{binary} is stale: {staleness}"));
-            }
-            (OwnCopy::Stale(staleness), Resolution::Another(path)) => {
-                installs.push(format!(
-                    "{binary} is stale: {staleness}, and is shadowed by {}",
-                    path.display()
-                ));
-            }
-        }
+            OwnCopy::Absent => CopyDrift::Absent,
+            OwnCopy::Stale(staleness) => CopyDrift::Stale(staleness),
+        };
+        installs.push(BinaryDrift {
+            binary,
+            copy,
+            shadowed_by,
+        });
     }
 
     if !installs.is_empty() {
-        return Assessment::Drifted(installs.join("; ").into());
+        return Assessment::Drifted(DriftReason::OwnCopies(installs));
     }
     if !findings.is_empty() {
         return Assessment::Found(Finding::from(findings.join("; ")));

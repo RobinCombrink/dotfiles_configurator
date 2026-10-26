@@ -11,7 +11,7 @@ use {
             WingetPackage, WingetPackageId, WingetVersion,
         },
         convergence::{
-            Assessment, Impediment, ReadSource, SourceReading, UnreadableReason,
+            Assessment, DriftReason, Impediment, ReadSource, SourceReading, UnreadableReason,
             member_currency::{OwnCopies, OwnCopy, judged, own_copies_of, resolution_of},
             search_path_directory, symlink_location,
             withdrawal::{InstallRecord, install_records},
@@ -411,11 +411,9 @@ fn assess_cargo_binaries_first(machine: &impl ReadMachine) -> Assessment {
     match reading.place_of(&directory) {
         SearchPathPlace::First => Assessment::Converged,
         SearchPathPlace::Later => {
-            Assessment::Drifted(format!("{} comes after another entry", directory.display()).into())
+            Assessment::Drifted(DriftReason::NotFirstOnSearchPath { directory })
         }
-        SearchPathPlace::Absent => {
-            Assessment::Drifted(format!("{} is not on it", directory.display()).into())
-        }
+        SearchPathPlace::Absent => Assessment::Drifted(DriftReason::NotOnSearchPath { directory }),
     }
 }
 
@@ -496,7 +494,7 @@ fn requirement_is_met(
 fn assess_dart_package(package: &DartPackage, machine: &impl ReadMachine) -> Assessment {
     match machine.read_dart_package(package) {
         Ok(DartReading::Current) => Assessment::Converged,
-        Ok(DartReading::Drifted(drift)) => Assessment::Drifted(drift.to_string().into()),
+        Ok(DartReading::Drifted(drift)) => Assessment::Drifted(DriftReason::Dart(drift)),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!("{error:#}").into(),
         )),
@@ -509,7 +507,9 @@ fn assess_repository(
     machine: &impl ReadMachine,
 ) -> Assessment {
     if !machine.path_exists(&clone_directory.join(".git")) {
-        return Assessment::Drifted(format!("{} holds no clone", clone_directory.display()).into());
+        return Assessment::Drifted(DriftReason::NoClone {
+            clone_directory: clone_directory.to_path_buf(),
+        });
     }
     if !clone.holds_whole_history() {
         return Assessment::Converged;
@@ -517,13 +517,9 @@ fn assess_repository(
 
     match machine.clone_is_shallow(clone_directory) {
         Ok(false) => Assessment::Converged,
-        Ok(true) => Assessment::Drifted(
-            format!(
-                "{} holds a shallow clone rather than the whole history",
-                clone_directory.display()
-            )
-            .into(),
-        ),
+        Ok(true) => Assessment::Drifted(DriftReason::ShallowClone {
+            clone_directory: clone_directory.to_path_buf(),
+        }),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!("the history of the clone could not be read: {error}").into(),
         )),
@@ -536,9 +532,9 @@ fn assess_installer(installer: &Installer, machine: &impl ReadMachine) -> Assess
             Some(finding) => Assessment::Found(finding.into()),
             None => Assessment::Converged,
         },
-        Ok(None) => {
-            Assessment::Drifted(format!("not installed — {}", installer.presence_check).into())
-        }
+        Ok(None) => Assessment::Drifted(DriftReason::NotInstalled {
+            presence_check: installer.presence_check.clone(),
+        }),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!("presence could not be read: {error}").into(),
         )),
@@ -562,27 +558,21 @@ fn assess_released_binary(
 
     let installed_path = binary.path_within(&machine.binaries_directory());
     if !machine.path_exists(&installed_path) {
-        return Assessment::Drifted(
-            format!(
-                "not installed — nothing at {}, and the latest release of {} is {}",
-                installed_path.display(),
-                binary.repository,
-                released.version
-            )
-            .into(),
-        );
+        return Assessment::Drifted(DriftReason::ReleaseNotInstalled {
+            installed_path,
+            repository: binary.repository.clone(),
+            released: released.version.clone(),
+        });
     }
 
     match installed_version(binary, &installed_path, machine) {
         Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(reason)),
         Ok(installed) if installed == released.version => Assessment::Converged,
-        Ok(installed) => Assessment::Drifted(
-            format!(
-                "{installed} is installed, and the latest release of {} is {}",
-                binary.repository, released.version
-            )
-            .into(),
-        ),
+        Ok(installed) => Assessment::Drifted(DriftReason::BehindRelease {
+            installed,
+            repository: binary.repository.clone(),
+            released: released.version.clone(),
+        }),
     }
 }
 
@@ -617,16 +607,16 @@ fn assess_winget_package(
 ) -> Assessment {
     let installed = match installed_winget_package(package, machine, readings) {
         Ok(Some(row)) => row.version,
-        Ok(None) => return Assessment::Drifted("winget reports it as not installed".into()),
+        Ok(None) => return Assessment::Drifted(DriftReason::WingetHoldsNothing),
         Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
     match &package.version {
         PackageCurrency::Latest => match readings.winget_upgrade_of(&package.id) {
             Ok(None) => Assessment::Converged,
-            Ok(Some(offered)) => Assessment::Drifted(
-                format!("{installed} is installed, and winget offers {offered}").into(),
-            ),
+            Ok(Some(offered)) => {
+                Assessment::Drifted(DriftReason::WingetOffersNewer { installed, offered })
+            }
             Err(impediment) => Assessment::Unassessable(impediment),
         },
         PackageCurrency::Exactly(declared) => assess_winget_version(declared, &installed),
@@ -643,9 +633,10 @@ fn assess_winget_version(declared: &WingetVersion, installed: &str) -> Assessmen
         ));
     }
 
-    Assessment::Drifted(
-        format!("{installed} is installed, and the version declared is {declared}").into(),
-    )
+    Assessment::Drifted(DriftReason::WingetAtAnotherVersion {
+        installed: installed.to_owned(),
+        declared: declared.clone(),
+    })
 }
 
 fn installed_winget_package(
@@ -822,23 +813,23 @@ fn winget_row(listing: &str, id: &str) -> Result<Option<WingetRow>, UnreadableRe
 fn assess_uv_tool(package: &UvToolPackage, readings: &SourceReadings) -> Assessment {
     let installed = match readings.installed_uv_tool(&package.name) {
         Ok(Some(installed)) => installed,
-        Ok(None) => return Assessment::Drifted("uv has not installed it".into()),
+        Ok(None) => return Assessment::Drifted(DriftReason::UvHoldsNothing),
         Err(impediment) => return Assessment::Unassessable(impediment),
     };
 
     match &package.version {
         PackageCurrency::Exactly(declared) if installed == *declared => Assessment::Converged,
-        PackageCurrency::Exactly(declared) => Assessment::Drifted(
-            format!("{installed} is installed, and the version declared is {declared}").into(),
-        ),
+        PackageCurrency::Exactly(declared) => {
+            Assessment::Drifted(DriftReason::UvAtAnotherVersion {
+                installed,
+                declared: declared.clone(),
+            })
+        }
         PackageCurrency::Latest => match readings.newer_uv_tool(&package.name) {
             Ok(None) => Assessment::Converged,
-            Ok(Some(latest)) => Assessment::Drifted(
-                format!(
-                    "{installed} is installed, and the newest version that resolves is {latest}"
-                )
-                .into(),
-            ),
+            Ok(Some(newest)) => {
+                Assessment::Drifted(DriftReason::UvBehindNewest { installed, newest })
+            }
             Err(impediment) => Assessment::Unassessable(impediment),
         },
     }
@@ -943,7 +934,7 @@ fn assess_declared_cargo_package(
     };
 
     let Some(actual) = installed_crate_source(installed, package.crate_name.as_ref()) else {
-        return Assessment::Drifted("cargo has not installed it".into());
+        return Assessment::Drifted(DriftReason::CargoHoldsNothing);
     };
 
     match (&package.source, &actual) {
@@ -969,12 +960,12 @@ fn assess_declared_cargo_package(
         {
             Assessment::Converged
         }
-        (_, actual) => Assessment::Drifted(format!("installed from {actual}").into()),
+        (_, actual) => Assessment::Drifted(DriftReason::CargoInstalledFrom(actual.clone())),
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum WantedVersion {
+pub enum WantedVersion {
     Declared(CrateVersion),
     NewestPublished(CrateVersion),
 }
@@ -1005,15 +996,18 @@ fn assess_installed_version(wanted: &WantedVersion, installed: &str) -> Assessme
 
     match CrateVersion::try_from(spelled) {
         Ok(actual) if actual == *wanted.version() => Assessment::Converged,
-        Ok(actual) => Assessment::Drifted(format!("{actual} is installed, and {wanted}").into()),
+        Ok(actual) => Assessment::Drifted(DriftReason::CargoAtAnotherVersion {
+            installed: actual,
+            wanted: wanted.clone(),
+        }),
         Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!("cargo lists it at a version this program cannot read: {reason}").into(),
         )),
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum InstalledFrom {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstalledFrom {
     Registry { version: String },
     Path(String),
     Git { url: String, commit: String },
@@ -1080,8 +1074,8 @@ fn paths_are_the_same(declared: &Path, installed: &str, machine: &impl ReadMachi
 fn assess_variable(variable: &Variable, machine: &impl ReadMachine) -> Assessment {
     match machine.read_environment_variable(&variable.name) {
         Ok(Some(set)) if set == variable.value => Assessment::Converged,
-        Ok(Some(set)) => Assessment::Drifted(format!("is set to {set}").into()),
-        Ok(None) => Assessment::Drifted("is not set".into()),
+        Ok(Some(set)) => Assessment::Drifted(DriftReason::VariableSetTo(set)),
+        Ok(None) => Assessment::Drifted(DriftReason::VariableUnset),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!("{error:#}").into(),
         )),
@@ -1102,7 +1096,7 @@ fn assess_search_path_entry(
 
     match reading.carries(&directory) {
         true => Assessment::Converged,
-        false => Assessment::Drifted(format!("{} is not on it", directory.display()).into()),
+        false => Assessment::Drifted(DriftReason::NotOnSearchPath { directory }),
     }
 }
 
@@ -1115,26 +1109,22 @@ fn assess_symlink(
 
     match machine.link_target(&link_path) {
         None if machine.path_exists(&link_path) => {
-            Assessment::Drifted(format!("{} is not a link", link_path.display()).into())
+            Assessment::Drifted(DriftReason::NotALink { link_path })
         }
-        None => Assessment::Drifted(format!("{} is missing", link_path.display()).into()),
+        None => Assessment::Drifted(DriftReason::LinkMissing { link_path }),
         Some(target) if target == source_path => Assessment::Converged,
-        Some(target) => Assessment::Drifted(
-            format!(
-                "links to {} instead of {}",
-                target.display(),
-                source_path.display()
-            )
-            .into(),
-        ),
+        Some(target) => Assessment::Drifted(DriftReason::LinksElsewhere {
+            target,
+            source_path,
+        }),
     }
 }
 
 fn assess_machine_manifest(manifest: &RenderedManifest, machine: &impl ReadMachine) -> Assessment {
     match machine.text_file_at(&MachineManifest::path_within(machine.home_directory())) {
-        Ok(None) => Assessment::Drifted("the machine holds no manifest".into()),
+        Ok(None) => Assessment::Drifted(DriftReason::NoManifest),
         Ok(Some(held)) if held == manifest.document() => Assessment::Converged,
-        Ok(Some(_)) => Assessment::Drifted("the manifest says something else".into()),
+        Ok(Some(_)) => Assessment::Drifted(DriftReason::ManifestDiffers),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!("{error:#}").into(),
         )),
@@ -1160,7 +1150,7 @@ fn assess_claude_mcp_server(server: &ClaudeMcpServer, machine: &impl ReadMachine
 
     match first_difference(server, &output.standard_output) {
         None => Assessment::Converged,
-        Some(difference) => Assessment::Drifted(difference.into()),
+        Some(difference) => Assessment::Drifted(DriftReason::Server(difference)),
     }
 }
 
@@ -1172,7 +1162,7 @@ const NO_SUCH_SERVER: &str = "No MCP server named";
 fn claude_refusal(output: &CommandOutput) -> Assessment {
     let standard_error = &output.standard_error;
     match standard_error.trim_start().starts_with(NO_SUCH_SERVER) {
-        true => Assessment::Drifted("claude holds no such server".into()),
+        true => Assessment::Drifted(DriftReason::NoSuchServer),
         false => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!(
                 "claude could not be read, {}: {}",
@@ -1184,7 +1174,36 @@ fn claude_refusal(output: &CommandOutput) -> Assessment {
     }
 }
 
-fn first_difference(server: &ClaudeMcpServer, reported: &str) -> Option<String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServerDifference {
+    RunsAnotherCommand(String),
+    ReportsNoCommand,
+    OtherArguments(String),
+    NoArguments,
+    EnvironmentUnset { key: String },
+}
+
+impl std::fmt::Display for ServerDifference {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ServerDifference::RunsAnotherCommand(command) => {
+                write!(formatter, "registered to run {command}")
+            }
+            ServerDifference::ReportsNoCommand => {
+                formatter.write_str("claude reports no command for it")
+            }
+            ServerDifference::OtherArguments(registered) => {
+                write!(formatter, "registered with the arguments {registered}")
+            }
+            ServerDifference::NoArguments => formatter.write_str("registered with no arguments"),
+            ServerDifference::EnvironmentUnset { key } => {
+                write!(formatter, "registered without {key} set as declared")
+            }
+        }
+    }
+}
+
+fn first_difference(server: &ClaudeMcpServer, reported: &str) -> Option<ServerDifference> {
     let field = |label: &str| {
         reported.lines().find_map(|line| {
             line.trim()
@@ -1195,8 +1214,8 @@ fn first_difference(server: &ClaudeMcpServer, reported: &str) -> Option<String> 
 
     match field("Command") {
         Some(command) if command == server.command => {}
-        Some(command) => return Some(format!("registered to run {command}")),
-        None => return Some("claude reports no command for it".to_owned()),
+        Some(command) => return Some(ServerDifference::RunsAnotherCommand(command)),
+        None => return Some(ServerDifference::ReportsNoCommand),
     }
 
     // 2026-09-19: `claude mcp get` leaves out the line for a field that does not apply rather
@@ -1204,9 +1223,9 @@ fn first_difference(server: &ClaudeMcpServer, reported: &str) -> Option<String> 
     // line at all. Claude Code 2.1.278 on Windows 11.
     match field("Args") {
         Some(registered) if registered == server.args.join(" ") => {}
-        Some(registered) => return Some(format!("registered with the arguments {registered}")),
+        Some(registered) => return Some(ServerDifference::OtherArguments(registered)),
         None if server.args.is_empty() => {}
-        None => return Some("registered with no arguments".to_owned()),
+        None => return Some(ServerDifference::NoArguments),
     }
 
     server
@@ -1217,17 +1236,19 @@ fn first_difference(server: &ClaudeMcpServer, reported: &str) -> Option<String> 
                 .lines()
                 .any(|line| line.trim() == format!("{key}={value}"))
         })
-        .map(|(key, _)| format!("registered without {key} set as declared"))
+        .map(|(key, _)| ServerDifference::EnvironmentUnset { key: key.clone() })
 }
 
 fn assess_command(command: &Command, machine: &impl ReadMachine) -> Assessment {
     let Some(check) = &command.presence_check else {
-        return Assessment::Drifted("declares no presence check, so it runs every time".into());
+        return Assessment::Drifted(DriftReason::NoPresenceCheck);
     };
 
     match machine.check_presence(check) {
         Ok(Some(_)) => Assessment::Converged,
-        Ok(None) => Assessment::Drifted(format!("not yet done — {check}").into()),
+        Ok(None) => Assessment::Drifted(DriftReason::NotYetDone {
+            presence_check: check.clone(),
+        }),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
             format!("presence could not be read: {error}").into(),
         )),

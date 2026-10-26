@@ -1,12 +1,19 @@
 use {
     crate::{
-        configuration::{Migration, Notice, Requirement, Symlink},
+        configuration::{
+            CrateVersion, GitHubRepository, Migration, Notice, PresenceCheck, Requirement, Symlink,
+            UvToolVersion, VariableValue, WingetVersion,
+        },
         desired_state::{
             ChangeSetResource, DesiredState, Precedence, ResolvedResource, ResolvedWorkspace,
         },
+        machine::dart_reading::DartDrift,
         reporting::RunReport,
+        version::Version,
     },
-    std::fmt::Display,
+    assess::{InstalledFrom, ServerDifference, WantedVersion},
+    member_currency::BinaryDrift,
+    std::{fmt::Display, path::PathBuf},
 };
 
 pub mod apply;
@@ -69,24 +76,198 @@ impl Display for Impediment {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DriftReason(String);
-
-impl From<String> for DriftReason {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
-impl From<&str> for DriftReason {
-    fn from(value: &str) -> Self {
-        Self(value.to_owned())
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DriftReason {
+    NoClone {
+        clone_directory: PathBuf,
+    },
+    ShallowClone {
+        clone_directory: PathBuf,
+    },
+    NotInstalled {
+        presence_check: PresenceCheck,
+    },
+    NotYetDone {
+        presence_check: PresenceCheck,
+    },
+    NoPresenceCheck,
+    ReleaseNotInstalled {
+        installed_path: PathBuf,
+        repository: GitHubRepository,
+        released: Version,
+    },
+    BehindRelease {
+        installed: Version,
+        repository: GitHubRepository,
+        released: Version,
+    },
+    WingetHoldsNothing,
+    WingetOffersNewer {
+        installed: String,
+        offered: WingetVersion,
+    },
+    WingetAtAnotherVersion {
+        installed: String,
+        declared: WingetVersion,
+    },
+    UvHoldsNothing,
+    UvAtAnotherVersion {
+        installed: UvToolVersion,
+        declared: UvToolVersion,
+    },
+    UvBehindNewest {
+        installed: UvToolVersion,
+        newest: UvToolVersion,
+    },
+    CargoHoldsNothing,
+    CargoAtAnotherVersion {
+        installed: CrateVersion,
+        wanted: WantedVersion,
+    },
+    CargoInstalledFrom(InstalledFrom),
+    Dart(DartDrift),
+    VariableSetTo(VariableValue),
+    VariableUnset,
+    NotOnSearchPath {
+        directory: PathBuf,
+    },
+    #[cfg(target_family = "windows")]
+    NotFirstOnSearchPath {
+        directory: PathBuf,
+    },
+    NotALink {
+        link_path: PathBuf,
+    },
+    LinkMissing {
+        link_path: PathBuf,
+    },
+    LinksElsewhere {
+        target: PathBuf,
+        source_path: PathBuf,
+    },
+    NoManifest,
+    ManifestDiffers,
+    NoSuchServer,
+    Server(ServerDifference),
+    OwnCopies(Vec<BinaryDrift>),
 }
 
 impl Display for DriftReason {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        match self {
+            DriftReason::NoClone { clone_directory } => {
+                write!(formatter, "{} holds no clone", clone_directory.display())
+            }
+            DriftReason::ShallowClone { clone_directory } => write!(
+                formatter,
+                "{} holds a shallow clone rather than the whole history",
+                clone_directory.display()
+            ),
+            DriftReason::NotInstalled { presence_check } => {
+                write!(formatter, "not installed — {presence_check}")
+            }
+            DriftReason::NotYetDone { presence_check } => {
+                write!(formatter, "not yet done — {presence_check}")
+            }
+            DriftReason::NoPresenceCheck => {
+                formatter.write_str("declares no presence check, so it runs every time")
+            }
+            DriftReason::ReleaseNotInstalled {
+                installed_path,
+                repository,
+                released,
+            } => write!(
+                formatter,
+                "not installed — nothing at {}, and the latest release of {repository} is \
+                 {released}",
+                installed_path.display()
+            ),
+            DriftReason::BehindRelease {
+                installed,
+                repository,
+                released,
+            } => write!(
+                formatter,
+                "{installed} is installed, and the latest release of {repository} is {released}"
+            ),
+            DriftReason::WingetHoldsNothing => {
+                formatter.write_str("winget reports it as not installed")
+            }
+            DriftReason::WingetOffersNewer { installed, offered } => {
+                write!(
+                    formatter,
+                    "{installed} is installed, and winget offers {offered}"
+                )
+            }
+            DriftReason::WingetAtAnotherVersion {
+                installed,
+                declared,
+            } => write!(
+                formatter,
+                "{installed} is installed, and the version declared is {declared}"
+            ),
+            DriftReason::UvHoldsNothing => formatter.write_str("uv has not installed it"),
+            DriftReason::UvAtAnotherVersion {
+                installed,
+                declared,
+            } => write!(
+                formatter,
+                "{installed} is installed, and the version declared is {declared}"
+            ),
+            DriftReason::UvBehindNewest { installed, newest } => write!(
+                formatter,
+                "{installed} is installed, and the newest version that resolves is {newest}"
+            ),
+            DriftReason::CargoHoldsNothing => formatter.write_str("cargo has not installed it"),
+            DriftReason::CargoAtAnotherVersion { installed, wanted } => {
+                write!(formatter, "{installed} is installed, and {wanted}")
+            }
+            DriftReason::CargoInstalledFrom(installed_from) => {
+                write!(formatter, "installed from {installed_from}")
+            }
+            DriftReason::Dart(drift) => Display::fmt(drift, formatter),
+            DriftReason::VariableSetTo(value) => write!(formatter, "is set to {value}"),
+            DriftReason::VariableUnset => formatter.write_str("is not set"),
+            DriftReason::NotOnSearchPath { directory } => {
+                write!(formatter, "{} is not on it", directory.display())
+            }
+            #[cfg(target_family = "windows")]
+            DriftReason::NotFirstOnSearchPath { directory } => {
+                write!(
+                    formatter,
+                    "{} comes after another entry",
+                    directory.display()
+                )
+            }
+            DriftReason::NotALink { link_path } => {
+                write!(formatter, "{} is not a link", link_path.display())
+            }
+            DriftReason::LinkMissing { link_path } => {
+                write!(formatter, "{} is missing", link_path.display())
+            }
+            DriftReason::LinksElsewhere {
+                target,
+                source_path,
+            } => write!(
+                formatter,
+                "links to {} instead of {}",
+                target.display(),
+                source_path.display()
+            ),
+            DriftReason::NoManifest => formatter.write_str("the machine holds no manifest"),
+            DriftReason::ManifestDiffers => formatter.write_str("the manifest says something else"),
+            DriftReason::NoSuchServer => formatter.write_str("claude holds no such server"),
+            DriftReason::Server(difference) => Display::fmt(difference, formatter),
+            DriftReason::OwnCopies(binaries) => {
+                for (position, binary) in binaries.iter().enumerate() {
+                    if position > 0 {
+                        formatter.write_str("; ")?;
+                    }
+                    Display::fmt(binary, formatter)?;
+                }
+                Ok(())
+            }
+        }
     }
 }
 

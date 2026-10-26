@@ -96,19 +96,28 @@ fn a_current_copy_shadowed_by_another_file_is_a_finding_rather_than_drift() {
 
 #[test]
 fn a_stale_copy_shadowed_by_another_file_is_still_installed() {
-    let Assessment::Drifted(_) = judging(
-        OwnCopy::Stale(Staleness::Unrecorded),
-        Resolution::Another(PathBuf::from("C:\\tools\\stop-gate.exe")),
-    ) else {
-        panic!("a stale shadowed copy was left alone");
-    };
+    assert_eq!(
+        judging(
+            OwnCopy::Stale(Staleness::Unrecorded),
+            Resolution::Another(PathBuf::from("C:\\tools\\stop-gate.exe")),
+        ),
+        Assessment::Drifted(DriftReason::OwnCopies(vec![BinaryDrift {
+            binary: stop_gate(),
+            copy: CopyDrift::Stale(Staleness::Unrecorded),
+            shadowed_by: Some(PathBuf::from("C:\\tools\\stop-gate.exe")),
+        }]))
+    );
 }
 
 #[test]
 fn an_absent_copy_is_installed_and_named_as_absent() {
     assert_eq!(
         judging(OwnCopy::Absent, Resolution::Nothing),
-        Assessment::Drifted("stop-gate is absent".into())
+        Assessment::Drifted(DriftReason::OwnCopies(vec![BinaryDrift {
+            binary: stop_gate(),
+            copy: CopyDrift::Absent,
+            shadowed_by: None,
+        }]))
     );
 }
 
@@ -132,10 +141,17 @@ fn a_member_names_every_binary_it_installs_for_with_its_verdict() {
                 Resolution::Nothing
             ),
         ]),
-        Assessment::Drifted(
-            "sweep is stale: it reports a build that recorded no commit; tool-use-statistics \
-             is absent"
-                .into()
-        )
+        Assessment::Drifted(DriftReason::OwnCopies(vec![
+            BinaryDrift {
+                binary: BinaryName::from("sweep"),
+                copy: CopyDrift::Stale(Staleness::Unrecorded),
+                shadowed_by: None,
+            },
+            BinaryDrift {
+                binary: BinaryName::from("tool-use-statistics"),
+                copy: CopyDrift::Absent,
+                shadowed_by: None,
+            },
+        ]))
     );
 }

@@ -27,8 +27,10 @@ use {
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
         convergence::{
-            ApplyOutcome, ChangeSet,
+            ApplyOutcome, ChangeSet, DriftReason,
             apply::{Enactment, apply},
+            assess::{ServerDifference, WantedVersion},
+            member_currency::{BinaryDrift, CopyDrift},
             plan,
         },
         currency::SelfReplacement,
@@ -217,6 +219,16 @@ impl MachineWorld {
         self.change_set
             .as_ref()
             .expect("the scenario has not planned yet")
+    }
+
+    fn drift_of(&self, name: &str) -> &DriftReason {
+        let change_set = self.change_set();
+        change_set
+            .changes
+            .iter()
+            .find(|change| change.resource.to_string().contains(name))
+            .map(|change| &change.reason)
+            .unwrap_or_else(|| panic!("nothing changes for {name}:\n{change_set}"))
     }
 
     fn enactment(&self) -> &Enactment {
@@ -1226,16 +1238,17 @@ fn link_already_into_another_checkout(world: &mut MachineWorld, link_path: Strin
             resolve"
 )]
 fn change_set_names_where_the_link_should_resolve(world: &mut MachineWorld, held: String) {
-    let rendered = world.change_set().to_string();
-    let expected = format!(
-        "instead of {}",
-        dotfiles_repository_path().join(held).display()
-    );
+    let reasons: Vec<&DriftReason> = world
+        .change_set()
+        .changes
+        .iter()
+        .map(|change| &change.reason)
+        .collect();
+    let [DriftReason::LinksElsewhere { source_path, .. }] = reasons.as_slice() else {
+        panic!("{reasons:?}");
+    };
 
-    assert!(
-        rendered.contains(&expected),
-        "expected the change set to name {expected:?}, got:\n{rendered}"
-    );
+    assert_eq!(source_path, &dotfiles_repository_path().join(held));
 }
 
 #[given(expr = "Alice names her configurations relative to the checkout she runs in")]
@@ -1810,14 +1823,19 @@ fn binary_reports_its_package_version(
 
 #[given(expr = "another {string} comes before cargo's on Alice's search path")]
 fn another_binary_shadows(world: &mut MachineWorld, binary_name: String) {
-    let elsewhere = filesystem_root().join("tools");
     world
         .machine
-        .hold_machine_search_path_entry_first(elsewhere.clone());
+        .hold_machine_search_path_entry_first(filesystem_root().join("tools"));
     world.machine.hold_binary(
-        elsewhere.join(BinaryName::from(binary_name.as_str()).file_name()),
+        shadowing_copy_of(&binary_name),
         format!("{binary_name} 1.0.0\n"),
     );
+}
+
+fn shadowing_copy_of(binary_name: &str) -> PathBuf {
+    filesystem_root()
+        .join("tools")
+        .join(BinaryName::from(binary_name).file_name())
 }
 
 #[given(expr = "an earlier install of {string} left the binary {string} behind")]
@@ -2498,6 +2516,222 @@ fn change_set_names_the_workspace_as_uncloned(world: &mut MachineWorld) {
         [&CargoWorkspace {
             repository: dotfiles_repository(),
         }]
+    );
+}
+
+#[then(expr = "the change set reports the clone of {string} as shallow")]
+fn change_set_reports_a_shallow_clone(world: &mut MachineWorld, name: String) {
+    let reason = world.drift_of(&name);
+
+    assert!(
+        matches!(reason, DriftReason::ShallowClone { .. }),
+        "{reason:?}"
+    );
+}
+
+#[then(expr = "the change set reports {string} as at none of the paths {string} and {string}")]
+fn change_set_reports_an_application_at_none_of_its_paths(
+    world: &mut MachineWorld,
+    name: String,
+    first: String,
+    second: String,
+) {
+    let expected = PresenceCheck::PathExists {
+        paths: Candidates::try_from(vec![PathBuf::from(first), PathBuf::from(second)])
+            .expect("a scenario names at least one candidate"),
+    };
+
+    assert_eq!(
+        world.drift_of(&name),
+        &DriftReason::NotInstalled {
+            presence_check: expected
+        }
+    );
+}
+
+#[then(
+    expr = "the change set reports {string} as not installed where the latest release is {string}"
+)]
+fn change_set_reports_a_released_binary_not_installed(
+    world: &mut MachineWorld,
+    name: String,
+    released: String,
+) {
+    let DriftReason::ReleaseNotInstalled {
+        released: latest, ..
+    } = world.drift_of(&name)
+    else {
+        panic!("{:?}", world.drift_of(&name));
+    };
+
+    assert_eq!(latest, &Version::try_from(released.as_str()).unwrap());
+}
+
+#[then(expr = "the change set reports {string} at {string} behind the latest release at {string}")]
+fn change_set_reports_a_released_binary_behind(
+    world: &mut MachineWorld,
+    name: String,
+    installed: String,
+    released: String,
+) {
+    let DriftReason::BehindRelease {
+        installed: held,
+        released: latest,
+        ..
+    } = world.drift_of(&name)
+    else {
+        panic!("{:?}", world.drift_of(&name));
+    };
+
+    assert_eq!(
+        (held, latest),
+        (
+            &Version::try_from(installed.as_str()).unwrap(),
+            &Version::try_from(released.as_str()).unwrap()
+        )
+    );
+}
+
+#[then(expr = "the change set reports {string} at {string} where winget offers {string}")]
+fn change_set_reports_a_winget_offer(
+    world: &mut MachineWorld,
+    name: String,
+    installed: String,
+    offered: String,
+) {
+    assert_eq!(
+        world.drift_of(&name),
+        &DriftReason::WingetOffersNewer {
+            installed,
+            offered: WingetVersion::from(offered.as_str()),
+        }
+    );
+}
+
+#[then(expr = "the change set reports {string} at {string} where {string} is declared")]
+fn change_set_reports_another_version_than_declared(
+    world: &mut MachineWorld,
+    name: String,
+    installed: String,
+    declared: String,
+) {
+    let reason = world.drift_of(&name);
+    let matches_the_declaration = match reason {
+        DriftReason::WingetAtAnotherVersion {
+            installed: held,
+            declared: wanted,
+        } => *held == installed && *wanted == WingetVersion::from(declared.as_str()),
+        DriftReason::UvAtAnotherVersion {
+            installed: held,
+            declared: wanted,
+        } => {
+            *held == UvToolVersion::from(installed.as_str())
+                && *wanted == UvToolVersion::from(declared.as_str())
+        }
+        DriftReason::CargoAtAnotherVersion {
+            installed: held,
+            wanted: WantedVersion::Declared(wanted),
+        } => {
+            *held == CrateVersion::try_from(installed.as_str()).expect("a version")
+                && *wanted == CrateVersion::try_from(declared.as_str()).expect("a version")
+        }
+        _ => false,
+    };
+
+    assert!(matches_the_declaration, "{reason:?}");
+}
+
+#[then(
+    expr = "the change set reports {string} at {string} where {string} is the newest that resolves"
+)]
+fn change_set_reports_a_uv_tool_behind(
+    world: &mut MachineWorld,
+    name: String,
+    installed: String,
+    newest: String,
+) {
+    assert_eq!(
+        world.drift_of(&name),
+        &DriftReason::UvBehindNewest {
+            installed: UvToolVersion::from(installed.as_str()),
+            newest: UvToolVersion::from(newest.as_str()),
+        }
+    );
+}
+
+#[then(
+    expr = "the change set reports {string} at {string} where crates.io publishes {string} at the newest"
+)]
+fn change_set_reports_a_crate_behind(
+    world: &mut MachineWorld,
+    name: String,
+    installed: String,
+    newest: String,
+) {
+    assert_eq!(
+        world.drift_of(&name),
+        &DriftReason::CargoAtAnotherVersion {
+            installed: CrateVersion::try_from(installed.as_str()).expect("a version"),
+            wanted: WantedVersion::NewestPublished(
+                CrateVersion::try_from(newest.as_str()).expect("a version")
+            ),
+        }
+    );
+}
+
+fn binary_drift<'world>(
+    world: &'world MachineWorld,
+    name: &str,
+    binary: &str,
+) -> &'world BinaryDrift {
+    let DriftReason::OwnCopies(binaries) = world.drift_of(name) else {
+        panic!("{:?}", world.drift_of(name));
+    };
+
+    binaries
+        .iter()
+        .find(|drift| drift.binary == BinaryName::from(binary))
+        .unwrap_or_else(|| panic!("{binary} is not among {binaries:?}"))
+}
+
+#[then(expr = "the change set reports the binary {string} of {string} as absent")]
+fn change_set_reports_a_binary_absent(world: &mut MachineWorld, binary: String, name: String) {
+    let drift = binary_drift(world, &name, &binary);
+
+    assert_eq!(drift.copy, CopyDrift::Absent, "{drift:?}");
+}
+
+#[then(expr = "the change set reports the binary {string} of {string} as stale")]
+fn change_set_reports_a_binary_stale(world: &mut MachineWorld, binary: String, name: String) {
+    let drift = binary_drift(world, &name, &binary);
+
+    assert!(matches!(drift.copy, CopyDrift::Stale(_)), "{drift:?}");
+}
+
+#[then(expr = "the change set reports the binary {string} of {string} as shadowed")]
+fn change_set_reports_a_binary_shadowed(world: &mut MachineWorld, binary: String, name: String) {
+    let drift = binary_drift(world, &name, &binary);
+
+    assert_eq!(drift.shadowed_by, Some(shadowing_copy_of(&binary)));
+}
+
+#[then(expr = "the change set reports {string} as registered with the arguments {string}")]
+fn change_set_reports_a_server_with_other_arguments(
+    world: &mut MachineWorld,
+    name: String,
+    arguments: String,
+) {
+    assert_eq!(
+        world.drift_of(&name),
+        &DriftReason::Server(ServerDifference::OtherArguments(arguments))
+    );
+}
+
+#[then(expr = "the change set reports {string} as set to {string}")]
+fn change_set_reports_a_variable_set_to(world: &mut MachineWorld, name: String, value: String) {
+    assert_eq!(
+        world.drift_of(&name),
+        &DriftReason::VariableSetTo(VariableValue::from(value.as_str()))
     );
 }
 
