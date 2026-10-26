@@ -296,7 +296,7 @@ async fn a_member_installs_for_an_absent_or_stale_copy_of_its_own_and_a_shadow_i
         machine.hold_cargo_binary(binary, format!("{binary} {build}\n"));
     }
     let elsewhere = filesystem_root().join("tools");
-    machine.hold_machine_search_path_entry(elsewhere.clone());
+    machine.hold_machine_search_path_entry_first(elsewhere.clone());
     for binary in ["shadowed", "shadowed-and-behind"] {
         machine.hold_binary(
             elsewhere.join(BinaryName::from(binary).file_name()),

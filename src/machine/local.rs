@@ -13,7 +13,7 @@ use {
             ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool,
             WorkspaceBuild, WriteInvocation, WriteMachine, crate_index_reading,
             dart_reading::DartReading,
-            environment_reading::SearchPathReading,
+            environment_reading::{MachineSearchPath, SearchPathReading},
             invocation::without_terminal_prompts,
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -789,6 +789,10 @@ impl ReadMachine for LocalMachine<'_, '_> {
         environment::read_search_path()
     }
 
+    fn read_machine_search_path(&self) -> Result<MachineSearchPath> {
+        environment::read_machine_search_path()
+    }
+
     fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>> {
         environment::read_variable(name)
     }
@@ -1000,6 +1004,11 @@ impl WriteMachine for LocalMachine<'_, '_> {
 
     fn put_on_search_path(&self, directory: &Path) -> Result<()> {
         environment::put_on_search_path(directory)
+    }
+
+    #[cfg(target_family = "windows")]
+    fn put_first_on_machine_search_path(&self, directory: &Path) -> Result<Placement> {
+        environment::put_first_on_machine_search_path(directory)
     }
 
     fn set_environment_variable(&self, name: &VariableName, value: &VariableValue) -> Result<()> {

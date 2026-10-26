@@ -1813,7 +1813,7 @@ fn another_binary_shadows(world: &mut MachineWorld, binary_name: String) {
     let elsewhere = filesystem_root().join("tools");
     world
         .machine
-        .hold_machine_search_path_entry(elsewhere.clone());
+        .hold_machine_search_path_entry_first(elsewhere.clone());
     world.machine.hold_binary(
         elsewhere.join(BinaryName::from(binary_name.as_str()).file_name()),
         format!("{binary_name} 1.0.0\n"),

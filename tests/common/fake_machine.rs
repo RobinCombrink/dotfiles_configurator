@@ -20,7 +20,7 @@ use {
             PrivilegeRefusal, ReadInvocation, ReadMachine, Replacement, ReplacingInvocation,
             ResolvedCargoSource, WorkspaceBuild, WriteInvocation, WriteMachine,
             dart_reading::{DartDrift, DartReading},
-            environment_reading::SearchPathReading,
+            environment_reading::{MachineSearchPath, SearchPathPlace, SearchPathReading},
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
             workspace_reading::{Fingerprint, Revision, WorkspaceReading},
@@ -97,6 +97,7 @@ struct MachineState {
     version_output_by_binary_path: BTreeMap<PathBuf, String>,
     user_search_path: Vec<PathBuf>,
     machine_search_path: Vec<PathBuf>,
+    machine_search_path_unreadable: bool,
     environment_variables: BTreeMap<VariableName, VariableValue>,
     claude_mcp_servers: BTreeMap<McpServerName, ClaudeMcpServer>,
     mcp_servers_claude_refuses_to_add: BTreeSet<McpServerName>,
@@ -242,6 +243,7 @@ impl Default for FakeMachine {
         );
         machine.hold_user_search_path_entry(machine.binaries_directory());
         machine.hold_user_search_path_entry(machine.cargo_binaries_directory());
+        machine.hold_machine_search_path_entry(machine.cargo_binaries_directory());
         machine.hold_machine_manifest(MachineClass::Personal);
 
         machine
@@ -522,6 +524,11 @@ impl FakeMachine {
                     };
                 }
                 state.installed_applications.insert(name);
+                ElevatedOutcome::Converged
+            }
+            #[cfg(target_family = "windows")]
+            ElevatedWork::MachineSearchPathFront { directory } => {
+                fronted(&mut state.machine_search_path, directory);
                 ElevatedOutcome::Converged
             }
         }
@@ -865,6 +872,21 @@ impl FakeMachine {
         self.state.borrow_mut().machine_search_path.push(directory);
     }
 
+    pub fn hold_machine_search_path_entry_first(&self, directory: PathBuf) {
+        self.state
+            .borrow_mut()
+            .machine_search_path
+            .insert(0, directory);
+    }
+
+    pub fn machine_search_path(&self) -> Vec<PathBuf> {
+        self.state.borrow().machine_search_path.clone()
+    }
+
+    pub fn make_the_machine_search_path_unreadable(&self) {
+        self.state.borrow_mut().machine_search_path_unreadable = true;
+    }
+
     pub fn user_search_path(&self) -> Vec<PathBuf> {
         self.state.borrow().user_search_path.clone()
     }
@@ -1157,6 +1179,7 @@ impl FakeMachine {
             version_output_by_binary_path,
             user_search_path,
             machine_search_path,
+            machine_search_path_unreadable,
             environment_variables,
             claude_mcp_servers,
             mcp_servers_claude_refuses_to_add,
@@ -1183,11 +1206,19 @@ impl FakeMachine {
              {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|\
              {published_crates:?}|{crates_index_unreachable:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
-             {machine_search_path:?}|{environment_variables:?}|{claude_mcp_servers:?}|\
+             {machine_search_path:?}|{machine_search_path_unreadable:?}|\
+             {environment_variables:?}|{claude_mcp_servers:?}|\
              {mcp_servers_claude_refuses_to_add:?}|{failing_downloads:?}|\
              {winget_sources_fail_to_update:?}|{links_refused_for_want_of_a_privilege:?}|\
              {installers_demanding_elevation:?}|{elevated:?}|{elevation_declined:?}"
         )
+    }
+}
+
+fn fronted(machine_search_path: &mut Vec<PathBuf>, directory: &Path) {
+    let reading = MachineSearchPath::of(machine_search_path.iter().cloned());
+    if reading.place_of(directory) != SearchPathPlace::First {
+        machine_search_path.insert(0, directory.to_path_buf());
     }
 }
 
@@ -1609,6 +1640,17 @@ impl ReadMachine for FakeMachine {
         ))
     }
 
+    fn read_machine_search_path(&self) -> Result<MachineSearchPath> {
+        let state = self.state.borrow();
+        if state.machine_search_path_unreadable {
+            bail!("Could not open the Machine environment key to read the search path it stores");
+        }
+
+        Ok(MachineSearchPath::of(
+            state.machine_search_path.iter().cloned(),
+        ))
+    }
+
     fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>> {
         Ok(self.state.borrow().environment_variables.get(name).cloned())
     }
@@ -1805,6 +1847,26 @@ impl WriteMachine for FakeMachine {
             state.user_search_path.push(directory.to_path_buf());
         }
         Ok(())
+    }
+
+    #[cfg(target_family = "windows")]
+    fn put_first_on_machine_search_path(&self, directory: &Path) -> Result<Placement> {
+        self.worked(format!("Machine PATH {}", directory.display()));
+        let mut state = self.state.borrow_mut();
+        if !state.elevated {
+            return Ok(Placement::Refused(PrivilegeRefusal {
+                work: ElevatedWork::MachineSearchPathFront {
+                    directory: directory.to_path_buf(),
+                },
+                refusal: format!(
+                    "Could not put {} first on the Machine PATH: Access is denied. (0x80070005)",
+                    directory.display()
+                ),
+            }));
+        }
+
+        fronted(&mut state.machine_search_path, directory);
+        Ok(Placement::Placed)
     }
 
     fn set_environment_variable(&self, name: &VariableName, value: &VariableValue) -> Result<()> {

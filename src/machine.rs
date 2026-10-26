@@ -6,7 +6,7 @@ use {
         },
         machine::{
             dart_reading::{DartLocations, DartReading},
-            environment_reading::SearchPathReading,
+            environment_reading::{MachineSearchPath, SearchPathReading},
             release_reading::ReleaseReading,
             workspace_reading::{Fingerprint, Revision, WorkspaceReading},
         },
@@ -244,6 +244,8 @@ pub trait ReadMachine {
     // ADR 0017
     fn read_search_path(&self) -> Result<SearchPathReading>;
 
+    fn read_machine_search_path(&self) -> Result<MachineSearchPath>;
+
     // ADR 0017
     fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>>;
 
@@ -336,6 +338,9 @@ pub trait WriteMachine: ReadMachine {
     /// # }
     /// ```
     fn put_on_search_path(&self, directory: &Path) -> Result<()>;
+
+    #[cfg(target_family = "windows")]
+    fn put_first_on_machine_search_path(&self, directory: &Path) -> Result<Placement>;
 
     // ADR 0017
     fn set_environment_variable(&self, name: &VariableName, value: &VariableValue) -> Result<()>;

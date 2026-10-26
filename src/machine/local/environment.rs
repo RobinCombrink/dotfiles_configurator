@@ -1,6 +1,9 @@
 #[cfg(target_family = "windows")]
 use {
-    crate::machine::environment_reading::{carrying, entries_of},
+    crate::machine::{
+        ElevatedWork, Placement, PrivilegeRefusal,
+        environment_reading::{carrying, entries_of, fronting},
+    },
     anyhow::Context,
     std::{iter::once, path::PathBuf, ptr},
     windows_registry::{CURRENT_USER, Key, LOCAL_MACHINE, Type, Value},
@@ -14,7 +17,7 @@ use {
 use {
     crate::{
         configuration::{VariableName, VariableValue},
-        machine::environment_reading::SearchPathReading,
+        machine::environment_reading::{MachineSearchPath, SearchPathReading},
     },
     anyhow::Result,
     std::path::Path,
@@ -33,7 +36,64 @@ const SEARCH_PATH: &str = "Path";
 pub(super) const VALUE_NOT_FOUND: i32 = 0x8007_0002u32 as i32; // HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)
 
 #[cfg(target_family = "windows")]
+const ACCESS_DENIED: i32 = 0x8007_0005u32 as i32; // HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED)
+
+#[cfg(target_family = "windows")]
 const BROADCAST_TIMEOUT: u32 = 5_000; // 5 seconds
+
+#[cfg(target_family = "windows")]
+pub fn read_machine_search_path() -> Result<MachineSearchPath> {
+    let raw = stored_search_path(LOCAL_MACHINE, MACHINE_ENVIRONMENT)?;
+
+    Ok(MachineSearchPath::of(
+        entries_of(&raw)
+            .into_iter()
+            .map(|entry| PathBuf::from(expanded(entry))),
+    ))
+}
+
+#[cfg(target_family = "windows")]
+pub fn put_first_on_machine_search_path(directory: &Path) -> Result<Placement> {
+    match fronted_machine_search_path(directory) {
+        Ok(()) => Ok(Placement::Placed),
+        Err(error) if error.code().0 == ACCESS_DENIED => Ok(Placement::Refused(PrivilegeRefusal {
+            work: ElevatedWork::MachineSearchPathFront {
+                directory: directory.to_path_buf(),
+            },
+            refusal: format!(
+                "Could not put {} first on the Machine PATH: {error}",
+                directory.display()
+            ),
+        })),
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "Could not put {} first on the Machine PATH",
+                directory.display()
+            )
+        }),
+    }
+}
+
+#[cfg(target_family = "windows")]
+fn fronted_machine_search_path(directory: &Path) -> windows_registry::Result<()> {
+    let key = LOCAL_MACHINE.create(MACHINE_ENVIRONMENT)?;
+    let (kind, raw) = match key.get_value(SEARCH_PATH) {
+        Ok(value) => (value.ty(), String::try_from(value)?),
+        Err(error) if error.code().0 == VALUE_NOT_FOUND => (Type::ExpandString, String::new()),
+        Err(error) => return Err(error),
+    };
+
+    let fronted = fronting(&raw, directory, |entry| PathBuf::from(expanded(entry)));
+    if fronted == raw {
+        return Ok(());
+    }
+    let mut written = Value::from(fronted.as_str());
+    written.set_ty(kind);
+    key.set_value(SEARCH_PATH, &written)?;
+
+    broadcast_environment_change();
+    Ok(())
+}
 
 #[cfg(target_family = "windows")]
 pub fn read_search_path() -> Result<SearchPathReading> {
@@ -95,15 +155,20 @@ pub fn set_variable(name: &VariableName, value: &VariableValue) -> Result<()> {
 }
 
 #[cfg(target_family = "windows")]
-fn hive_search_path(hive: &Key, path: &str) -> Result<Vec<PathBuf>> {
+fn stored_search_path(hive: &Key, path: &str) -> Result<String> {
     let key = hive
         .open(path)
         .with_context(|| format!("Could not open {path} to read the search path it stores"))?;
     let Some(value) = stored(&key, SEARCH_PATH)? else {
-        return Ok(Vec::new());
+        return Ok(String::new());
     };
-    let raw = String::try_from(value)
-        .with_context(|| format!("{path} stores a search path that is not text"))?;
+
+    String::try_from(value).with_context(|| format!("{path} stores a search path that is not text"))
+}
+
+#[cfg(target_family = "windows")]
+fn hive_search_path(hive: &Key, path: &str) -> Result<Vec<PathBuf>> {
+    let raw = stored_search_path(hive, path)?;
 
     Ok(entries_of(&raw)
         .into_iter()
@@ -168,6 +233,11 @@ const REFUSAL: &str =
 
 #[cfg(target_family = "unix")]
 pub fn read_search_path() -> Result<SearchPathReading> {
+    anyhow::bail!("{REFUSAL}")
+}
+
+#[cfg(target_family = "unix")]
+pub fn read_machine_search_path() -> Result<MachineSearchPath> {
     anyhow::bail!("{REFUSAL}")
 }
 
