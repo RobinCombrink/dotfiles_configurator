@@ -67,6 +67,95 @@ impl SearchPathReading {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchPathPlace {
+    First,
+    Later,
+    Absent,
+}
+
+/// The Machine hive's search path alone, each entry expanded, in the order it is stored.
+///
+/// ```
+/// # use dotfiles_configurator::machine::environment_reading::MachineSearchPath;
+/// # use dotfiles_configurator::machine::environment_reading::SearchPathPlace;
+/// # use std::path::{Path, PathBuf};
+/// let reading = MachineSearchPath::of([
+///     PathBuf::from("C:\\Users\\Alice\\.cargo\\bin\\"),
+///     PathBuf::from("C:\\Program Files\\GitHub CLI"),
+/// ]);
+///
+/// assert_eq!(
+///     reading.place_of(Path::new("c:\\users\\alice\\.cargo\\bin")),
+///     SearchPathPlace::First
+/// );
+/// assert_eq!(
+///     reading.place_of(Path::new("C:\\Program Files\\GitHub CLI")),
+///     SearchPathPlace::Later
+/// );
+/// assert_eq!(reading.place_of(Path::new("C:\\Windows")), SearchPathPlace::Absent);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineSearchPath {
+    entries: Vec<PathBuf>,
+}
+
+impl MachineSearchPath {
+    pub fn of(entries: impl IntoIterator<Item = PathBuf>) -> Self {
+        Self {
+            entries: entries.into_iter().collect(),
+        }
+    }
+
+    pub fn place_of(&self, directory: &Path) -> SearchPathPlace {
+        let wanted = path_folding::comparable(directory);
+        match self
+            .entries
+            .iter()
+            .position(|entry| path_folding::comparable(entry) == wanted)
+        {
+            Some(0) => SearchPathPlace::First,
+            Some(_) => SearchPathPlace::Later,
+            None => SearchPathPlace::Absent,
+        }
+    }
+}
+
+/// A stored Machine search path value that starts with a directory, given the value stored now
+/// and how the machine expands an entry.
+///
+/// A value whose first entry expands to the directory comes back unchanged. Otherwise the
+/// directory, spelled as given, goes before the first entry, and every character already stored
+/// stays as it was, so a later entry naming the same directory is left in place.
+///
+/// ```
+/// # use dotfiles_configurator::machine::environment_reading::fronting;
+/// # use std::path::{Path, PathBuf};
+/// let directory = Path::new("C:\\Users\\Alice\\.cargo\\bin");
+/// let unexpanded = |entry: &str| PathBuf::from(entry);
+///
+/// assert_eq!(
+///     fronting("%SystemRoot%\\system32;C:\\Program Files\\GitHub CLI\\", directory, unexpanded),
+///     "C:\\Users\\Alice\\.cargo\\bin;%SystemRoot%\\system32;C:\\Program Files\\GitHub CLI\\"
+/// );
+///
+/// let once = fronting("C:\\Windows", directory, unexpanded);
+/// assert_eq!(fronting(&once, directory, unexpanded), once);
+/// ```
+pub fn fronting(raw: &str, directory: &Path, expanded: impl Fn(&str) -> PathBuf) -> String {
+    let stored = MachineSearchPath::of(entries_of(raw).into_iter().map(expanded));
+    if stored.place_of(directory) == SearchPathPlace::First {
+        return raw.to_owned();
+    }
+
+    let directory = directory.display().to_string();
+    if raw.is_empty() {
+        return directory;
+    }
+
+    format!("{directory}{SEPARATOR}{raw}")
+}
+
 /// The directories a raw search path value names, each still exactly as it is stored.
 ///
 /// ```
@@ -132,124 +221,4 @@ fn already_carries(raw: &str, directory: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // 2026-08-10: four of the eleven entries the user hive of a Windows 11 machine held, so the
-    // parser is exercised against the shape the registry stores rather than one assumed for it.
-    const USER_PATH: &str = concat!(
-        "%USERPROFILE%\\.cargo\\bin;",
-        "C:\\Program Files\\Git\\cmd;",
-        "%LOCALAPPDATA%\\Microsoft\\WindowsApps;",
-        "C:\\Program Files\\Neovim\\bin",
-    );
-
-    #[test]
-    fn an_entry_holding_an_unexpanded_reference_is_read_back_holding_it() {
-        assert_eq!(entries_of(USER_PATH)[0], "%USERPROFILE%\\.cargo\\bin");
-    }
-
-    #[test]
-    fn a_value_ending_in_a_separator_names_one_directory_per_entry_and_no_empty_one() {
-        assert_eq!(entries_of("C:\\Windows;C:\\Temp;").len(), 2);
-    }
-
-    #[test]
-    fn a_value_naming_nothing_names_no_directories() {
-        assert!(entries_of("").is_empty());
-    }
-
-    #[test]
-    fn carrying_a_new_directory_leaves_every_character_already_stored_where_it_was() {
-        let carrying = carrying(USER_PATH, Path::new("C:\\tools\\bin"));
-
-        assert!(carrying.starts_with(USER_PATH), "{carrying}");
-    }
-
-    #[test]
-    fn a_value_that_names_nothing_comes_to_carry_the_directory_alone() {
-        assert_eq!(carrying("", Path::new("C:\\tools\\bin")), "C:\\tools\\bin");
-    }
-
-    #[test]
-    fn a_value_ending_in_a_separator_fills_that_slot_rather_than_growing_another() {
-        assert_eq!(
-            carrying("C:\\Windows;", Path::new("C:\\tools\\bin")),
-            "C:\\Windows;C:\\tools\\bin"
-        );
-    }
-
-    #[test]
-    fn a_value_that_already_carries_the_directory_is_returned_unchanged() {
-        assert_eq!(
-            carrying(USER_PATH, Path::new("C:\\Program Files\\Git\\cmd")),
-            USER_PATH
-        );
-    }
-
-    #[test]
-    fn a_directory_stored_in_another_case_is_not_added_a_second_time() {
-        assert_eq!(
-            carrying(USER_PATH, Path::new("c:\\program files\\GIT\\cmd\\")),
-            USER_PATH
-        );
-    }
-
-    #[test]
-    fn a_directory_stored_as_an_unexpanded_reference_is_not_added_again_under_that_reference() {
-        assert_eq!(
-            carrying(USER_PATH, Path::new("%USERPROFILE%\\.cargo\\bin")),
-            USER_PATH
-        );
-    }
-
-    #[test]
-    fn a_directory_the_user_hive_names_is_carried() {
-        let reading = SearchPathReading::of([PathBuf::from("C:\\Program Files\\Git\\cmd")]);
-
-        assert!(reading.carries(Path::new("C:\\Program Files\\Git\\cmd")));
-    }
-
-    #[test]
-    fn a_directory_stored_in_another_case_is_carried_because_the_file_system_agrees() {
-        let reading = SearchPathReading::of([PathBuf::from("C:\\Program Files\\Git\\cmd")]);
-
-        assert!(reading.carries(Path::new("c:\\program files\\git\\CMD")));
-    }
-
-    #[test]
-    fn a_directory_stored_with_a_trailing_separator_is_carried() {
-        let reading = SearchPathReading::of([PathBuf::from("C:\\tools\\bin\\")]);
-
-        assert!(reading.carries(Path::new("C:\\tools\\bin")));
-    }
-
-    #[test]
-    fn a_directory_written_with_the_other_separator_is_carried_because_both_name_one_directory() {
-        let reading = SearchPathReading::of([PathBuf::from("C:\\tools\\bin")]);
-
-        assert!(reading.carries(Path::new("C:/tools/bin")));
-    }
-
-    #[test]
-    fn a_directory_written_with_the_other_separator_is_not_added_a_second_time() {
-        assert_eq!(
-            carrying("C:\\tools\\bin", Path::new("C:/tools/bin")),
-            "C:\\tools\\bin"
-        );
-    }
-
-    #[test]
-    fn a_directory_no_entry_names_is_not_carried() {
-        let reading = SearchPathReading::of([PathBuf::from("C:\\tools\\bin")]);
-
-        assert!(!reading.carries(Path::new("C:\\tools")));
-    }
-
-    #[test]
-    fn a_search_path_naming_nothing_carries_nothing() {
-        let reading = SearchPathReading::of([]);
-
-        assert!(!reading.carries(Path::new("C:\\tools\\bin")));
-    }
-}
+mod tests;
