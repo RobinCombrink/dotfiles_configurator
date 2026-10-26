@@ -23,6 +23,21 @@ _Avoid_: current state, real state, live state
 A difference between the desired state and the actual state of a single resource.
 _Avoid_: delta, divergence, mismatch
 
+**Drift reason**:
+Why a resource has drifted. Carries the facts the reading that found the drift held — the paths,
+versions and names involved, and what another program printed — and is rendered to text only where
+it is shown. Defined by `DriftReason`.
+
+**Impediment**:
+Why a resource could not be assessed: something it requires is absent, or its actual state could not
+be read. A resource with one is blocked rather than drifted, and the impediment carries facts as a
+drift reason does. Defined by `Impediment`.
+
+**Finding**:
+Something an assessment noticed about a converged resource that a person should see, such as which
+candidate answered a path check or which other file shadows an installed binary. Not drift, so
+nothing is changed for it. Defined by `Finding`.
+
 **Change set**:
 The ordered set of changes that would close every drift. Produced by comparing desired
 against actual, and inspectable without being enacted.
