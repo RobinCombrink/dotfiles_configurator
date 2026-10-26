@@ -42,6 +42,7 @@ use {
                 Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
         },
+        newer_build::{Loaded, load_after_updating_if_it_must},
         planned_run::{PlannedRun, ResolvingRun},
         reporting::{RunKind, RunReport},
         version::Version,
@@ -98,6 +99,7 @@ struct MachineWorld {
     fingerprint_before: Option<String>,
     loading_error: Option<String>,
     loaded: Option<DesiredState>,
+    loaded_after_updating: Option<anyhow::Result<Loaded>>,
     named_sources: Vec<ConfigurationSource>,
     planned_run: Option<PlannedRun>,
     log_directory: TempDir,
@@ -140,6 +142,7 @@ impl MachineWorld {
             fingerprint_before: None,
             loading_error: None,
             loaded: None,
+            loaded_after_updating: None,
             named_sources: Vec::new(),
             planned_run: None,
             log_directory: tempfile::tempdir().expect("a directory to write run logs into"),
@@ -2156,6 +2159,67 @@ async fn alice_applies_her_configurations_for_a_personal_machine(world: &mut Mac
     world.report = Some(report);
 }
 
+#[when(expr = "Alice applies, reading her configurations before anything else")]
+async fn alice_applies_reading_her_configurations_first(world: &mut MachineWorld) {
+    world.fingerprint_before = Some(world.machine.fingerprint());
+    let applied = PlannedRun {
+        machine: MachineClass::Personal,
+        sources: write_the_configurations_alice_names(world),
+    };
+    let replaced = match &world.self_replacement {
+        SelfReplacement::Available => None,
+        SelfReplacement::Spent { replaced } => Some(replaced),
+    };
+
+    let report = world.open_a_report(RunKind::Apply);
+    world.loaded_after_updating = Some(
+        load_after_updating_if_it_must(
+            replaced,
+            &applied,
+            &world.machine,
+            &repositories_root_path(),
+            &GitHubAccess::new(),
+            &report,
+            &world.answering,
+        )
+        .await,
+    );
+    world.report = Some(report);
+}
+
+#[then(expr = "the run declined the newer build")]
+fn the_run_declined_the_newer_build(world: &mut MachineWorld) {
+    assert!(
+        matches!(
+            world.loaded_after_updating,
+            Some(Ok(Loaded::DeclinedTheNewerBuild))
+        ),
+        "{:?}",
+        world.loaded_after_updating
+    );
+}
+
+#[then(expr = "the run obtained the newer build")]
+fn the_run_obtained_the_newer_build(world: &mut MachineWorld) {
+    assert!(
+        matches!(
+            world.loaded_after_updating,
+            Some(Ok(Loaded::ObtainedANewerBuild))
+        ),
+        "{:?}",
+        world.loaded_after_updating
+    );
+}
+
+#[then(expr = "the run failed before reading her configurations")]
+fn the_run_failed_before_reading(world: &mut MachineWorld) {
+    assert!(
+        matches!(world.loaded_after_updating, Some(Err(_))),
+        "{:?}",
+        world.loaded_after_updating
+    );
+}
+
 #[when(expr = "Alice plans her configurations for a personal machine")]
 async fn alice_plans_her_configurations_for_a_personal_machine(world: &mut MachineWorld) {
     alice_loads(world, MachineClass::Personal).await;
@@ -2176,7 +2240,7 @@ async fn alice_plans_her_configurations_for_a_personal_machine(world: &mut Machi
     world.report = Some(report);
 }
 
-async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
+fn write_the_configurations_alice_names(world: &mut MachineWorld) -> Vec<ConfigurationSource> {
     let directory = write_configurations(
         &world.documents,
         &world.stray_file_names,
@@ -2215,6 +2279,11 @@ async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
     }
 
     world.named_sources = sources.clone();
+    sources
+}
+
+async fn alice_loads(world: &mut MachineWorld, machine: MachineClass) {
+    let sources = write_the_configurations_alice_names(world);
     match load_desired_state(
         &sources,
         machine,

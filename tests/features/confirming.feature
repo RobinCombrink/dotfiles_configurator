@@ -90,3 +90,35 @@ Feature: Confirming a change set before it is enacted
     And Alice has answered in advance
     When Alice applies
     Then the run asked nothing
+
+  Scenario: A configuration stating a generation this build cannot read puts the question
+    Given Alice has a configuration declaring a generation beyond this build
+    And a newer configurator than this machine holds has been released
+    When Alice applies, reading her configurations before anything else
+    Then the run asked once
+
+  Scenario: Declining the newer build leaves the machine as it was
+    Given Alice has a configuration declaring a generation beyond this build
+    And a newer configurator than this machine holds has been released
+    And Alice declines the change set
+    When Alice applies, reading her configurations before anything else
+    Then the run declined the newer build
+    And nothing on Alice's machine has changed
+
+  Scenario: An answer given in advance obtains the newer build without a prompt
+    Given Alice has a configuration declaring a generation beyond this build
+    And a newer configurator than this machine holds has been released
+    And Alice has answered in advance
+    When Alice applies, reading her configurations before anything else
+    Then the run obtained the newer build
+    And the configurator reports the version of its latest release
+    And the run asked once
+
+  Scenario: A run that already replaced an earlier build asks nothing and installs nothing
+    Given Alice has a configuration declaring a generation beyond this build
+    And a newer configurator than this machine holds has been released
+    And Alice's run is being carried on by the build that replaced "3.18.0"
+    When Alice applies, reading her configurations before anything else
+    Then the run failed before reading her configurations
+    And the run asked nothing
+    And the configurator still reports the version the machine held
