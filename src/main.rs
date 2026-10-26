@@ -1,24 +1,22 @@
 use {
-    anyhow::{Context, Result, anyhow, bail},
+    anyhow::{Context, Result, anyhow},
     clap::Parser,
     dotfiles_configurator::{
-        arguments::{ApplyArguments, Arguments, CarriedAnswer, Task, successor_arguments},
+        arguments::{Arguments, CarriedAnswer, Task, successor_arguments},
         conclusion::Conclusion,
-        configuration::GitHubAccount,
         configuration_source::load_desired_state,
-        confirmation::{Confirm, Confirmation, Operator},
+        confirmation::Operator,
         convergence::{
             apply::{Enactment, apply},
-            install_release, plan,
+            plan,
         },
-        currency::{RELEASE_OWNER, SelfReplacement, own_currency, own_release_repository},
-        desired_state::DesiredState,
+        currency::{SelfReplacement, own_currency},
         github::GitHubAccess,
         machine::{
-            HeldReason, Placement, ReadMachine,
+            ReadMachine,
             local::{LocalMachine, elevation},
         },
-        newer_build::still_unreadable_by_the_newest_build,
+        newer_build::{Loaded, load_after_updating_if_it_must},
         planned_run::{PlannedRun, ResolvingRun},
         reporting::{RunKind, RunReport},
         tool_directory_within,
@@ -97,7 +95,13 @@ async fn run(task: Task) -> Result<Ending> {
             #[cfg(target_family = "windows")]
             machine.note_the_privileges_it_holds();
             let desired_state = match load_after_updating_if_it_must(
-                &arguments, &applied, &machine, &report, &github, &operator,
+                arguments.replaced.as_ref(),
+                &applied,
+                &machine,
+                &repositories_root()?,
+                &github,
+                &report,
+                &operator,
             )
             .await?
             {
@@ -163,86 +167,6 @@ fn hand_over_to_the_installed_build(
         .code()
         .map(|exit_code| Ending::HandedOver { exit_code })
         .ok_or_else(|| anyhow!("{} ended without an exit status", installed.display()))
-}
-
-// ADR 0019
-async fn load_after_updating_if_it_must(
-    arguments: &ApplyArguments,
-    applied: &PlannedRun,
-    machine: &LocalMachine<'_, '_>,
-    report: &RunReport,
-    github: &GitHubAccess,
-    operator: &impl Confirm,
-) -> Result<Loaded> {
-    let repositories_root = repositories_root()?;
-    let loaded = load_desired_state(
-        &applied.sources,
-        applied.machine,
-        &repositories_root,
-        github,
-    )
-    .await;
-    let refusal = match loaded {
-        Ok(desired_state) => return Ok(Loaded::Read(desired_state)),
-        Err(refusal) => refusal,
-    };
-
-    if !refusal.is_answered_by_a_newer_build() {
-        return Err(refusal.into());
-    }
-
-    if let Some(replaced) = &arguments.replaced {
-        bail!(
-            "{}",
-            still_unreadable_by_the_newest_build(&refusal, replaced)
-        );
-    }
-
-    report.announce(&format!(
-        "{refusal}
-A newer build from {} can read it, and installing it replaces the one running now.",
-        own_release_repository()
-    ));
-
-    if operator.confirmation(OBTAIN_A_NEWER_BUILD) == Confirmation::Declined {
-        report.announce("Declined. Nothing on this machine was changed.");
-        return Ok(Loaded::DeclinedTheNewerBuild);
-    }
-
-    obtain_a_newer_build(machine).await?;
-    Ok(Loaded::ObtainedANewerBuild)
-}
-
-const OBTAIN_A_NEWER_BUILD: &str = "Obtain the newer build and read again?";
-
-enum Loaded {
-    Read(DesiredState),
-    DeclinedTheNewerBuild,
-    ObtainedANewerBuild,
-}
-
-async fn obtain_a_newer_build(machine: &LocalMachine<'_, '_>) -> Result<()> {
-    let binary = own_currency();
-    let released = machine
-        .latest_release(&binary.repository, &GitHubAccount::from(RELEASE_OWNER))
-        .await?
-        .ok_or_else(|| anyhow!("{} has published no release", binary.repository))?;
-
-    match install_release(&binary, &released, machine).await? {
-        Placement::Placed => Ok(()),
-        Placement::Held(HeldReason::BeingExecuted(path)) => bail!(
-            "{} is running and could not be moved aside to install the newer build",
-            path.display()
-        ),
-        Placement::Held(
-            reason @ (HeldReason::ElevationDeclined
-            | HeldReason::ReportedInUse(_)
-            | HeldReason::UpgradedByItsPublisher),
-        ) => {
-            bail!("The newer build could not be installed: {reason}")
-        }
-        Placement::Refused(refusal) => bail!("{}", refusal.refusal),
-    }
 }
 
 // ADR 0025
