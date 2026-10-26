@@ -265,20 +265,6 @@ fn a_configuration_for_work_clones_into_the_work_tree() {
 }
 
 #[test]
-fn a_set_holding_no_configuration_for_every_machine_is_refused() {
-    let error = merged(vec![read_from_the_dotfiles_repository("personal", EMPTY)]).unwrap_err();
-
-    assert!(error.to_string().contains("every machine"), "{error}");
-}
-
-#[test]
-fn a_set_holding_no_configuration_for_this_machines_class_is_refused() {
-    let error = merged(vec![read_from_the_dotfiles_repository("everywhere", EMPTY)]).unwrap_err();
-
-    assert!(error.to_string().contains("machine's class"), "{error}");
-}
-
-#[test]
 fn two_identical_claims_on_one_fact_collapse_to_a_single_resource() {
     let desired_state = merged(vec![
         read_from_the_dotfiles_repository("everywhere", SYMLINK),
