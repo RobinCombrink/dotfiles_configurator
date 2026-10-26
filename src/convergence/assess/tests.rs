@@ -3,7 +3,6 @@ use crate::{
     configuration::{McpScope, McpServerName},
     machine::Exited,
 };
-
 // 2026-07-31: taken verbatim from `cargo install --list`.
 const LISTING: &str = concat!(
     "ci-checks v0.1.0 (C:\\Repositories\\Personal\\dotfiles\\tools\\ci-checks):\n",
@@ -63,11 +62,14 @@ fn a_crate_behind_the_newest_published_is_drifted_naming_both_versions() {
 
 #[test]
 fn a_crate_listed_at_a_version_that_cannot_be_read_is_unassessable_rather_than_drifted() {
-    let assessment = assess_installed_version(&pinned("27.1.0"), "vtwenty-seven");
-
-    let Assessment::Unassessable(_) = assessment else {
-        panic!("expected an unassessable crate, got {assessment:?}");
-    };
+    assert_eq!(
+        assess_installed_version(&pinned("27.1.0"), "vtwenty-seven"),
+        Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            UnreadableReason::CargoListsAnUnreadableVersion {
+                listed: "vtwenty-seven".to_owned()
+            }
+        ))
+    );
 }
 
 #[test]
@@ -196,10 +198,14 @@ fn a_package_newer_than_the_version_declared_is_drifted() {
 
 #[test]
 fn a_package_winget_knows_no_one_version_of_is_unassessable_rather_than_drifted() {
-    let Assessment::Unassessable(_) = assess_winget_version(&declared("17.14.41"), "< 17.14.37")
-    else {
-        panic!("a version winget gives only a bound for was read as one version");
-    };
+    assert_eq!(
+        assess_winget_version(&declared("17.14.41"), "< 17.14.37"),
+        Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            UnreadableReason::WingetListsNoOneVersion {
+                listed: "< 17.14.37".to_owned()
+            }
+        ))
+    );
 }
 
 #[test]
@@ -254,12 +260,18 @@ fn a_listing_that_cut_an_identifier_short_is_refused_rather_than_read_as_an_abse
         "Bitwarden   Bitwarden.Bi…  2026.3.1            winget\n",
     );
 
-    assert!(winget_lists_package(listing, "Bitwarden.Bitwarden").is_err());
+    assert_eq!(
+        winget_lists_package(listing, "Bitwarden.Bitwarden"),
+        Err(UnreadableReason::WingetCutAnIdShort)
+    );
 }
 
 #[test]
 fn a_listing_whose_columns_cannot_be_located_is_refused() {
-    assert!(winget_lists_package("no columns here\n", "Bitwarden.Bitwarden").is_err());
+    assert_eq!(
+        winget_lists_package("no columns here\n", "Bitwarden.Bitwarden"),
+        Err(UnreadableReason::WingetListsNoIdColumn)
+    );
 }
 
 // 2026-09-13: taken verbatim from `claude mcp get probe-server` against a stdio server
@@ -419,7 +431,13 @@ fn a_claude_that_failed_for_any_other_reason_is_unassessable_rather_than_drifted
             "Invalid API key · Please run /login"
         )),
         Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            "claude could not be read, exited with 1: Invalid API key · Please run /login".into()
+            UnreadableReason::ToolFailed {
+                tool: Tool::Claude,
+                failure: FailedExit {
+                    exited: Exited::Code(1),
+                    standard_error: "Invalid API key · Please run /login".to_owned(),
+                },
+            }
         ))
     );
 }
@@ -493,12 +511,24 @@ fn a_tool_is_found_under_the_name_uv_normalises_it_to() {
 
 #[test]
 fn a_tool_listed_without_a_version_is_refused_rather_than_read_as_absent() {
-    assert!(listed_uv_tool("serena-agent\n- serena\n", &serena()).is_err());
+    assert_eq!(
+        listed_uv_tool("serena-agent\n- serena\n", &serena()),
+        Err(UnreadableReason::UvListsNoInstalledVersion {
+            name: serena(),
+            line: "serena-agent".to_owned(),
+        })
+    );
 }
 
 #[test]
 fn a_tool_listed_as_behind_nothing_it_names_is_refused_rather_than_read_as_current() {
-    assert!(listed_uv_tool("serena-agent v1.5.3 [latest: ]\n", &serena()).is_err());
+    assert_eq!(
+        listed_uv_tool("serena-agent v1.5.3 [latest: ]\n", &serena()),
+        Err(UnreadableReason::UvListsAnUnnamedNewerVersion {
+            name: serena(),
+            line: "serena-agent v1.5.3 [latest: ]".to_owned(),
+        })
+    );
 }
 
 // 2026-10-07: shaped as `uv tool list --show-version-specifiers` printed `black v24.1.0

@@ -18,9 +18,9 @@ use {
         },
         desired_state::{ChangeSetResource, DesiredState, ResolvedResource, WorkspaceMember},
         machine::{
-            CommandOutput, Exited, ReadInvocation, ReadMachine, dart_reading::DartReading,
-            environment_reading::SearchPathReading, release_reading::ReleaseReading,
-            workspace_reading::WorkspaceReading,
+            CommandOutput, Exited, FailedExit, ReadInvocation, ReadMachine,
+            dart_reading::DartReading, environment_reading::SearchPathReading,
+            release_reading::ReleaseReading, workspace_reading::WorkspaceReading,
         },
         version::Version,
     },
@@ -104,7 +104,7 @@ impl SourceReadings {
         for (repository, account) in released_from {
             let reading = match machine.latest_release(&repository, &account).await {
                 Ok(release) => SourceReading::Read(release),
-                Err(error) => SourceReading::Unreadable(format!("{error:#}").into()),
+                Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
             };
             releases.insert(repository, reading);
         }
@@ -113,7 +113,7 @@ impl SourceReadings {
         for crate_name in kept_at_newest {
             let reading = match machine.newest_published_crate(&crate_name).await {
                 Ok(newest) => SourceReading::Read(newest),
-                Err(error) => SourceReading::Unreadable(format!("{error:#}").into()),
+                Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
             };
             newest_crates.insert(crate_name, reading);
         }
@@ -124,7 +124,7 @@ impl SourceReadings {
             let repository_path = workspace.clone_directory(&workspace.declared().repository);
             let reading = match machine.read_cargo_workspace(&repository_path) {
                 Ok(reading) => SourceReading::Read(reading),
-                Err(error) => SourceReading::Unreadable(format!("{error:#}").into()),
+                Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
             };
             if let SourceReading::Read(Some(reading)) = &reading {
                 own_copies.insert(
@@ -158,7 +158,7 @@ impl SourceReadings {
                 false => SourceReading::NotRequested(ReadSource::SearchPath),
                 true => match machine.read_search_path() {
                     Ok(reading) => SourceReading::Read(reading),
-                    Err(error) => SourceReading::Unreadable(format!("{error:#}").into()),
+                    Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
                 },
             },
         }
@@ -230,8 +230,7 @@ impl SourceReadings {
             None => Ok(None),
             Some((_, Some(latest))) => Ok(Some(latest)),
             Some((_, None)) => Err(Impediment::ActualStateUnreadable(
-                format!("uv listed {name} as behind without naming the version it is behind")
-                    .into(),
+                UnreadableReason::UvNamesNoNewerVersion { name: name.clone() },
             )),
         }
     }
@@ -293,7 +292,7 @@ impl SourceReadings {
             Some(WingetRow {
                 available: None, ..
             }) => Err(Impediment::ActualStateUnreadable(
-                format!("winget lists an upgrade of {id} without the version it offers").into(),
+                UnreadableReason::WingetOffersNoVersion { id: id.clone() },
             )),
         }
     }
@@ -323,11 +322,9 @@ impl SourceReadings {
         match self.workspace(clone_directory)? {
             Some(reading) => Ok(reading),
             None => Err(Impediment::ActualStateUnreadable(
-                format!(
-                    "{} holds no clone, so its members cannot be read",
-                    clone_directory.display()
-                )
-                .into(),
+                UnreadableReason::NoClone {
+                    clone_directory: clone_directory.to_path_buf(),
+                },
             )),
         }
     }
@@ -365,17 +362,11 @@ fn read_listing(
 
     match machine.read(&invocation) {
         Ok(output) if output.exited.succeeded() => SourceReading::Read(output.standard_output),
-        Ok(output) => SourceReading::Unreadable(
-            format!(
-                "{tool} could not be read, {}: {}",
-                output.exited,
-                output.standard_error.trim()
-            )
-            .into(),
-        ),
-        Err(error) => {
-            SourceReading::Unreadable(format!("{tool} could not be read: {error}").into())
-        }
+        Ok(output) => SourceReading::Unreadable(UnreadableReason::ToolFailed {
+            tool,
+            failure: FailedExit::from(&output),
+        }),
+        Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
     }
 }
 
@@ -403,7 +394,7 @@ fn assess_cargo_binaries_first(machine: &impl ReadMachine) -> Assessment {
         Ok(reading) => reading,
         Err(error) => {
             return Assessment::Unassessable(Impediment::ActualStateUnreadable(
-                format!("{error:#}").into(),
+                UnreadableReason::from(&error),
             ));
         }
     };
@@ -496,7 +487,7 @@ fn assess_dart_package(package: &DartPackage, machine: &impl ReadMachine) -> Ass
         Ok(DartReading::Current) => Assessment::Converged,
         Ok(DartReading::Drifted(drift)) => Assessment::Drifted(DriftReason::Dart(drift)),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            format!("{error:#}").into(),
+            UnreadableReason::from(&error),
         )),
     }
 }
@@ -521,7 +512,7 @@ fn assess_repository(
             clone_directory: clone_directory.to_path_buf(),
         }),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            format!("the history of the clone could not be read: {error}").into(),
+            UnreadableReason::from(&error),
         )),
     }
 }
@@ -536,7 +527,7 @@ fn assess_installer(installer: &Installer, machine: &impl ReadMachine) -> Assess
             presence_check: installer.presence_check.clone(),
         }),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            format!("presence could not be read: {error}").into(),
+            UnreadableReason::from(&error),
         )),
     }
 }
@@ -550,7 +541,9 @@ fn assess_released_binary(
         Ok(Some(release)) => release,
         Ok(None) => {
             return Assessment::Unassessable(Impediment::ActualStateUnreadable(
-                format!("{} has published no release", binary.repository).into(),
+                UnreadableReason::NoRelease {
+                    repository: binary.repository.clone(),
+                },
             ));
         }
         Err(impediment) => return Assessment::Unassessable(impediment),
@@ -583,21 +576,18 @@ fn installed_version(
 ) -> Result<Version, UnreadableReason> {
     let output = machine
         .report_version(installed_path, &binary.version_arguments)
-        .map_err(|error| UnreadableReason::from(format!("{error:#}")))?;
+        .map_err(|error| UnreadableReason::from(&error))?;
 
     if !output.exited.succeeded() {
-        return Err(format!(
-            "`{}` failed, {}: {}",
-            binary.rendered_version_invocation(),
-            output.exited,
-            output.standard_error.trim()
-        )
-        .into());
+        return Err(UnreadableReason::VersionRequestFailed {
+            invocation: binary.version_invocation(),
+            failure: FailedExit::from(&output),
+        });
     }
 
     binary
         .reported_version(&output.standard_output)
-        .map_err(UnreadableReason::from)
+        .map_err(UnreadableReason::VersionUnreported)
 }
 
 fn assess_winget_package(
@@ -629,7 +619,9 @@ fn assess_winget_version(declared: &WingetVersion, installed: &str) -> Assessmen
     }
     if !installed.starts_with(|character: char| character.is_ascii_digit()) {
         return Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            format!("winget reports no one version it is installed at, only {installed:?}").into(),
+            UnreadableReason::WingetListsNoOneVersion {
+                listed: installed.to_owned(),
+            },
         ));
     }
 
@@ -665,23 +657,18 @@ fn winget_package_by_identifier(
     let invocation = ReadInvocation::WingetPackage {
         id: package.id.clone(),
     };
-    let output = machine.read(&invocation).map_err(|error| {
-        Impediment::ActualStateUnreadable(
-            format!("winget could not be asked about {}: {error}", package.id).into(),
-        )
-    })?;
+    let output = machine
+        .read(&invocation)
+        .map_err(|error| Impediment::ActualStateUnreadable(UnreadableReason::from(&error)))?;
 
     if !output.exited.succeeded() {
         return match output.standard_output.trim() == WINGET_FINDS_NO_PACKAGE {
             true => Ok(None),
             false => Err(Impediment::ActualStateUnreadable(
-                format!(
-                    "winget could not be asked about {}, {}: {}",
-                    package.id,
-                    output.exited,
-                    output.standard_error.trim()
-                )
-                .into(),
+                UnreadableReason::WingetPackageUnasked {
+                    id: package.id.clone(),
+                    failure: FailedExit::from(&output),
+                },
             )),
         };
     }
@@ -716,18 +703,11 @@ fn read_winget_upgrades(
         {
             SourceReading::Read(WingetUpgradeListing::NothingToUpgrade)
         }
-        Ok(output) => SourceReading::Unreadable(
-            format!(
-                "winget could not list what it would upgrade, {}: {} {}",
-                output.exited,
-                output.standard_output.trim(),
-                output.standard_error.trim()
-            )
-            .into(),
-        ),
-        Err(error) => SourceReading::Unreadable(
-            format!("winget could not list what it would upgrade: {error}").into(),
-        ),
+        Ok(output) => SourceReading::Unreadable(UnreadableReason::WingetUpgradesUnlisted {
+            failure: FailedExit::from(&output),
+            standard_output: output.standard_output,
+        }),
+        Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
     }
 }
 
@@ -782,7 +762,7 @@ const TRUNCATION_MARKER: char = '…';
 // ADR 0010
 fn winget_row(listing: &str, id: &str) -> Result<Option<WingetRow>, UnreadableReason> {
     let Some(columns) = WingetColumns::located_in(listing) else {
-        return Err("winget's listing has no Id column, so it could not be read".into());
+        return Err(UnreadableReason::WingetListsNoIdColumn);
     };
 
     let mut found = None;
@@ -790,7 +770,7 @@ fn winget_row(listing: &str, id: &str) -> Result<Option<WingetRow>, UnreadableRe
         let cell = WingetColumns::cell(line, columns.id, Some(columns.version));
 
         if cell.contains(TRUNCATION_MARKER) {
-            return Err("winget cut an Id short, so its listing could not be read".into());
+            return Err(UnreadableReason::WingetCutAnIdShort);
         }
         if cell == id && found.is_none() {
             let available = columns
@@ -871,9 +851,10 @@ fn listed_uv_tool(
         .and_then(|word| word.strip_prefix('v'))
         .filter(|version| !version.is_empty())
     else {
-        return Err(
-            format!("uv listed {name} without the version it is installed at: {line}").into(),
-        );
+        return Err(UnreadableReason::UvListsNoInstalledVersion {
+            name: name.clone(),
+            line: line.to_owned(),
+        });
     };
 
     let latest = match line.split_once(LATEST_MARKER) {
@@ -883,10 +864,10 @@ fn listed_uv_tool(
                 Some(UvToolVersion::from(latest.trim()))
             }
             Some(_) | None => {
-                return Err(format!(
-                    "uv listed {name} as behind a version it did not name: {line}"
-                )
-                .into());
+                return Err(UnreadableReason::UvListsAnUnnamedNewerVersion {
+                    name: name.clone(),
+                    line: line.to_owned(),
+                });
             }
         },
     };
@@ -1000,8 +981,10 @@ fn assess_installed_version(wanted: &WantedVersion, installed: &str) -> Assessme
             installed: actual,
             wanted: wanted.clone(),
         }),
-        Err(reason) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            format!("cargo lists it at a version this program cannot read: {reason}").into(),
+        Err(_) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            UnreadableReason::CargoListsAnUnreadableVersion {
+                listed: installed.to_owned(),
+            },
         )),
     }
 }
@@ -1077,7 +1060,7 @@ fn assess_variable(variable: &Variable, machine: &impl ReadMachine) -> Assessmen
         Ok(Some(set)) => Assessment::Drifted(DriftReason::VariableSetTo(set)),
         Ok(None) => Assessment::Drifted(DriftReason::VariableUnset),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            format!("{error:#}").into(),
+            UnreadableReason::from(&error),
         )),
     }
 }
@@ -1126,7 +1109,7 @@ fn assess_machine_manifest(manifest: &RenderedManifest, machine: &impl ReadMachi
         Ok(Some(held)) if held == manifest.document() => Assessment::Converged,
         Ok(Some(_)) => Assessment::Drifted(DriftReason::ManifestDiffers),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            format!("{error:#}").into(),
+            UnreadableReason::from(&error),
         )),
     }
 }
@@ -1139,7 +1122,7 @@ fn assess_claude_mcp_server(server: &ClaudeMcpServer, machine: &impl ReadMachine
         Ok(output) => output,
         Err(error) => {
             return Assessment::Unassessable(Impediment::ActualStateUnreadable(
-                format!("claude could not be read: {error}").into(),
+                UnreadableReason::from(&error),
             ));
         }
     };
@@ -1164,12 +1147,10 @@ fn claude_refusal(output: &CommandOutput) -> Assessment {
     match standard_error.trim_start().starts_with(NO_SUCH_SERVER) {
         true => Assessment::Drifted(DriftReason::NoSuchServer),
         false => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            format!(
-                "claude could not be read, {}: {}",
-                output.exited,
-                standard_error.trim()
-            )
-            .into(),
+            UnreadableReason::ToolFailed {
+                tool: Tool::Claude,
+                failure: FailedExit::from(output),
+            },
         )),
     }
 }
@@ -1250,7 +1231,7 @@ fn assess_command(command: &Command, machine: &impl ReadMachine) -> Assessment {
             presence_check: check.clone(),
         }),
         Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            format!("presence could not be read: {error}").into(),
+            UnreadableReason::from(&error),
         )),
     }
 }

@@ -92,7 +92,7 @@ Feature: Planning what a machine needs
     When Alice plans
     Then the change set reports 0 changes
     And the change set reports 1 blocked resource
-    And the change set mentions "not a version"
+    And the change set reports "rg" as blocked because it printed "version" where its version belongs
     And the change set does not report the machine as converged
 
   Scenario: A released binary printing its version as a key and a value is read as the value
@@ -108,7 +108,7 @@ Feature: Planning what a machine needs
     When Alice plans
     Then the change set reports 0 changes
     And the change set reports 1 blocked resource
-    And the change set mentions "no release"
+    And the change set reports "rg" as blocked because "BurntSushi/ripgrep" has published no release
 
   Scenario: A released binary whose repository cannot be asked is blocked rather than a change
     Given Alice declares the released binary "rg.exe" from "BurntSushi/ripgrep"
@@ -288,14 +288,14 @@ Feature: Planning what a machine needs
     When Alice plans
     Then the change set reports 0 changes
     And the change set reports 1 blocked resource
-    And the change set mentions "Authentication failed"
+    And the change set reports "coderabbit_findings" as blocked because its actual state could not be read
 
   Scenario: A dart package is blocked while the directory dart install writes to is off the search path
     Given Alice declares the dart package "coderabbit_findings" from "tools/coderabbit-findings" of "https://github.com/Alice/dotfiles.git" at "main"
     When Alice plans
     Then the change set reports 0 changes
     And the change set reports 1 blocked resource
-    And the change set mentions "missing from PATH"
+    And the change set reports "coderabbit_findings" as blocked for want of dart's bin directory on the search path
 
   Scenario: A dart package is blocked on a machine without dart
     Given Alice declares the dart package "coderabbit_findings" from "tools/coderabbit-findings" of "https://github.com/Alice/dotfiles.git" at "main"
@@ -511,7 +511,7 @@ Feature: Planning what a machine needs
     When Alice plans
     Then the change set reports 0 changes to the workspace's crates
     And the change set reports 1 blocked resource
-    And the change set mentions "cargo's bin directory is missing from PATH"
+    And the change set reports "stop-gate" as blocked for want of cargo's bin directory on the search path
 
   Scenario: A crate added to the workspace is planned without the configuration changing
     Given Alice declares the cargo workspace in the dotfiles repository

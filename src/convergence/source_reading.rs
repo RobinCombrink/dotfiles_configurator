@@ -1,29 +1,154 @@
 use {
     crate::{
-        configuration::{CrateName, GitHubRepository, Tool},
+        configuration::{
+            CrateName, GitHubRepository, Tool, UnreportedVersion, UvToolName, VersionInvocation,
+            WingetPackageId,
+        },
         convergence::Impediment,
+        machine::FailedExit,
     },
     std::{fmt::Display, path::PathBuf},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UnreadableReason(String);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadFailure(String);
 
-impl From<String> for UnreadableReason {
-    fn from(value: String) -> Self {
-        Self(value)
+impl From<&anyhow::Error> for ReadFailure {
+    fn from(error: &anyhow::Error) -> Self {
+        Self(format!("{error:#}"))
     }
 }
 
-impl From<&str> for UnreadableReason {
-    fn from(value: &str) -> Self {
-        Self(value.to_owned())
+impl Display for ReadFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnreadableReason {
+    ReadFailed(ReadFailure),
+    NotRead(ReadSource),
+    ToolFailed {
+        tool: Tool,
+        failure: FailedExit,
+    },
+    WingetPackageUnasked {
+        id: WingetPackageId,
+        failure: FailedExit,
+    },
+    WingetUpgradesUnlisted {
+        failure: FailedExit,
+        standard_output: String,
+    },
+    WingetListsNoIdColumn,
+    WingetCutAnIdShort,
+    WingetOffersNoVersion {
+        id: WingetPackageId,
+    },
+    WingetListsNoOneVersion {
+        listed: String,
+    },
+    UvListsNoInstalledVersion {
+        name: UvToolName,
+        line: String,
+    },
+    UvListsAnUnnamedNewerVersion {
+        name: UvToolName,
+        line: String,
+    },
+    UvNamesNoNewerVersion {
+        name: UvToolName,
+    },
+    NoClone {
+        clone_directory: PathBuf,
+    },
+    NoRelease {
+        repository: GitHubRepository,
+    },
+    VersionRequestFailed {
+        invocation: VersionInvocation,
+        failure: FailedExit,
+    },
+    VersionUnreported(UnreportedVersion),
+    CargoListsAnUnreadableVersion {
+        listed: String,
+    },
+}
+
+impl From<&anyhow::Error> for UnreadableReason {
+    fn from(error: &anyhow::Error) -> Self {
+        UnreadableReason::ReadFailed(ReadFailure::from(error))
     }
 }
 
 impl Display for UnreadableReason {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        match self {
+            UnreadableReason::ReadFailed(failure) => Display::fmt(failure, formatter),
+            UnreadableReason::NotRead(source) => {
+                write!(formatter, "{source} was not read for this change set")
+            }
+            UnreadableReason::ToolFailed { tool, failure } => {
+                write!(formatter, "{tool} could not be read, {failure}")
+            }
+            UnreadableReason::WingetPackageUnasked { id, failure } => {
+                write!(formatter, "winget could not be asked about {id}, {failure}")
+            }
+            UnreadableReason::WingetUpgradesUnlisted {
+                failure,
+                standard_output,
+            } => write!(
+                formatter,
+                "winget could not list what it would upgrade, {}: {} {}",
+                failure.exited,
+                standard_output.trim(),
+                failure.standard_error.trim()
+            ),
+            UnreadableReason::WingetListsNoIdColumn => {
+                formatter.write_str("winget's listing has no Id column, so it could not be read")
+            }
+            UnreadableReason::WingetCutAnIdShort => {
+                formatter.write_str("winget cut an Id short, so its listing could not be read")
+            }
+            UnreadableReason::WingetOffersNoVersion { id } => write!(
+                formatter,
+                "winget lists an upgrade of {id} without the version it offers"
+            ),
+            UnreadableReason::WingetListsNoOneVersion { listed } => write!(
+                formatter,
+                "winget reports no one version it is installed at, only {listed:?}"
+            ),
+            UnreadableReason::UvListsNoInstalledVersion { name, line } => write!(
+                formatter,
+                "uv listed {name} without the version it is installed at: {line}"
+            ),
+            UnreadableReason::UvListsAnUnnamedNewerVersion { name, line } => write!(
+                formatter,
+                "uv listed {name} as behind a version it did not name: {line}"
+            ),
+            UnreadableReason::UvNamesNoNewerVersion { name } => write!(
+                formatter,
+                "uv listed {name} as behind without naming the version it is behind"
+            ),
+            UnreadableReason::NoClone { clone_directory } => write!(
+                formatter,
+                "{} holds no clone, so its members cannot be read",
+                clone_directory.display()
+            ),
+            UnreadableReason::NoRelease { repository } => {
+                write!(formatter, "{repository} has published no release")
+            }
+            UnreadableReason::VersionRequestFailed {
+                invocation,
+                failure,
+            } => write!(formatter, "`{invocation}` failed, {failure}"),
+            UnreadableReason::VersionUnreported(unreported) => Display::fmt(unreported, formatter),
+            UnreadableReason::CargoListsAnUnreadableVersion { listed } => write!(
+                formatter,
+                "cargo lists it at {listed:?}, a version this program cannot read"
+            ),
+        }
     }
 }
 
@@ -38,9 +163,7 @@ pub enum ReadSource {
 
 impl ReadSource {
     pub fn was_not_read(&self) -> Impediment {
-        Impediment::ActualStateUnreadable(UnreadableReason::from(format!(
-            "{self} was not read for this change set"
-        )))
+        Impediment::ActualStateUnreadable(UnreadableReason::NotRead(self.clone()))
     }
 }
 
@@ -70,13 +193,20 @@ impl Display for ReadSource {
 /// [`crate::convergence::Assessment::Drifted`].
 ///
 /// ```
-/// # use dotfiles_configurator::convergence::{Impediment, source_reading::SourceReading};
-/// let reading: SourceReading<String> = SourceReading::Unreadable("winget exited 1".into());
+/// # use dotfiles_configurator::convergence::{
+/// #     Impediment,
+/// #     source_reading::{SourceReading, UnreadableReason},
+/// # };
+/// let reading: SourceReading<String> =
+///     SourceReading::Unreadable(UnreadableReason::WingetListsNoIdColumn);
 ///
 /// let Err(impediment) = reading.read() else {
 ///     panic!("a reading that could not be read answered a value");
 /// };
-/// assert_eq!(impediment.to_string(), "winget exited 1");
+/// assert_eq!(
+///     impediment,
+///     Impediment::ActualStateUnreadable(UnreadableReason::WingetListsNoIdColumn)
+/// );
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceReading<T> {

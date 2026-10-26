@@ -83,6 +83,27 @@ pub struct CommandOutput {
     pub standard_error: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailedExit {
+    pub exited: Exited,
+    pub standard_error: String,
+}
+
+impl From<&CommandOutput> for FailedExit {
+    fn from(output: &CommandOutput) -> Self {
+        Self {
+            exited: output.exited,
+            standard_error: output.standard_error.clone(),
+        }
+    }
+}
+
+impl Display for FailedExit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.exited, self.standard_error.trim())
+    }
+}
+
 pub const SUPERSEDED_SUFFIX: &str = ".superseded";
 
 pub fn superseded_name(destination: &Path) -> PathBuf {

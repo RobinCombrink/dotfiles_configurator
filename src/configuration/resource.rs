@@ -321,32 +321,75 @@ impl ReleasedBinary {
         binaries_directory.join(self.installed_name().file_name())
     }
 
-    pub fn rendered_version_invocation(&self) -> String {
-        format!(
-            "{} {}",
-            self.installed_name(),
-            self.version_arguments.join(" ")
-        )
-        .trim_end()
-        .to_owned()
+    pub fn version_invocation(&self) -> VersionInvocation {
+        VersionInvocation {
+            binary: self.installed_name(),
+            arguments: self.version_arguments.clone(),
+        }
     }
 
-    pub fn reported_version(&self, output: &str) -> Result<Version, String> {
-        let word = self.version_word.select(output).ok_or_else(|| {
-            format!(
-                "`{}` printed no {} word to read a version from",
-                self.rendered_version_invocation(),
-                self.version_word
-            )
-        })?;
+    pub fn reported_version(&self, output: &str) -> Result<Version, UnreportedVersion> {
+        let word = self
+            .version_word
+            .select(output)
+            .ok_or_else(|| UnreportedVersion::NoWord {
+                invocation: self.version_invocation(),
+                word: self.version_word,
+            })?;
 
-        Version::try_from(word).map_err(|fault| {
-            format!(
-                "the {} word `{}` printed is {fault}",
-                self.version_word,
-                self.rendered_version_invocation()
-            )
+        Version::try_from(word).map_err(|_| UnreportedVersion::NotAVersion {
+            invocation: self.version_invocation(),
+            word: self.version_word,
+            printed: word.to_owned(),
         })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionInvocation {
+    pub binary: BinaryName,
+    pub arguments: Vec<String>,
+}
+
+impl Display for VersionInvocation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.binary, formatter)?;
+        for argument in &self.arguments {
+            write!(formatter, " {argument}")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnreportedVersion {
+    NoWord {
+        invocation: VersionInvocation,
+        word: VersionWord,
+    },
+    NotAVersion {
+        invocation: VersionInvocation,
+        word: VersionWord,
+        printed: String,
+    },
+}
+
+impl Display for UnreportedVersion {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UnreportedVersion::NoWord { invocation, word } => write!(
+                formatter,
+                "`{invocation}` printed no {word} word to read a version from"
+            ),
+            UnreportedVersion::NotAVersion {
+                invocation,
+                word,
+                printed,
+            } => write!(
+                formatter,
+                "the {word} word `{invocation}` printed is {printed:?}, which is not a version"
+            ),
+        }
     }
 }
 

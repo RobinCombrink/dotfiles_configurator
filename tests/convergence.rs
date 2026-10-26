@@ -20,14 +20,15 @@ use {
             DartSource, DeclaredNotice, EnvironmentVariable, EstateName, Estates, GitHubAccount,
             Installer, MachineClass, MachineManifest, McpScope, McpServerName, Migration, Notice,
             OLDEST_READABLE_GENERATION, Package, PackageCurrency, PresenceCheck, PythonInterpreter,
-            RecordedRun, RecordedSource, Registration, RepositoryClone, Resource,
-            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UvToolPackage,
-            UvToolVersion, Variable, VariableName, VariableValue, WingetVersion, recorded_run_in,
+            RecordedRun, RecordedSource, Registration, RepositoryClone, Requirement, Resource,
+            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UnreportedVersion,
+            UvToolPackage, UvToolVersion, Variable, VariableName, VariableValue, WingetVersion,
+            recorded_run_in,
         },
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
         convergence::{
-            ApplyOutcome, ChangeSet, DriftReason,
+            ApplyOutcome, ChangeSet, DriftReason, Impediment, UnreadableReason,
             apply::{Enactment, apply},
             assess::{ServerDifference, WantedVersion},
             member_currency::{BinaryDrift, CopyDrift},
@@ -229,6 +230,16 @@ impl MachineWorld {
             .find(|change| change.resource.to_string().contains(name))
             .map(|change| &change.reason)
             .unwrap_or_else(|| panic!("nothing changes for {name}:\n{change_set}"))
+    }
+
+    fn impediment_of(&self, name: &str) -> &Impediment {
+        let change_set = self.change_set();
+        change_set
+            .blocked
+            .iter()
+            .find(|blocked| blocked.resource.to_string().contains(name))
+            .map(|blocked| &blocked.impediment)
+            .unwrap_or_else(|| panic!("nothing is blocked for {name}:\n{change_set}"))
     }
 
     fn enactment(&self) -> &Enactment {
@@ -2458,11 +2469,18 @@ fn the_run_closes_on_a_tally_counting_blocked(world: &mut MachineWorld, blocked:
     );
 }
 
-#[then(expr = "Alice's run shows the binary {string} as blocked because {string}")]
-fn the_run_shows_a_binary_blocked(world: &mut MachineWorld, binary: String, because: String) {
+#[then(expr = "Alice's run shows the binary {string} as blocked by what blocks it")]
+fn the_run_shows_a_binary_blocked(world: &mut MachineWorld, binary: String) {
     let shown_as = binary
         .strip_suffix(std::env::consts::EXE_SUFFIX)
         .unwrap_or(&binary);
+    let because = world
+        .outcome()
+        .blocked
+        .iter()
+        .find(|blocked| blocked.resource.to_string().contains(shown_as))
+        .map(|blocked| blocked.impediment.to_string())
+        .unwrap_or_else(|| panic!("{shown_as} was not blocked"));
     let diagnostics = world.diagnostics_shown();
     let after_the_entry = diagnostics
         .split_once(&format!(" {shown_as}: blocked\n"))
@@ -2725,6 +2743,62 @@ fn change_set_reports_a_server_with_other_arguments(
         world.drift_of(&name),
         &DriftReason::Server(ServerDifference::OtherArguments(arguments))
     );
+}
+
+#[then(
+    expr = "the change set reports {string} as blocked because it printed {string} where its \
+            version belongs"
+)]
+fn change_set_reports_a_version_not_reported(
+    world: &mut MachineWorld,
+    name: String,
+    printed: String,
+) {
+    let impediment = world.impediment_of(&name);
+    let Impediment::ActualStateUnreadable(UnreadableReason::VersionUnreported(
+        UnreportedVersion::NotAVersion { printed: held, .. },
+    )) = impediment
+    else {
+        panic!("{impediment:?}");
+    };
+
+    assert_eq!(held, &printed);
+}
+
+#[then(
+    expr = "the change set reports {string} as blocked because {string} has published no release"
+)]
+fn change_set_reports_no_release(world: &mut MachineWorld, name: String, owner_and_name: String) {
+    assert_eq!(
+        world.impediment_of(&name),
+        &Impediment::ActualStateUnreadable(UnreadableReason::NoRelease {
+            repository: named_repository(&owner_and_name),
+        })
+    );
+}
+
+#[then(
+    expr = "the change set reports {string} as blocked because its actual state could not be read"
+)]
+fn change_set_reports_a_read_failure(world: &mut MachineWorld, name: String) {
+    let impediment = world.impediment_of(&name);
+    let Impediment::ActualStateUnreadable(UnreadableReason::ReadFailed(_)) = impediment else {
+        panic!("{impediment:?}");
+    };
+}
+
+#[then(
+    expr = "the change set reports {string} as blocked for want of {word}'s bin directory on the \
+            search path"
+)]
+fn change_set_reports_a_bin_directory_absent(world: &mut MachineWorld, name: String, tool: String) {
+    let requirement = match tool.as_str() {
+        "cargo" => Requirement::CargoBinariesOnSearchPath,
+        "dart" => Requirement::DartBinariesOnSearchPath,
+        other => panic!("no scenario puts {other}'s bin directory on the search path"),
+    };
+
+    assert_eq!(world.impediment_of(&name), &Impediment::Absent(requirement));
 }
 
 #[then(expr = "the change set reports {string} as set to {string}")]
