@@ -45,6 +45,14 @@ pub fn resolve(
         }
     }
 
+    #[cfg(target_family = "windows")]
+    if resources
+        .iter()
+        .any(ChangeSetResource::installs_into_the_cargo_binaries_directory)
+    {
+        resources.push(ChangeSetResource::CargoBinariesFirst);
+    }
+
     reject_conflicting_claims(&resources, home_directory)?;
     Ok(Resolution {
         resources,

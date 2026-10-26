@@ -394,6 +394,8 @@ fn declared(resource: &ChangeSetResource) -> Option<&Resource> {
     match resource {
         ChangeSetResource::Declared(resource) => Some(resource.declared()),
         ChangeSetResource::Member(_) => None,
+        #[cfg(target_family = "windows")]
+        ChangeSetResource::CargoBinariesFirst => None,
     }
 }
 

@@ -453,7 +453,7 @@ Feature: Planning what a machine needs
     And cargo installed "stop-gate" from the content the workspace holds now
     And another "stop-gate" comes before cargo's on Alice's search path
     When Alice plans
-    Then the change set reports 0 changes
+    Then the change set reports 0 changes to the workspace's crates
     And the change set reports a finding for "stop-gate" mentioning "shadowed"
 
   Scenario: A shadowed workspace crate whose own binary is behind the repository is still a change
@@ -463,7 +463,7 @@ Feature: Planning what a machine needs
     And cargo installed "stop-gate" from content the workspace has since changed
     And another "stop-gate" comes before cargo's on Alice's search path
     When Alice plans
-    Then the change set reports 1 change
+    Then the change set reports 1 change to the workspace's crates
     And the change set mentions "shadowed"
 
   Scenario: A binary an earlier install of a workspace crate left behind is planned for removal
@@ -514,7 +514,7 @@ Feature: Planning what a machine needs
     And the workspace holds the crate "stop-gate"
     And cargo's bin directory is not on Alice's search path
     When Alice plans
-    Then the change set reports 0 changes
+    Then the change set reports 0 changes to the workspace's crates
     And the change set reports 1 blocked resource
     And the change set mentions "cargo's bin directory is missing from PATH"
 

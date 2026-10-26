@@ -2468,6 +2468,17 @@ fn change_set_reports_changes(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.change_set().changes.len(), expected);
 }
 
+#[then(expr = "the change set reports {int} change(s) to the workspace's crates")]
+fn change_set_reports_member_changes(world: &mut MachineWorld, expected: usize) {
+    let member_changes = world
+        .change_set()
+        .changes
+        .iter()
+        .filter(|change| matches!(change.resource, ChangeSetResource::Member(_)))
+        .count();
+    assert_eq!(member_changes, expected);
+}
+
 #[then(expr = "the change set reports {int} blocked resource(s)")]
 fn change_set_reports_blocked(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.change_set().blocked.len(), expected);

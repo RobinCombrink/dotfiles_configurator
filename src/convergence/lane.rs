@@ -23,6 +23,8 @@ impl Lane {
         let resource = match resource {
             ChangeSetResource::Declared(resource) => resource,
             ChangeSetResource::Member(_) => return Lane::Cargo,
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => return Lane::Instant,
         };
         if resource.replaces_the_running_build() {
             return Lane::Replacement;

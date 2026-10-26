@@ -315,6 +315,10 @@ impl Handled {
         let resource = match &change.resource {
             ChangeSetResource::Declared(resource) => resource,
             ChangeSetResource::Member(member) => return Handled::Claimed(member.identity()),
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => {
+                return Handled::Claimed(Identity::CargoBinariesFirst);
+            }
         };
         match resource.identity(home_directory) {
             Some(identity) => Handled::Claimed(identity),
@@ -647,6 +651,8 @@ fn download_of(change: &Change) -> Option<Download<'_>> {
     match &change.resource {
         ChangeSetResource::Declared(resource) => Download::of(resource.declared()),
         ChangeSetResource::Member(_) => None,
+        #[cfg(target_family = "windows")]
+        ChangeSetResource::CargoBinariesFirst => None,
     }
 }
 

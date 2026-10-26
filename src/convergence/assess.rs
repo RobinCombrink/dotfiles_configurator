@@ -1,3 +1,5 @@
+#[cfg(target_family = "windows")]
+use crate::machine::environment_reading::SearchPathPlace;
 use {
     crate::{
         configuration::{
@@ -389,6 +391,31 @@ pub fn assess(
     match resource {
         ChangeSetResource::Declared(resource) => assess_declared(resource, machine, readings),
         ChangeSetResource::Member(member) => assess_workspace_member(member, machine, readings),
+        #[cfg(target_family = "windows")]
+        ChangeSetResource::CargoBinariesFirst => assess_cargo_binaries_first(machine),
+    }
+}
+
+#[cfg(target_family = "windows")]
+fn assess_cargo_binaries_first(machine: &impl ReadMachine) -> Assessment {
+    let directory = machine.cargo_binaries_directory();
+    let reading = match machine.read_machine_search_path() {
+        Ok(reading) => reading,
+        Err(error) => {
+            return Assessment::Unassessable(Impediment::ActualStateUnreadable(
+                format!("{error:#}").into(),
+            ));
+        }
+    };
+
+    match reading.place_of(&directory) {
+        SearchPathPlace::First => Assessment::Converged,
+        SearchPathPlace::Later => {
+            Assessment::Drifted(format!("{} comes after another entry", directory.display()).into())
+        }
+        SearchPathPlace::Absent => {
+            Assessment::Drifted(format!("{} is not on it", directory.display()).into())
+        }
     }
 }
 
@@ -454,9 +481,9 @@ fn requirement_is_met(
 ) -> Result<bool, Impediment> {
     match requirement {
         Requirement::Tool(tool) => Ok(machine.tool_is_present(*tool)),
-        Requirement::DotfilesRepository(_) => {
-            Ok(machine.path_exists(&resource.files_root().join(".git")))
-        }
+        Requirement::DotfilesRepository(_) => Ok(resource
+            .files_root()
+            .is_some_and(|files_root| machine.path_exists(&files_root.join(".git")))),
         Requirement::CargoBinariesOnSearchPath => Ok(readings
             .search_path()?
             .carries(&machine.cargo_binaries_directory())),

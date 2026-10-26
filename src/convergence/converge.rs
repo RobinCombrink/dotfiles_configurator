@@ -28,6 +28,10 @@ pub async fn converge(
         ChangeSetResource::Member(member) => {
             return converge_workspace_member(member, machine, readings).await;
         }
+        #[cfg(target_family = "windows")]
+        ChangeSetResource::CargoBinariesFirst => {
+            return machine.put_first_on_machine_search_path(&machine.cargo_binaries_directory());
+        }
     };
     let closed = match resource.declared() {
         Resource::Package(Package::Cargo(package)) => {

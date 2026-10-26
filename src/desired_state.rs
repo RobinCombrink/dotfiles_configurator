@@ -17,6 +17,9 @@ use {
     },
 };
 
+#[cfg(target_family = "windows")]
+use crate::configuration::Package;
+
 // ADR 0025
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceLocation {
@@ -227,10 +230,15 @@ impl<T: std::fmt::Display> std::fmt::Display for Resolved<T> {
     }
 }
 
+#[cfg(target_family = "windows")]
+const CARGO_BINARIES_FIRST: &str = "cargo binaries first on the Machine PATH";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChangeSetResource {
     Declared(ResolvedResource),
     Member(WorkspaceMember),
+    #[cfg(target_family = "windows")]
+    CargoBinariesFirst,
 }
 
 impl ChangeSetResource {
@@ -238,6 +246,8 @@ impl ChangeSetResource {
         match self {
             ChangeSetResource::Declared(resource) => resource.kind(),
             ChangeSetResource::Member(_) => ResourceKind::Package,
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => ResourceKind::EnvironmentVariable,
         }
     }
 
@@ -245,6 +255,8 @@ impl ChangeSetResource {
         match self {
             ChangeSetResource::Declared(resource) => resource.declared().name(),
             ChangeSetResource::Member(member) => member.crate_name.to_string(),
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => CARGO_BINARIES_FIRST.to_owned(),
         }
     }
 
@@ -252,6 +264,8 @@ impl ChangeSetResource {
         match self {
             ChangeSetResource::Declared(resource) => resource.identity(home_directory),
             ChangeSetResource::Member(member) => Some(member.identity()),
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => Some(Identity::CargoBinariesFirst),
         }
     }
 
@@ -259,6 +273,8 @@ impl ChangeSetResource {
         match self {
             ChangeSetResource::Declared(resource) => resource.requirements(),
             ChangeSetResource::Member(member) => member.requirements(),
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => Vec::new(),
         }
     }
 
@@ -266,6 +282,10 @@ impl ChangeSetResource {
         match self {
             ChangeSetResource::Declared(resource) => resource.precedence(),
             ChangeSetResource::Member(_) => Precedence::Declared(ResourceKind::Package),
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => {
+                Precedence::Declared(ResourceKind::EnvironmentVariable)
+            }
         }
     }
 
@@ -273,6 +293,8 @@ impl ChangeSetResource {
         match self {
             ChangeSetResource::Declared(resource) => resource.replaces_the_running_build(),
             ChangeSetResource::Member(_) => false,
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => false,
         }
     }
 
@@ -280,13 +302,36 @@ impl ChangeSetResource {
         match self {
             ChangeSetResource::Declared(resource) => resource.declared().can_be_read_back(),
             ChangeSetResource::Member(_) => true,
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => true,
         }
     }
 
-    pub fn files_root(&self) -> &Path {
+    pub fn files_root(&self) -> Option<&Path> {
         match self {
-            ChangeSetResource::Declared(resource) => resource.files_root(),
-            ChangeSetResource::Member(member) => member.origin.files_root.path(),
+            ChangeSetResource::Declared(resource) => Some(resource.files_root()),
+            ChangeSetResource::Member(member) => Some(member.origin.files_root.path()),
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => None,
+        }
+    }
+
+    #[cfg(target_family = "windows")]
+    pub fn installs_into_the_cargo_binaries_directory(&self) -> bool {
+        let resource = match self {
+            ChangeSetResource::Declared(resource) => resource,
+            ChangeSetResource::Member(_) => return true,
+            ChangeSetResource::CargoBinariesFirst => return false,
+        };
+        match resource.declared() {
+            Resource::Package(Package::Cargo(_)) => true,
+            Resource::Repository(_)
+            | Resource::Application(_)
+            | Resource::Package(_)
+            | Resource::EnvironmentVariable(_)
+            | Resource::Symlink(_)
+            | Resource::Registration(_)
+            | Resource::Command(_) => false,
         }
     }
 }
@@ -296,6 +341,8 @@ impl Display for ChangeSetResource {
         match self {
             ChangeSetResource::Declared(resource) => Display::fmt(resource, formatter),
             ChangeSetResource::Member(member) => Display::fmt(member, formatter),
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => formatter.write_str(CARGO_BINARIES_FIRST),
         }
     }
 }

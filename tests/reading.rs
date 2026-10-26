@@ -251,6 +251,8 @@ fn crate_names_of<'resource>(
                 _ => None,
             },
             ChangeSetResource::Member(member) => Some(member.crate_name().to_string()),
+            #[cfg(target_family = "windows")]
+            ChangeSetResource::CargoBinariesFirst => None,
         })
         .collect()
 }
