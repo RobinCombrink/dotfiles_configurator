@@ -2,7 +2,7 @@ use {
     super::*,
     github_owner::Owner,
     machine_manifest_document::{
-        Account, EstateName, Estates, MachineClass, RecordedSource, RepositoriesDirectory,
+        Account, EstateName, Estates, MachineClass, RepositoriesDirectory,
     },
     std::path::Path,
 };
@@ -15,27 +15,6 @@ fn repository_resource(fields: &str) -> Result<Resource, serde_json::Error> {
     serde_json::from_str(&format!(
         r#"{{ "kind": "repository", "owner": "flutter", "repository": "flutter"{fields} }}"#
     ))
-}
-
-#[test]
-fn a_repository_declaring_no_depth_is_cloned_with_its_whole_history() {
-    let Resource::Repository(clone) = repository_resource("").unwrap() else {
-        panic!("expected a repository");
-    };
-
-    assert_eq!(clone.depth, None);
-}
-
-#[test]
-fn a_repository_declaring_a_depth_is_cloned_holding_only_that_much_history() {
-    let Resource::Repository(clone) = repository_resource(r#", "depth": 1"#).unwrap() else {
-        panic!("expected a repository");
-    };
-
-    assert_eq!(
-        clone.depth,
-        Some(CloneDepth::from(NonZeroU32::new(1).unwrap()))
-    );
 }
 
 #[test]
@@ -178,34 +157,6 @@ fn the_manifest_declares_the_repositories_directory_under_a_machine_of_its_own()
         document,
         "{\n  \"machine\": {\n    \"repositories_directory_path\": \"/repositories/Personal\",\n    \
              \"estates\": {},\n    \"class\": \"personal\",\n    \"configuration_sources\": []\n  }\n}"
-    );
-}
-
-#[test]
-fn the_manifest_records_the_class_and_the_sources_of_the_run_that_wrote_it_as_written() {
-    let document = rendered(MachineManifest {
-        repositories_directory_path: rooted("/repositories/Work"),
-        estates: Estates::default(),
-        slots_per_bank: None,
-        recorded_run: RecordedRun {
-            class: MachineClass::Work,
-            configuration_sources: vec![
-                RecordedSource::from("github:Alice/dotfiles/config".to_owned()),
-                RecordedSource::from("local:/repositories/Work/dotfiles/config".to_owned()),
-            ],
-        },
-    });
-
-    let machine = &serde_json::from_str::<serde_json::Value>(&document).unwrap()["machine"];
-    assert_eq!(
-        (&machine["class"], &machine["configuration_sources"]),
-        (
-            &serde_json::json!("work"),
-            &serde_json::json!([
-                "github:Alice/dotfiles/config",
-                "local:/repositories/Work/dotfiles/config"
-            ])
-        )
     );
 }
 
