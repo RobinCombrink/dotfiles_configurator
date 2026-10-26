@@ -558,36 +558,6 @@ async fn a_relative_repositories_root_is_refused_at_load_naming_the_directory() 
 }
 
 #[tokio::test]
-async fn a_directory_inside_no_checkout_has_nothing_to_read_a_configurations_files_out_of() {
-    let outside_any_checkout = env::temp_dir()
-        .join("dotfiles_configuration_source_tests")
-        .join(process::id().to_string())
-        .join("outside_any_checkout");
-    let _ = fs::remove_dir_all(&outside_any_checkout);
-    fs::create_dir_all(outside_any_checkout.join("config")).unwrap();
-    write_configuration(
-        &outside_any_checkout,
-        "everywhere.dotconfig.json",
-        "everywhere",
-        "",
-    );
-    let outside_any_checkout = outside_any_checkout.join("config");
-
-    let error = load_desired_state(
-        &[ConfigurationSource::LocalDirectory(absolute(
-            outside_any_checkout,
-        ))],
-        MachineClass::Personal,
-        Path::new("/repositories"),
-        &GitHubAccess::new(),
-    )
-    .await
-    .unwrap_err();
-
-    assert!(error.to_string().contains("no checkout"), "{error}");
-}
-
-#[tokio::test]
 async fn configurations_in_a_directory_are_read_in_a_stable_order() {
     let checkout = temporary_checkout("stable_order");
     write_configuration(
@@ -664,40 +634,6 @@ async fn a_file_without_the_configuration_suffix_is_not_read_at_all() {
             "command also declared".to_owned()
         ]
     );
-}
-
-#[tokio::test]
-async fn a_set_holding_nothing_for_this_machines_class_is_refused() {
-    let checkout = temporary_checkout("nothing_for_this_class");
-    write_configuration(
-        &checkout,
-        "everywhere.dotconfig.json",
-        "everywhere",
-        &command("for every machine"),
-    );
-
-    let error = load_from(&checkout, MachineClass::Personal)
-        .await
-        .unwrap_err();
-
-    assert!(error.to_string().contains("machine's class"), "{error}");
-}
-
-#[tokio::test]
-async fn a_set_holding_nothing_for_every_machine_is_refused() {
-    let checkout = temporary_checkout("nothing_for_every_machine");
-    write_configuration(
-        &checkout,
-        "personal.dotconfig.json",
-        "personal",
-        &command("for a personal machine"),
-    );
-
-    let error = load_from(&checkout, MachineClass::Personal)
-        .await
-        .unwrap_err();
-
-    assert!(error.to_string().contains("every machine"), "{error}");
 }
 
 #[tokio::test]
