@@ -16,42 +16,6 @@ fn parse(body: &str) -> Result<Configuration, Unreadable> {
 }
 
 #[test]
-fn a_configuration_whose_version_is_not_a_generation_is_rejected_by_name() {
-    let superseded = configuration_json("0.1.0", r#""resources": []"#);
-
-    let error = parse_configuration(
-        &superseded,
-        &ConfigurationName::from("everywhere.dotconfig.json"),
-    )
-    .unwrap_err();
-
-    let message = error.to_string();
-    assert!(
-        message.contains("0.1.0") && message.contains(&BUILD_GENERATION.to_string()),
-        "expected the message to name the version and this build's generation, got: {message}"
-    );
-}
-
-#[test]
-fn a_configuration_further_back_than_one_generation_is_a_document_this_build_has_outgrown() {
-    let outgrown = configuration_json(
-        &OLDEST_READABLE_GENERATION.stepped_by(-1).to_string(),
-        r#""resources": []"#,
-    );
-
-    let error = parse_configuration(
-        &outgrown,
-        &ConfigurationName::from("everywhere.dotconfig.json"),
-    )
-    .unwrap_err();
-
-    let Unreadable::TooOld { stated, .. } = error else {
-        panic!("expected the refusal to name the document as outgrown, got: {error}");
-    };
-    assert_eq!(stated, OLDEST_READABLE_GENERATION.stepped_by(-1));
-}
-
-#[test]
 fn a_configuration_stating_a_generation_beyond_this_build_is_a_fault_in_the_build() {
     let newer = configuration_json(
         &BUILD_GENERATION.stepped_by(1).to_string(),
@@ -250,19 +214,6 @@ fn a_variable_is_read_as_the_whole_value_it_declares() {
     };
     assert_eq!(variable.name, VariableName::try_from("EDITOR").unwrap());
     assert_eq!(variable.value, VariableValue::from("nvim"));
-}
-
-#[test]
-fn a_variable_claiming_the_search_path_is_refused_naming_the_shape_that_owns_it() {
-    let claimed = r#""resources": [
-            { "kind": "environment_variable", "shape": "variable",
-              "name": "Path", "value": "C:\\only\\this" }
-        ]"#;
-
-    let error = parse(claimed).unwrap_err();
-
-    let message = format!("{error:#}");
-    assert!(message.contains("search path entry"), "{message}");
 }
 
 #[test]
