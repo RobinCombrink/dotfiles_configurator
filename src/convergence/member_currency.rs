@@ -281,29 +281,48 @@ impl Display for BinaryDrift {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchPathFinding {
+    Shadowed { binary: BinaryName, by: PathBuf },
+    Unresolved { binary: BinaryName },
+}
+
+impl Display for SearchPathFinding {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SearchPathFinding::Shadowed { binary, by } => {
+                write!(formatter, "{binary} is shadowed by {}", by.display())
+            }
+            SearchPathFinding::Unresolved { binary } => {
+                write!(formatter, "nothing on PATH resolves {binary}")
+            }
+        }
+    }
+}
+
 pub fn judged(binaries: impl IntoIterator<Item = (BinaryName, OwnCopy, Resolution)>) -> Assessment {
     let mut installs = Vec::new();
     let mut findings = Vec::new();
     for (binary, own_copy, resolution) in binaries {
-        let shadowed_by = match &resolution {
-            Resolution::Another(path) => Some(path.clone()),
-            Resolution::Ours | Resolution::Nothing => None,
-        };
         let copy = match own_copy {
             OwnCopy::Current => {
                 match resolution {
                     Resolution::Ours => {}
-                    Resolution::Another(path) => {
-                        findings.push(format!("{binary} is shadowed by {}", path.display()));
+                    Resolution::Another(by) => {
+                        findings.push(SearchPathFinding::Shadowed { binary, by });
                     }
                     Resolution::Nothing => {
-                        findings.push(format!("nothing on PATH resolves {binary}"));
+                        findings.push(SearchPathFinding::Unresolved { binary });
                     }
                 }
                 continue;
             }
             OwnCopy::Absent => CopyDrift::Absent,
             OwnCopy::Stale(staleness) => CopyDrift::Stale(staleness),
+        };
+        let shadowed_by = match resolution {
+            Resolution::Another(path) => Some(path),
+            Resolution::Ours | Resolution::Nothing => None,
         };
         installs.push(BinaryDrift {
             binary,
@@ -316,7 +335,7 @@ pub fn judged(binaries: impl IntoIterator<Item = (BinaryName, OwnCopy, Resolutio
         return Assessment::Drifted(DriftReason::OwnCopies(installs));
     }
     if !findings.is_empty() {
-        return Assessment::Found(Finding::from(findings.join("; ")));
+        return Assessment::Found(Finding::OnSearchPath(findings));
     }
     Assessment::Converged
 }

@@ -98,9 +98,20 @@ fn a_current_copy_shadowed_by_another_file_is_a_finding_rather_than_drift() {
             OwnCopy::Current,
             Resolution::Another(PathBuf::from("C:\\tools\\stop-gate.exe"))
         ),
-        Assessment::Found(Finding::from(
-            "stop-gate is shadowed by C:\\tools\\stop-gate.exe".to_owned()
-        ))
+        Assessment::Found(Finding::OnSearchPath(vec![SearchPathFinding::Shadowed {
+            binary: stop_gate(),
+            by: PathBuf::from("C:\\tools\\stop-gate.exe"),
+        }]))
+    );
+}
+
+#[test]
+fn a_current_copy_nothing_on_the_search_path_resolves_is_a_finding_rather_than_drift() {
+    assert_eq!(
+        judging(OwnCopy::Current, Resolution::Nothing),
+        Assessment::Found(Finding::OnSearchPath(vec![SearchPathFinding::Unresolved {
+            binary: stop_gate(),
+        }]))
     );
 }
 

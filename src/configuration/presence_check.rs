@@ -92,25 +92,40 @@ pub enum Answer {
 }
 
 impl PresenceCheck {
-    pub fn answered(&self, answer: &Answer) -> Option<String> {
+    pub fn answered(&self, answer: &Answer) -> Option<AnsweringCandidate> {
         let (PresenceCheck::PathExists { paths }, Answer::Candidate(answering)) = (self, answer)
         else {
             return None;
         };
 
-        let others: Vec<String> = paths
-            .iter()
-            .filter(|candidate| *candidate != answering)
-            .map(|candidate| candidate.display().to_string())
-            .collect();
-        Some(match others.is_empty() {
-            true => format!("answered by {}", answering.display()),
-            false => format!(
-                "answered by {}, not by {}",
-                answering.display(),
-                others.join(", ")
-            ),
+        Some(AnsweringCandidate {
+            answering: answering.clone(),
+            unanswered: paths
+                .iter()
+                .filter(|candidate| *candidate != answering)
+                .map(Path::to_path_buf)
+                .collect(),
         })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnsweringCandidate {
+    pub answering: PathBuf,
+    pub unanswered: Vec<PathBuf>,
+}
+
+impl Display for AnsweringCandidate {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "answered by {}", self.answering.display())?;
+        for (position, candidate) in self.unanswered.iter().enumerate() {
+            let separator = match position {
+                0 => ", not by ",
+                _ => ", ",
+            };
+            write!(formatter, "{separator}{}", candidate.display())?;
+        }
+        Ok(())
     }
 }
 

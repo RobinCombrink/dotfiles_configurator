@@ -449,7 +449,7 @@ Feature: Planning what a machine needs
     And another "stop-gate" comes before cargo's on Alice's search path
     When Alice plans
     Then the change set reports 0 changes to the workspace's crates
-    And the change set reports a finding for "stop-gate" mentioning "shadowed"
+    And the change set reports a finding for "stop-gate" that another "stop-gate" shadows it
 
   Scenario: A shadowed workspace crate whose own binary is behind the repository is still a change
     Given Alice declares the cargo workspace in the dotfiles repository

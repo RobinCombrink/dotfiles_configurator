@@ -48,7 +48,7 @@ pub use {
         VariableName, VariableValue, WingetPackageId, WingetVersion,
     },
     package_currency::PackageCurrency,
-    presence_check::{Answer, Candidates, PresenceCheck},
+    presence_check::{Answer, AnsweringCandidate, Candidates, PresenceCheck},
     requirement::{Requirement, Tool},
     resource::{
         Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,

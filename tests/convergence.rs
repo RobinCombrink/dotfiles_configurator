@@ -28,10 +28,10 @@ use {
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
         convergence::{
-            ApplyOutcome, ChangeSet, DriftReason, Impediment, UnreadableReason,
+            ApplyOutcome, ChangeSet, DriftReason, Finding, Impediment, UnreadableReason,
             apply::{Enactment, apply},
             assess::{ServerDifference, WantedVersion},
-            member_currency::{BinaryDrift, CopyDrift},
+            member_currency::{BinaryDrift, CopyDrift, SearchPathFinding},
             plan,
         },
         currency::SelfReplacement,
@@ -232,6 +232,16 @@ impl MachineWorld {
             .unwrap_or_else(|| panic!("nothing changes for {name}:\n{change_set}"))
     }
 
+    fn finding_of(&self, name: &str) -> &Finding {
+        let change_set = self.change_set();
+        change_set
+            .found
+            .iter()
+            .find(|found| found.resource.to_string().contains(name))
+            .map(|found| &found.finding)
+            .unwrap_or_else(|| panic!("nothing was found for {name}:\n{change_set}"))
+    }
+
     fn impediment_of(&self, name: &str) -> &Impediment {
         let change_set = self.change_set();
         change_set
@@ -396,18 +406,12 @@ fn change_set_names_the_answering_candidate(
     candidate: String,
     name: String,
 ) {
-    let change_set = world.change_set();
-    let finding = change_set
-        .found
-        .iter()
-        .find(|found| found.resource.to_string().contains(&name))
-        .map(|found| found.finding.to_string())
-        .unwrap_or_else(|| panic!("nothing was found for {name}:\n{change_set}"));
+    let finding = world.finding_of(&name);
+    let Finding::AnsweredBy(answer) = finding else {
+        panic!("{finding:?}");
+    };
 
-    assert!(
-        finding.starts_with(&format!("answered by {candidate}")),
-        "{finding}"
-    );
+    assert_eq!(answer.answering, PathBuf::from(candidate));
 }
 
 #[given(expr = "{string} is on Alice's machine")]
@@ -1958,17 +1962,15 @@ fn cargo_binaries_are_not_on_the_search_path(world: &mut MachineWorld) {
         .hold_user_search_path_entry(world.machine.binaries_directory());
 }
 
-#[then(expr = "the change set reports a finding for {string} mentioning {string}")]
-fn change_set_reports_a_finding(world: &mut MachineWorld, name: String, text: String) {
-    let change_set = world.change_set();
-    let finding = change_set
-        .found
-        .iter()
-        .find(|found| found.resource.to_string().contains(&name))
-        .map(|found| found.finding.to_string())
-        .unwrap_or_else(|| panic!("nothing was found for {name}:\n{change_set}"));
-
-    assert!(finding.contains(&text), "{finding}");
+#[then(expr = "the change set reports a finding for {string} that another {string} shadows it")]
+fn change_set_reports_a_shadowing_finding(world: &mut MachineWorld, name: String, binary: String) {
+    assert_eq!(
+        world.finding_of(&name),
+        &Finding::OnSearchPath(vec![SearchPathFinding::Shadowed {
+            by: shadowing_copy_of(&binary),
+            binary: BinaryName::from(binary.as_str()),
+        }])
+    );
 }
 
 #[given(expr = "Alice's machine is executing the binary {string}")]

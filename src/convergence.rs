@@ -1,8 +1,8 @@
 use {
     crate::{
         configuration::{
-            CrateVersion, GitHubRepository, Migration, Notice, PresenceCheck, Requirement, Symlink,
-            UvToolVersion, VariableValue, WingetVersion,
+            AnsweringCandidate, CrateVersion, GitHubRepository, Migration, Notice, PresenceCheck,
+            Requirement, Symlink, UvToolVersion, VariableValue, WingetVersion,
         },
         desired_state::{
             ChangeSetResource, DesiredState, Precedence, ResolvedResource, ResolvedWorkspace,
@@ -12,7 +12,7 @@ use {
         version::Version,
     },
     assess::{InstalledFrom, ServerDifference, WantedVersion},
-    member_currency::BinaryDrift,
+    member_currency::{BinaryDrift, SearchPathFinding},
     std::{fmt::Display, path::PathBuf},
 };
 
@@ -46,18 +46,31 @@ pub enum Assessment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Finding(String);
-
-impl From<String> for Finding {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
+pub enum Finding {
+    AnsweredBy(AnsweringCandidate),
+    OnSearchPath(Vec<SearchPathFinding>),
 }
 
 impl Display for Finding {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        match self {
+            Finding::AnsweredBy(candidate) => Display::fmt(candidate, formatter),
+            Finding::OnSearchPath(findings) => write_joined(formatter, findings),
+        }
     }
+}
+
+fn write_joined(
+    formatter: &mut std::fmt::Formatter<'_>,
+    items: &[impl Display],
+) -> std::fmt::Result {
+    for (position, item) in items.iter().enumerate() {
+        if position > 0 {
+            formatter.write_str("; ")?;
+        }
+        Display::fmt(item, formatter)?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,15 +271,7 @@ impl Display for DriftReason {
             DriftReason::ManifestDiffers => formatter.write_str("the manifest says something else"),
             DriftReason::NoSuchServer => formatter.write_str("claude holds no such server"),
             DriftReason::Server(difference) => Display::fmt(difference, formatter),
-            DriftReason::OwnCopies(binaries) => {
-                for (position, binary) in binaries.iter().enumerate() {
-                    if position > 0 {
-                        formatter.write_str("; ")?;
-                    }
-                    Display::fmt(binary, formatter)?;
-                }
-                Ok(())
-            }
+            DriftReason::OwnCopies(binaries) => write_joined(formatter, binaries),
         }
     }
 }

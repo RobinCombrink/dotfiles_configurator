@@ -50,10 +50,13 @@ fn an_answered_path_check_names_the_candidate_that_answered_and_every_one_that_d
 
     assert_eq!(
         check.answered(&Answer::Candidate(PathBuf::from("AppData/Local/Docker"))),
-        Some(
-            "answered by AppData/Local/Docker, not by C:/Program Files/Docker, D:/Docker"
-                .to_owned()
-        )
+        Some(AnsweringCandidate {
+            answering: PathBuf::from("AppData/Local/Docker"),
+            unanswered: vec![
+                PathBuf::from("C:/Program Files/Docker"),
+                PathBuf::from("D:/Docker"),
+            ],
+        })
     );
 }
 

@@ -11,7 +11,8 @@ use {
             WingetPackage, WingetPackageId, WingetVersion,
         },
         convergence::{
-            Assessment, DriftReason, Impediment, ReadSource, SourceReading, UnreadableReason,
+            Assessment, DriftReason, Finding, Impediment, ReadSource, SourceReading,
+            UnreadableReason,
             member_currency::{OwnCopies, OwnCopy, judged, own_copies_of, resolution_of},
             search_path_directory, symlink_location,
             withdrawal::{InstallRecord, install_records},
@@ -520,7 +521,7 @@ fn assess_repository(
 fn assess_installer(installer: &Installer, machine: &impl ReadMachine) -> Assessment {
     match machine.check_presence(&installer.presence_check) {
         Ok(Some(answer)) => match installer.presence_check.answered(&answer) {
-            Some(finding) => Assessment::Found(finding.into()),
+            Some(candidate) => Assessment::Found(Finding::AnsweredBy(candidate)),
             None => Assessment::Converged,
         },
         Ok(None) => Assessment::Drifted(DriftReason::NotInstalled {
