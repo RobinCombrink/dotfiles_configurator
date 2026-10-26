@@ -30,20 +30,26 @@ fn a_binary_built_under_no_repository_reports_an_unrecorded_build() {
     );
 }
 
+fn naming_no_commit(printed: &str) -> Stamp {
+    Stamp::Unreadable(UnreadableStamp::NamesNoCommit {
+        printed: printed.to_owned(),
+    })
+}
+
 #[test]
 fn a_binary_built_before_the_stamp_reporting_its_package_version_is_unreadable() {
-    let Stamp::Unreadable(_) = stamp_reported(&stop_gate(), &printed("stop-gate 0.1.0\n")) else {
-        panic!("a package version was read as a build");
-    };
+    assert_eq!(
+        stamp_reported(&stop_gate(), &printed("stop-gate 0.1.0\n")),
+        naming_no_commit("stop-gate 0.1.0")
+    );
 }
 
 #[test]
 fn a_binary_reporting_another_name_is_unreadable_even_beside_a_commit() {
-    let Stamp::Unreadable(_) =
-        stamp_reported(&stop_gate(), &printed(&format!("ci-checks {A_COMMIT}\n")))
-    else {
-        panic!("another binary's stamp was read as this one's");
-    };
+    assert_eq!(
+        stamp_reported(&stop_gate(), &printed(&format!("ci-checks {A_COMMIT}\n"))),
+        naming_no_commit(&format!("ci-checks {A_COMMIT}"))
+    );
 }
 
 #[test]
@@ -54,19 +60,23 @@ fn a_binary_whose_version_request_fails_is_unreadable() {
         standard_error: "error: unexpected argument".to_owned(),
     };
 
-    let Stamp::Unreadable(_) = stamp_reported(&stop_gate(), &failed) else {
-        panic!("a failed request was read as a build");
-    };
+    assert_eq!(
+        stamp_reported(&stop_gate(), &failed),
+        Stamp::Unreadable(UnreadableStamp::RequestFailed(FailedExit {
+            exited: Exited::Code(2),
+            standard_error: "error: unexpected argument".to_owned(),
+        }))
+    );
 }
 
 #[test]
 fn a_commit_spelled_in_capitals_is_not_one_the_stamp_writes() {
-    let Stamp::Unreadable(_) = stamp_reported(
-        &stop_gate(),
-        &printed(&format!("stop-gate {}\n", A_COMMIT.to_uppercase())),
-    ) else {
-        panic!("a commit the stamp never writes was accepted");
-    };
+    let capitals = format!("stop-gate {}", A_COMMIT.to_uppercase());
+
+    assert_eq!(
+        stamp_reported(&stop_gate(), &printed(&format!("{capitals}\n"))),
+        naming_no_commit(&capitals)
+    );
 }
 
 fn judging(own_copy: OwnCopy, resolution: Resolution) -> Assessment {

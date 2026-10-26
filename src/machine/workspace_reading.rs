@@ -67,7 +67,7 @@ pub struct Fingerprint {
 }
 
 impl Fingerprint {
-    pub fn difference_from(&self, other: &Self) -> Option<String> {
+    pub fn difference_from(&self, other: &Self) -> Option<FingerprintDifference> {
         let crate_differs = self.crate_subtree != other.crate_subtree;
         let dependencies_differ = self.workspace_bindings != other.workspace_bindings
             || self.lock_closure != other.lock_closure
@@ -75,13 +75,29 @@ impl Fingerprint {
 
         match (crate_differs, dependencies_differ) {
             (false, false) => None,
-            (true, false) => Some("the workspace holds different content for it".to_owned()),
-            (false, true) => Some("its dependencies have changed".to_owned()),
-            (true, true) => Some(
-                "the workspace holds different content for it, and its dependencies have changed"
-                    .to_owned(),
-            ),
+            (true, false) => Some(FingerprintDifference::Content),
+            (false, true) => Some(FingerprintDifference::Dependencies),
+            (true, true) => Some(FingerprintDifference::ContentAndDependencies),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FingerprintDifference {
+    Content,
+    Dependencies,
+    ContentAndDependencies,
+}
+
+impl Display for FingerprintDifference {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            FingerprintDifference::Content => "the workspace holds different content for it",
+            FingerprintDifference::Dependencies => "its dependencies have changed",
+            FingerprintDifference::ContentAndDependencies => {
+                "the workspace holds different content for it, and its dependencies have changed"
+            }
+        })
     }
 }
 

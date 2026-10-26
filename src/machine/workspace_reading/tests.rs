@@ -219,6 +219,6 @@ fn a_fingerprint_differing_only_in_its_lock_closure_names_the_dependencies() {
 
     assert_eq!(
         desired.difference_from(&installed),
-        Some("its dependencies have changed".to_owned())
+        Some(FingerprintDifference::Dependencies)
     );
 }

@@ -1,11 +1,11 @@
 use {
     crate::{
         configuration::{BinaryName, CrateName, path_folding},
-        convergence::{Assessment, DriftReason, Finding},
+        convergence::{Assessment, DriftReason, Finding, source_reading::ReadFailure},
         machine::{
-            CommandOutput, ReadMachine,
+            CommandOutput, FailedExit, ReadMachine,
             environment_reading::SearchPathReading,
-            workspace_reading::{Fingerprint, Revision, WorkspaceReading},
+            workspace_reading::{Fingerprint, FingerprintDifference, Revision, WorkspaceReading},
         },
     },
     std::{
@@ -36,31 +36,58 @@ pub enum Resolution {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Staleness {
-    ContentDiffers(String),
+    ContentDiffers(FingerprintDifference),
     NoSuchMemberAt(Revision),
-    UnreadableCommit { commit: Revision, reason: String },
+    UnreadableCommit {
+        commit: Revision,
+        failure: ReadFailure,
+    },
     Unrecorded,
-    Unreadable(String),
+    Unreadable(UnreadableStamp),
 }
 
 impl Display for Staleness {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Staleness::ContentDiffers(difference) => formatter.write_str(difference),
+            Staleness::ContentDiffers(difference) => Display::fmt(difference, formatter),
             Staleness::NoSuchMemberAt(commit) => {
                 write!(
                     formatter,
                     "it reports {commit}, where the workspace held no such member"
                 )
             }
-            Staleness::UnreadableCommit { commit, reason } => write!(
+            Staleness::UnreadableCommit { commit, failure } => write!(
                 formatter,
-                "it reports {commit}, which this clone cannot answer for: {reason}"
+                "it reports {commit}, which this clone cannot answer for: {failure}"
             ),
             Staleness::Unrecorded => {
                 formatter.write_str("it reports a build that recorded no commit")
             }
-            Staleness::Unreadable(reason) => formatter.write_str(reason),
+            Staleness::Unreadable(stamp) => Display::fmt(stamp, formatter),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnreadableStamp {
+    RequestFailed(FailedExit),
+    NamesNoCommit { printed: String },
+    RunFailed(ReadFailure),
+}
+
+impl Display for UnreadableStamp {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UnreadableStamp::RequestFailed(failure) => {
+                write!(formatter, "`{VERSION_ARGUMENT}` failed, {failure}")
+            }
+            UnreadableStamp::NamesNoCommit { printed } => write!(
+                formatter,
+                "it reports \"{printed}\" rather than its name and the commit it was built from"
+            ),
+            UnreadableStamp::RunFailed(failure) => {
+                write!(formatter, "it could not be run: {failure}")
+            }
         }
     }
 }
@@ -69,7 +96,7 @@ impl Display for Staleness {
 enum Stamp {
     Commit(Revision),
     Unrecorded,
-    Unreadable(String),
+    Unreadable(UnreadableStamp),
 }
 
 // 2026-10-05: `stop-gate --version` and `sweep --version` print `<name> <commit>` with the whole
@@ -77,11 +104,7 @@ enum Stamp {
 // version instead, as `committed --version` printing `committed 1.1.11` does. Windows 11.
 fn stamp_reported(binary: &BinaryName, output: &CommandOutput) -> Stamp {
     if !output.exited.succeeded() {
-        return Stamp::Unreadable(format!(
-            "`{binary} {VERSION_ARGUMENT}` failed, {}: {}",
-            output.exited,
-            output.standard_error.trim()
-        ));
+        return Stamp::Unreadable(UnreadableStamp::RequestFailed(FailedExit::from(output)));
     }
 
     let printed = output.standard_output.trim();
@@ -92,9 +115,9 @@ fn stamp_reported(binary: &BinaryName, output: &CommandOutput) -> Stamp {
     match reported {
         Some(UNRECORDED_BUILD) => Stamp::Unrecorded,
         Some(build) if is_a_commit(build) => Stamp::Commit(Revision::from(build)),
-        Some(_) | None => Stamp::Unreadable(format!(
-            "it reports \"{printed}\" rather than its name and the commit it was built from"
-        )),
+        Some(_) | None => Stamp::Unreadable(UnreadableStamp::NamesNoCommit {
+            printed: printed.to_owned(),
+        }),
     }
 }
 
@@ -114,7 +137,7 @@ fn stamp_of(binary: &BinaryName, machine: &impl ReadMachine) -> Option<Stamp> {
     Some(
         match machine.report_version(&own_copy, &[VERSION_ARGUMENT.to_owned()]) {
             Ok(output) => stamp_reported(binary, &output),
-            Err(error) => Stamp::Unreadable(format!("it could not be run: {error:#}")),
+            Err(error) => Stamp::Unreadable(UnreadableStamp::RunFailed(ReadFailure::from(&error))),
         },
     )
 }
@@ -147,13 +170,13 @@ pub fn own_copies_of(
             Some(_) | None => None,
         })
         .collect();
-    let builds: BTreeMap<Revision, Result<BTreeMap<CrateName, Fingerprint>, String>> =
+    let builds: BTreeMap<Revision, Result<BTreeMap<CrateName, Fingerprint>, ReadFailure>> =
         stamped_commits
             .into_iter()
             .map(|commit| {
                 let members = machine
                     .read_cargo_workspace_at(repository_path, commit)
-                    .map_err(|error| format!("{error:#}"));
+                    .map_err(|error| ReadFailure::from(&error));
                 (commit.clone(), members)
             })
             .collect();
@@ -174,8 +197,8 @@ pub fn own_copies_of(
                             built_at(&commit, &crate_name, desired, &builds)
                         }
                         Some(Stamp::Unrecorded) => OwnCopy::Stale(Staleness::Unrecorded),
-                        Some(Stamp::Unreadable(reason)) => {
-                            OwnCopy::Stale(Staleness::Unreadable(reason))
+                        Some(Stamp::Unreadable(stamp)) => {
+                            OwnCopy::Stale(Staleness::Unreadable(stamp))
                         }
                     };
                     (binary, own_copy)
@@ -190,14 +213,14 @@ fn built_at(
     commit: &Revision,
     crate_name: &CrateName,
     desired: &Fingerprint,
-    builds: &BTreeMap<Revision, Result<BTreeMap<CrateName, Fingerprint>, String>>,
+    builds: &BTreeMap<Revision, Result<BTreeMap<CrateName, Fingerprint>, ReadFailure>>,
 ) -> OwnCopy {
     let members = match &builds[commit] {
         Ok(members) => members,
-        Err(reason) => {
+        Err(failure) => {
             return OwnCopy::Stale(Staleness::UnreadableCommit {
                 commit: commit.clone(),
-                reason: reason.clone(),
+                failure: failure.clone(),
             });
         }
     };
