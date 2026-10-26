@@ -17,19 +17,36 @@ pub struct ReleaseReading {
 }
 
 impl ReleaseReading {
-    pub fn asset_matching(&self, pattern: &AssetPattern) -> Result<&ReleaseAsset, String> {
+    pub fn asset_matching(&self, pattern: &AssetPattern) -> Result<&ReleaseAsset, NoMatchingAsset> {
         self.assets
             .iter()
             .find(|asset| pattern.matches(&asset.name))
-            .ok_or_else(|| {
-                format!(
-                    "no asset of release {} matches {pattern}. It carries {}",
-                    self.version,
-                    NamedAssets(&self.assets)
-                )
+            .ok_or_else(|| NoMatchingAsset {
+                release: self.clone(),
+                pattern: pattern.clone(),
             })
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoMatchingAsset {
+    pub release: ReleaseReading,
+    pub pattern: AssetPattern,
+}
+
+impl Display for NoMatchingAsset {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "no asset of release {} matches {}. It carries {}",
+            self.release.version,
+            self.pattern,
+            NamedAssets(&self.release.assets)
+        )
+    }
+}
+
+impl std::error::Error for NoMatchingAsset {}
 
 struct NamedAssets<'assets>(&'assets [ReleaseAsset]);
 

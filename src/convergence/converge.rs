@@ -178,7 +178,7 @@ fn resolved_release_asset<'readings>(
         .ok_or_else(|| anyhow!("{repository} has published no release"))?;
     let matched = released
         .asset_matching(asset)
-        .map_err(|refusal| anyhow!("{refusal}"))?;
+        .with_context(|| format!("Could not install {}", installer.name))?;
 
     Ok(Some(matched))
 }
@@ -229,7 +229,6 @@ async fn download_release(
 ) -> Result<Downloaded<ReleasedBinary>> {
     let asset = release
         .asset_matching(&binary.asset)
-        .map_err(|refusal| anyhow!("{refusal}"))
         .with_context(|| format!("Could not install {}", binary.installed_name()))?;
 
     machine

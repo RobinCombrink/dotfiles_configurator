@@ -13,35 +13,41 @@ fn release_carrying(names: &[&str]) -> ReleaseReading {
     }
 }
 
+fn zip() -> AssetPattern {
+    AssetPattern::EndsWith(".zip".to_owned())
+}
+
 #[test]
 fn the_asset_a_pattern_picks_is_the_one_matching_it() {
     let release = release_carrying(&["notes.txt", "tool-windows-x86_64.zip"]);
 
-    let matched = release
-        .asset_matching(&AssetPattern::EndsWith(".zip".to_owned()))
-        .unwrap();
+    let matched = release.asset_matching(&zip()).unwrap();
 
     assert_eq!(matched.name, "tool-windows-x86_64.zip");
 }
 
 #[test]
-fn a_release_carrying_nothing_the_pattern_matches_names_what_it_does_carry() {
+fn a_release_carrying_nothing_the_pattern_matches_is_refused_with_what_it_does_carry() {
     let release = release_carrying(&["notes.txt"]);
 
-    let refusal = release
-        .asset_matching(&AssetPattern::EndsWith(".zip".to_owned()))
-        .unwrap_err();
-
-    assert!(refusal.contains("notes.txt"), "{refusal}");
+    assert_eq!(
+        release.asset_matching(&zip()),
+        Err(NoMatchingAsset {
+            release: release.clone(),
+            pattern: zip(),
+        })
+    );
 }
 
 #[test]
-fn a_release_carrying_no_assets_says_so_rather_than_listing_nothing() {
+fn a_release_carrying_no_assets_is_refused_with_the_release_it_read() {
     let release = release_carrying(&[]);
 
-    let refusal = release
-        .asset_matching(&AssetPattern::EndsWith(".zip".to_owned()))
-        .unwrap_err();
-
-    assert!(refusal.contains("no assets at all"), "{refusal}");
+    assert_eq!(
+        release.asset_matching(&zip()),
+        Err(NoMatchingAsset {
+            release: release.clone(),
+            pattern: zip(),
+        })
+    );
 }
