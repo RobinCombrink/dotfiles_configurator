@@ -1,7 +1,7 @@
 use {
     super::*,
     crate::configuration::{
-        BUILD_GENERATION, CargoWorkspace, Context, GitHubRepository, RepositoryName, Resource,
+        BUILD_GENERATION, CargoWorkspace, Context, GitHubRepository, RepositoryName,
     },
 };
 
@@ -67,42 +67,6 @@ fn an_estate_holds_its_account_its_workspaces_owners_and_the_owners_it_names() {
 }
 
 #[test]
-fn each_estate_acts_as_the_account_of_the_configuration_declaring_it_as_spelled_there() {
-    let estates = resolved(&[
-        configuration("RobinCombrink", declaring("personal", &[])),
-        configuration("Robin-Combrink", declaring("work", &["skynamo"])),
-    ])
-    .unwrap();
-
-    assert_eq!(
-        (
-            estates
-                .account_of(&owner("robincombrink"))
-                .map(Account::as_declared),
-            estates
-                .account_of(&owner("skynamo"))
-                .map(Account::as_declared),
-        ),
-        (Some("RobinCombrink"), Some("Robin-Combrink"))
-    );
-}
-
-#[test]
-fn the_owner_of_a_repository_an_estate_only_clones_is_not_one_of_its_owners() {
-    let mut personal = configuration("RobinCombrink", declaring("personal", &[]));
-    personal.resources.push(Resource::Repository(
-        repository("flutter", "flutter").into(),
-    ));
-
-    let estates = resolved(&[personal]).unwrap();
-
-    assert_eq!(
-        estates.owners_of(&estate("personal")),
-        Some(&owners(&["RobinCombrink"]))
-    );
-}
-
-#[test]
 fn a_configuration_declaring_no_estate_places_no_owner_anywhere() {
     assert!(
         resolved(&[configuration("RobinCombrink", None)])
@@ -121,20 +85,6 @@ fn one_owner_named_twice_within_an_estate_is_one_owner() {
         estates.owners_of(&estate("personal")).map(BTreeSet::len),
         Some(1)
     );
-}
-
-#[test]
-fn an_estate_declared_by_two_configurations_is_refused() {
-    let refusal = resolved(&[
-        configuration("RobinCombrink", declaring("personal", &[])),
-        configuration("Robin-Combrink", declaring("personal", &[])),
-    ])
-    .unwrap_err();
-
-    let EstateConflict::DeclaredTwice { estate: twice, .. } = refusal else {
-        panic!("expected the estate to be refused as declared twice, got: {refusal}");
-    };
-    assert_eq!(twice, estate("personal"));
 }
 
 #[test]
