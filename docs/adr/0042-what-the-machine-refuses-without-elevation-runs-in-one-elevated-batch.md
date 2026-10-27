@@ -5,10 +5,12 @@ status: accepted
 # What the machine refuses without elevation runs in one elevated batch
 
 Where Windows refuses a symlink with os error 1314, because the apply holds neither elevation nor
-Developer Mode, or refuses to start a downloaded installer with os error 740, because the installer
-demands elevation, the entry is collected rather than failed. At the end of the pass that collected
-them, every collected entry runs in one elevated batch, so a pass costs at most one UAC prompt. The
-batch is the configurator relaunching itself under a hidden subcommand, through its own
+Developer Mode, refuses to start a downloaded installer with os error 740, because the installer
+demands elevation, or denies the write that puts a directory first on the Machine PATH, because
+only an administrator writes the Machine PATH, the entry is collected rather than failed. At the
+end of the pass that collected them, every collected entry runs in one elevated batch, so a pass
+costs at most one UAC prompt. The batch is the configurator relaunching itself under a hidden
+subcommand, through its own
 `windows-sys` call to `ShellExecuteExW` with the `runas` verb and `SEE_MASK_NOCLOSEPROCESS`, which
 hands back the process to wait on and read the exit code of. The launching thread initialises COM
 first, as Microsoft's documentation of `ShellExecuteEx` advises, and uninitialises it after.
@@ -45,10 +47,18 @@ the installer with sharing that denies write and delete, hashes it through that 
 it while still holding the handle, so the file it verified is the file Windows runs. A mismatch
 fails that entry and no other.
 
+The Machine PATH entry is the elevated work kind `MachineSearchPathFront`, and the one resource
+that needs it is cargo binaries first on the Machine PATH. No configuration declares it: a Windows
+change set gains it whenever it holds something that installs into the cargo binaries directory, a
+cargo package or a workspace member, because Windows places the Machine PATH ahead of the User
+PATH, so a program of the same name on any Machine PATH entry would otherwise shadow a cargo
+binary. It is converged when the cargo binaries directory is the Machine PATH's first entry, and
+the elevated side makes the same registry write the unelevated attempt was denied.
+
 A declined prompt is `ShellExecuteExW` failing with `ERROR_CANCELLED` (1223), and holds every entry
 of the batch with "elevation declined". An apply that is already elevated never relaunches: a link
 it is still refused is reported failed with the os error it was refused with. On other platforms
-neither refusal is matched, so the batch never forms. The run log of a Windows apply opens by
+none of these refusals is matched, so the batch never forms. The run log of a Windows apply opens by
 recording whether the apply is elevated and whether Developer Mode is on, read from
 `AllowDevelopmentWithoutDevLicense` under
 `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock`, a missing value counting as off.

@@ -92,7 +92,8 @@ _Avoid_: locked, busy, in use, pinned
 **Elevated batch**:
 The entries a pass was refused for want of elevation or a privilege, run together at the end of
 that pass by one elevated relaunch of the configurator, so that the pass asks for elevation at most
-once.
+once. Each is a link, an installer, or a directory put first on the Machine PATH. Defined by
+`ElevatedWork`.
 _Avoid_: sudo, admin run, UAC batch
 
 ### Resources
@@ -147,6 +148,14 @@ A resource kind in two shapes. A variable's desired state is its whole value; a 
 entry's desired state is membership of the search path, never the whole of it, because the
 machine and other installers write there too.
 _Avoid_: env var, setting, PATH entry
+
+**Cargo binaries first**:
+The resource no configuration declares: the cargo binaries directory as the first entry of the
+Machine PATH, in every Windows change set holding a cargo package or a workspace member. Windows
+places the Machine PATH ahead of the User PATH, so without it a program of the same name on a
+Machine PATH entry shadows a cargo binary. Only an administrator writes the Machine PATH, so an
+unelevated apply settles it in the elevated batch.
+_Avoid_: search path entry, cargo PATH fix
 
 **Identity**:
 The machine fact a resource claims, by which two declarations are recognised as the same
