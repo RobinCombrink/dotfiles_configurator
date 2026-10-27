@@ -4,9 +4,10 @@ status: accepted
 
 # A configuration declares its estate, and the machine manifest groups owners by it
 
-Tools outside this program need to know which repository owners are this machine's, and which
-estate each one belongs to: a sweep reaches only the checkouts of owners the machine declares, and
-an estate's profile is resolved by name. The owner is not the estate. Work repositories are owned
+Tools outside this program need to know which repository owners are this machine's, which estate
+each one belongs to, and which account answers for it: a sweep reaches only the checkouts of owners
+the machine declares, an estate's profile is resolved by name, and a request about an owner's
+repository acts as its estate's account. The owner is not the estate. Work repositories are owned
 by one organisation, the work dotfiles by a second account, and personal repositories by a third,
 so the grouping has to be declared rather than inferred from any one owner.
 
@@ -14,9 +15,11 @@ A configuration may declare an estate: a name, and optionally owners besides its
 are the account the configuration acts as, the owners of the workspaces it builds, and those it
 names; the owner of a repository it only clones is never one, since a clone of a third party's
 repository is not work of the machine's. A configuration declaring no estate contributes no owner.
-The machine manifest ADR 0030 introduced carries the resolved result as `estates`, a map from each
-estate's name to its owners, written from every applied configuration. The flat set of the
-machine's owners is the union of those groups, derived by its reader and never stored.
+An estate acts as the account its configuration acts as, which answers for the estate's owners
+without having to be one of them. The machine manifest ADR 0030 introduced carries the resolved
+result as `estates`, a map from each estate's name to its owners and its account, written from
+every applied configuration. The flat set of the machine's owners is the union of those groups,
+derived by its reader and never stored.
 
 Each estate is declared by exactly one configuration, and an owner belongs to exactly one estate.
 Either collision is refused when the configurations are loaded, before anything is read from the
@@ -41,5 +44,7 @@ The generation moves, per ADR 0028: a document can name the new field.
 
 - **A manifest written before this change carries no estates**, and its readers refuse it and name
   an apply as the fix; this program always writes `estates`, empty when nothing declares one.
+- **An estate written as a bare list of owners, naming no account, is refused** when the manifest
+  is read, rather than read as an estate that acts as nobody.
 - **Two estates on one machine need two configurations that apply there**, since a configuration
   declares at most one.
