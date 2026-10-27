@@ -301,3 +301,32 @@ async fn a_declined_elevation_holds_cargo_binaries_first_and_lets_the_rest_conve
         )
     );
 }
+
+#[tokio::test]
+async fn an_unrunnable_elevated_batch_fails_cargo_binaries_first_and_lets_the_rest_converge() {
+    let machine = FakeMachine::default();
+    a_machine_path_without_cargo_binaries_first(&machine);
+    machine.make_the_elevated_batch_unrunnable();
+
+    let outcome = applied(&machine).await;
+
+    let failed: Vec<&ChangeSetResource> = outcome
+        .failed
+        .iter()
+        .map(|failure| &failure.resource)
+        .collect();
+    assert_eq!(
+        (
+            failed,
+            outcome.held.len(),
+            machine.environment_variable(&VariableName::try_from("EDITOR").unwrap()),
+            machine.machine_search_path(),
+        ),
+        (
+            vec![&ChangeSetResource::CargoBinariesFirst],
+            0,
+            Some(VariableValue::from("nvim")),
+            vec![github_cli()],
+        )
+    );
+}

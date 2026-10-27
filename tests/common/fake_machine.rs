@@ -108,6 +108,7 @@ struct MachineState {
     installers_demanding_elevation: BTreeSet<ApplicationName>,
     elevated: bool,
     elevation_declined: bool,
+    elevated_batch_unrunnable: bool,
     elevation_prompts: usize,
 }
 
@@ -489,6 +490,10 @@ impl FakeMachine {
 
     pub fn decline_elevation(&self) {
         self.state.borrow_mut().elevation_declined = true;
+    }
+
+    pub fn make_the_elevated_batch_unrunnable(&self) {
+        self.state.borrow_mut().elevated_batch_unrunnable = true;
     }
 
     pub fn allow_elevation(&self) {
@@ -1190,6 +1195,7 @@ impl FakeMachine {
             installers_demanding_elevation,
             elevated,
             elevation_declined,
+            elevated_batch_unrunnable,
             elevation_prompts: _,
         } = &*state;
         format!(
@@ -1210,7 +1216,8 @@ impl FakeMachine {
              {environment_variables:?}|{claude_mcp_servers:?}|\
              {mcp_servers_claude_refuses_to_add:?}|{failing_downloads:?}|\
              {winget_sources_fail_to_update:?}|{links_refused_for_want_of_a_privilege:?}|\
-             {installers_demanding_elevation:?}|{elevated:?}|{elevation_declined:?}"
+             {installers_demanding_elevation:?}|{elevated:?}|{elevation_declined:?}|\
+             {elevated_batch_unrunnable:?}"
         )
     }
 }
@@ -1793,13 +1800,16 @@ impl WriteMachine for FakeMachine {
 
     async fn run_elevated(&self, batch: &ElevatedBatch<()>) -> Result<Elevation> {
         self.working("elevated batch".to_owned(), || {
-            let declined = {
+            let (declined, unrunnable) = {
                 let mut state = self.state.borrow_mut();
                 state.elevation_prompts += 1;
-                state.elevation_declined
+                (state.elevation_declined, state.elevated_batch_unrunnable)
             };
             if declined {
                 return Ok(Elevation::Declined);
+            }
+            if unrunnable {
+                bail!("the elevated relaunch exited with code 1");
             }
 
             let entries = batch
