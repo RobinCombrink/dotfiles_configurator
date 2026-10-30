@@ -199,6 +199,23 @@ impl GitHubRepository {
             self.owner, self.repository
         )
     }
+
+    /// ```
+    /// # use dotfiles_configurator::configuration::{GitHubRepository, RepositoryName,
+    /// #     RepositoryOwner};
+    /// let repository = GitHubRepository {
+    ///     owner: RepositoryOwner::from("Alice"),
+    ///     repository: RepositoryName::from("dotfiles"),
+    /// };
+    ///
+    /// assert_eq!(
+    ///     repository.path_named("estates/personal/estate.json"),
+    ///     "Alice/dotfiles/estates/personal/estate.json"
+    /// );
+    /// ```
+    pub fn path_named(&self, within: &str) -> String {
+        format!("{self}/{within}")
+    }
 }
 
 impl Display for GitHubRepository {

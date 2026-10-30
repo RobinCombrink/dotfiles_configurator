@@ -89,7 +89,7 @@ pub async fn get_file_contents(
         .send()
         .await
         .map_err(|failure| EnvironmentFailure::GitHubFetch {
-            path: format!("{repository}/{file_path}"),
+            path: repository.path_named(file_path),
             failure,
         })?;
 
@@ -103,9 +103,8 @@ pub async fn get_file_contents(
 fn decoded_content_of(item: &Content, repository: &GitHubRepository) -> Result<String> {
     item.decoded_content().ok_or_else(|| {
         anyhow!(
-            "Could not read {repository}/{}: GitHub reported it as a {} and carried no content \
-             for it",
-            item.path,
+            "Could not read {}: GitHub reported it as a {} and carried no content for it",
+            repository.path_named(&item.path),
             item.r#type
         )
     })
@@ -123,7 +122,7 @@ pub async fn list_directory_files(
         .send()
         .await
         .map_err(|failure| EnvironmentFailure::GitHubFetch {
-            path: format!("{repository}/{directory}"),
+            path: repository.path_named(directory),
             failure,
         })?;
 

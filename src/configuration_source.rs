@@ -613,7 +613,7 @@ impl Display for ConfigurationSource {
             ConfigurationSource::GitHubRepository {
                 repository,
                 directory,
-            } => write!(formatter, "github:{repository}/{directory}"),
+            } => write!(formatter, "github:{}", repository.path_named(directory)),
         }
     }
 }
@@ -709,7 +709,7 @@ impl ConfigurationSource {
             .iter()
             .filter(|file_path| is_configuration_file(file_path))
         {
-            let source = ConfigurationName::from(format!("{repository}/{file_path}"));
+            let source = ConfigurationName::from(repository.path_named(file_path));
             match github::get_file_contents(repository, file_path, account.client()).await {
                 Err(failure) => loaded.push(Err(SourceFailure::Environment(failure))),
                 Ok(documents) => loaded.extend(documents.into_iter().map(|decoded| {
@@ -813,7 +813,7 @@ async fn estate_on_github(
     client: &Arc<Octocrab>,
 ) -> Result<ReadEstate, SourceFailure> {
     let file_path = declaration.file_within_the_repository().to_string();
-    let file = EstateFile::from(format!("{repository}/{file_path}"));
+    let file = EstateFile::from(repository.path_named(&file_path));
     let documents = github::get_file_contents(repository, &file_path, client).await?;
 
     let [document] = <[_; 1]>::try_from(documents).map_err(|documents| {
