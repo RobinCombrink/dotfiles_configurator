@@ -2,11 +2,11 @@ use {
     crate::{
         configuration::{
             BUILD_GENERATION, Configuration, ConfigurationName, Context, EstateConflict,
-            EstateDeclaration, EstateFile, GitHubAccount, GitHubRepository, MachineClass,
-            MachineManifest, Migration, Notice, ReadEstate, Reading, RecordedRun, RecordedSource,
-            RenderedManifest, RepositoriesDirectory, RepositoryName, RepositoryOwner,
-            SlotsPerBankDeclaredTwice, Unreadable, parse_configuration, resolve_estates,
-            resolve_slots_per_bank,
+            EstateDeclaration, EstateFile, GitCommit, GitHubAccount, GitHubRepository,
+            MachineClass, MachineManifest, Migration, Notice, ReadEstate, Reading, RecordedRun,
+            RecordedSource, RenderedManifest, RepositoriesDirectory, RepositoryName,
+            RepositoryOwner, SlotsPerBankDeclaredTwice, Unreadable, parse_configuration,
+            resolve_estates, resolve_slots_per_bank,
         },
         desired_state::{DesiredState, Irreconcilable, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
@@ -179,31 +179,42 @@ pub async fn load_desired_state(
     repositories_root: &Path,
     github: &GitHubAccess,
 ) -> Result<DesiredState, LoadFailure> {
-    let mut per_source: Vec<(&ConfigurationSource, Vec<ParsedConfiguration>)> = Vec::new();
+    let mut per_source: Vec<(
+        &ConfigurationSource,
+        PinnedSource<'_>,
+        Vec<ParsedConfiguration>,
+    )> = Vec::new();
     let mut failures: Vec<SourceFailure> = Vec::new();
     for source in sources {
+        let pinned = match source.pinned(github).await {
+            Ok(pinned) => pinned,
+            Err(failure) => {
+                failures.push(failure);
+                continue;
+            }
+        };
         let mut from_this_source: Vec<ParsedConfiguration> = Vec::new();
-        for attempt in source.load(github).await {
+        for attempt in pinned.load(github).await {
             match attempt {
                 Ok(configuration) => from_this_source.push(configuration),
                 Err(failure) => failures.push(failure),
             }
         }
-        per_source.push((source, from_this_source));
+        per_source.push((source, pinned, from_this_source));
     }
 
     if let Some(refusal) = refusal_of(failures) {
         return Err(refusal);
     }
 
-    let mut read: Vec<(ParsedConfiguration, SourceLocation)> = Vec::new();
-    for (source, from_this_source) in per_source {
+    let mut read: Vec<(ParsedConfiguration, ReadFrom)> = Vec::new();
+    for (source, pinned, from_this_source) in per_source {
         refuse_two_trees_for_one_source(source, &from_this_source)?;
-        let location = source.files_come_from()?;
+        let read_from = pinned.files_come_from()?;
         read.extend(
             from_this_source
                 .into_iter()
-                .map(|parsed| (parsed, location.clone())),
+                .map(|parsed| (parsed, read_from.clone())),
         );
     }
 
@@ -211,7 +222,7 @@ pub async fn load_desired_state(
         return Err(LoadFailure::NoConfigurationFound(sources.to_vec()));
     }
 
-    let parsed_applicable: Vec<(ParsedConfiguration, SourceLocation)> = read
+    let parsed_applicable: Vec<(ParsedConfiguration, ReadFrom)> = read
         .into_iter()
         .filter(|(parsed, _)| parsed.reading.configuration.applies_to.applies_on(machine))
         .collect();
@@ -220,11 +231,11 @@ pub async fn load_desired_state(
         return Err(LoadFailure::NoneAppliesTo(machine));
     }
 
-    let mut applicable: Vec<(LoadedConfiguration, SourceLocation)> = Vec::new();
+    let mut applicable: Vec<(LoadedConfiguration, ReadFrom)> = Vec::new();
     let mut failures: Vec<SourceFailure> = Vec::new();
-    for (parsed, location) in parsed_applicable {
-        match parsed.settled(&location, github).await {
-            Ok(loaded) => applicable.push((loaded, location)),
+    for (parsed, read_from) in parsed_applicable {
+        match parsed.settled(&read_from, github).await {
+            Ok(loaded) => applicable.push((loaded, read_from)),
             Err(failure) => failures.push(failure),
         }
     }
@@ -250,7 +261,7 @@ pub async fn load_desired_state(
     let mut migrations: Vec<Migration> = Vec::new();
     let mut announcements: Vec<Notice> = Vec::new();
     let mut resolved: Vec<ResolvedConfiguration> = Vec::new();
-    for (loaded, location) in applicable {
+    for (loaded, read_from) in applicable {
         match loaded.pending {
             Pending::Nothing => {}
             Pending::Rewriting(migration) => migrations.push(migration),
@@ -259,7 +270,7 @@ pub async fn load_desired_state(
         resolved.push(ResolvedConfiguration::read(
             loaded.name,
             loaded.configuration,
-            location,
+            read_from.location(),
             repositories_root,
         ));
     }
@@ -625,26 +636,78 @@ impl ConfigurationSource {
 }
 
 impl ConfigurationSource {
-    // ADR 0025
-    fn files_come_from(&self) -> Result<SourceLocation, LoadFailure> {
+    async fn pinned(&self, github: &GitHubAccess) -> Result<PinnedSource<'_>, SourceFailure> {
         match self {
-            ConfigurationSource::GitHubRepository { repository, .. } => {
-                Ok(SourceLocation::Repository(repository.clone()))
+            ConfigurationSource::LocalDirectory(directory) => {
+                Ok(PinnedSource::LocalDirectory(directory))
             }
-            ConfigurationSource::LocalDirectory(directory) => directory
+            ConfigurationSource::GitHubRepository {
+                repository,
+                directory,
+            } => {
+                let account = github.account_reading(repository)?;
+                let at = github::head_commit(repository, account.client()).await?;
+                Ok(PinnedSource::GitHubRepository {
+                    repository,
+                    directory,
+                    at,
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+enum PinnedSource<'source> {
+    LocalDirectory(&'source AbsoluteDirectory),
+    GitHubRepository {
+        repository: &'source GitHubRepository,
+        directory: &'source str,
+        at: GitCommit,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReadFrom {
+    Checkout(AbsoluteDirectory),
+    Repository {
+        repository: GitHubRepository,
+        at: GitCommit,
+    },
+}
+
+impl ReadFrom {
+    fn location(self) -> SourceLocation {
+        match self {
+            ReadFrom::Checkout(checkout) => SourceLocation::Checkout(checkout),
+            ReadFrom::Repository { repository, .. } => SourceLocation::Repository(repository),
+        }
+    }
+}
+
+impl PinnedSource<'_> {
+    // ADR 0025
+    fn files_come_from(&self) -> Result<ReadFrom, LoadFailure> {
+        match self {
+            PinnedSource::GitHubRepository { repository, at, .. } => Ok(ReadFrom::Repository {
+                repository: (*repository).clone(),
+                at: at.clone(),
+            }),
+            PinnedSource::LocalDirectory(directory) => directory
                 .enclosing_checkout()
-                .map(SourceLocation::Checkout)
+                .map(ReadFrom::Checkout)
                 .ok_or_else(|| LoadFailure::SourceOutsideACheckout(directory.as_ref().into())),
         }
     }
 
     async fn load(&self, github: &GitHubAccess) -> Vec<Result<ParsedConfiguration, SourceFailure>> {
         match self {
-            ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory.as_ref()),
-            ConfigurationSource::GitHubRepository {
+            PinnedSource::LocalDirectory(directory) => Self::load_local(directory.as_ref()),
+            PinnedSource::GitHubRepository {
                 repository,
                 directory,
-            } => Self::load_from_github(repository, directory, github).await,
+                at,
+            } => Self::load_from_github(repository, directory, at, github).await,
         }
     }
 
@@ -691,6 +754,7 @@ impl ConfigurationSource {
     async fn load_from_github(
         repository: &GitHubRepository,
         directory: &str,
+        at: &GitCommit,
         github: &GitHubAccess,
     ) -> Vec<Result<ParsedConfiguration, SourceFailure>> {
         let account = match github.account_reading(repository) {
@@ -699,7 +763,7 @@ impl ConfigurationSource {
         };
 
         let file_paths =
-            match github::list_directory_files(repository, directory, account.client()).await {
+            match github::list_directory_files(repository, directory, at, account.client()).await {
                 Ok(file_paths) => file_paths,
                 Err(failure) => return vec![Err(SourceFailure::Environment(failure))],
             };
@@ -710,7 +774,7 @@ impl ConfigurationSource {
             .filter(|file_path| is_configuration_file(file_path))
         {
             let source = ConfigurationName::from(repository.path_named(file_path));
-            match github::get_file_contents(repository, file_path, account.client()).await {
+            match github::get_file_contents(repository, file_path, at, account.client()).await {
                 Err(failure) => loaded.push(Err(SourceFailure::Environment(failure))),
                 Ok(documents) => loaded.extend(documents.into_iter().map(|decoded| {
                     let contents = decoded.map_err(Unreadable::Malformed)?;
@@ -735,7 +799,7 @@ impl ConfigurationSource {
 impl ParsedConfiguration {
     async fn settled(
         self,
-        location: &SourceLocation,
+        read_from: &ReadFrom,
         github: &GitHubAccess,
     ) -> Result<LoadedConfiguration, SourceFailure> {
         let Self {
@@ -745,7 +809,7 @@ impl ParsedConfiguration {
         } = self;
         let estate = match &reading.configuration.estate {
             None => None,
-            Some(declaration) => Some(read_estate(declaration, location, github).await?),
+            Some(declaration) => Some(read_estate(declaration, read_from, github).await?),
         };
 
         let pending = match reading.migration {
@@ -780,14 +844,14 @@ impl ParsedConfiguration {
 
 async fn read_estate(
     declaration: &EstateDeclaration,
-    location: &SourceLocation,
+    read_from: &ReadFrom,
     github: &GitHubAccess,
 ) -> Result<ReadEstate, SourceFailure> {
-    match location {
-        SourceLocation::Checkout(checkout) => estate_in_checkout(declaration, checkout),
-        SourceLocation::Repository(repository) => {
+    match read_from {
+        ReadFrom::Checkout(checkout) => estate_in_checkout(declaration, checkout),
+        ReadFrom::Repository { repository, at } => {
             let account = github.account_reading(repository)?;
-            estate_on_github(declaration, repository, account.client()).await
+            estate_on_github(declaration, repository, at, account.client()).await
         }
     }
 }
@@ -810,11 +874,12 @@ fn estate_in_checkout(
 async fn estate_on_github(
     declaration: &EstateDeclaration,
     repository: &GitHubRepository,
+    at: &GitCommit,
     client: &Arc<Octocrab>,
 ) -> Result<ReadEstate, SourceFailure> {
     let file_path = declaration.file_within_the_repository().to_string();
     let file = EstateFile::from(repository.path_named(&file_path));
-    let documents = github::get_file_contents(repository, &file_path, client).await?;
+    let documents = github::get_file_contents(repository, &file_path, at, client).await?;
 
     let [document] = <[_; 1]>::try_from(documents).map_err(|documents| {
         Unreadable::Malformed(anyhow!(

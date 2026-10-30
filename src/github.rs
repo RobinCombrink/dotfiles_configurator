@@ -1,11 +1,12 @@
 use {
     crate::{
-        configuration::{GitHubAccount, GitHubRepository},
+        configuration::{GitCommit, GitHubAccount, GitHubRepository},
         configuration_source::EnvironmentFailure,
     },
     anyhow::{Result, anyhow},
     github_authentication::{GitHubToken, cli},
     octocrab::{Octocrab, models::repos::Content},
+    serde::Deserialize,
     std::{
         collections::BTreeMap,
         sync::{Arc, Mutex, PoisonError},
@@ -77,15 +78,52 @@ impl GitHubAccess {
     }
 }
 
+#[derive(Deserialize)]
+struct HeadCommit {
+    sha: NamedCommit,
+}
+
+#[derive(Deserialize)]
+#[serde(try_from = "String")]
+struct NamedCommit(GitCommit);
+
+impl TryFrom<String> for NamedCommit {
+    type Error = String;
+
+    fn try_from(sha: String) -> Result<Self, Self::Error> {
+        GitCommit::try_from(sha.as_str()).map(Self)
+    }
+}
+
+pub async fn head_commit(
+    repository: &GitHubRepository,
+    octocrab: &Arc<Octocrab>,
+) -> Result<GitCommit, EnvironmentFailure> {
+    let route = format!(
+        "/repos/{}/{}/commits/HEAD",
+        repository.owner, repository.repository
+    );
+    let head: HeadCommit = octocrab.get(route, None::<&()>).await.map_err(|failure| {
+        EnvironmentFailure::GitHubFetch {
+            path: format!("the head commit of {repository}"),
+            failure,
+        }
+    })?;
+
+    Ok(head.sha.0)
+}
+
 pub async fn get_file_contents(
     repository: &GitHubRepository,
     file_path: &str,
+    at: &GitCommit,
     octocrab: &Arc<Octocrab>,
 ) -> Result<Vec<Result<String>>, EnvironmentFailure> {
     let contents = octocrab
         .repos(repository.owner.as_ref(), repository.repository.as_ref())
         .get_content()
         .path(file_path.to_owned())
+        .r#ref(at.as_ref())
         .send()
         .await
         .map_err(|failure| EnvironmentFailure::GitHubFetch {
@@ -113,12 +151,14 @@ fn decoded_content_of(item: &Content, repository: &GitHubRepository) -> Result<S
 pub async fn list_directory_files(
     repository: &GitHubRepository,
     directory: &str,
+    at: &GitCommit,
     octocrab: &Arc<Octocrab>,
 ) -> Result<Vec<String>, EnvironmentFailure> {
     let contents = octocrab
         .repos(repository.owner.as_ref(), repository.repository.as_ref())
         .get_content()
         .path(directory.to_owned())
+        .r#ref(at.as_ref())
         .send()
         .await
         .map_err(|failure| EnvironmentFailure::GitHubFetch {

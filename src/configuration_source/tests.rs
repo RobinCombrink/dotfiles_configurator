@@ -2,30 +2,39 @@ use super::*;
 use crate::configuration::{BUILD_GENERATION, OLDEST_READABLE_GENERATION, WithinTheRepository};
 use std::{env, fs::File, io::Write, process};
 
-#[test]
-fn a_local_source_resolves_its_files_root_by_walking_up_to_a_checkout() {
-    let checkout = temporary_checkout("files_root");
-
-    let location = ConfigurationSource::LocalDirectory(absolute(checkout.join("config")))
+async fn files_root_of(source: &ConfigurationSource) -> ReadFrom {
+    source
+        .pinned(&GitHubAccess::new())
+        .await
+        .expect("a local source is read where it lies")
         .files_come_from()
-        .unwrap();
-
-    assert_eq!(location, SourceLocation::Checkout(absolute(checkout)));
+        .expect("a source inside a checkout")
 }
 
-#[test]
-fn a_local_source_named_up_through_a_checkout_inside_another_resolves_to_the_outer_one() {
+#[tokio::test]
+async fn a_local_source_resolves_its_files_root_by_walking_up_to_a_checkout() {
+    let checkout = temporary_checkout("files_root");
+
+    let read_from = files_root_of(&ConfigurationSource::LocalDirectory(absolute(
+        checkout.join("config"),
+    )))
+    .await;
+
+    assert_eq!(read_from, ReadFrom::Checkout(absolute(checkout)));
+}
+
+#[tokio::test]
+async fn a_local_source_named_up_through_a_checkout_inside_another_resolves_to_the_outer_one() {
     let outer = temporary_checkout("named_up_through_a_checkout");
     let inner = outer.join("tools").join("inner");
     fs::create_dir_all(inner.join(".git")).unwrap();
     fs::create_dir_all(outer.join("tools").join("config")).unwrap();
 
-    let location = ConfigurationSource::named("local:../config", &absolute(inner))
-        .unwrap()
-        .files_come_from()
-        .unwrap();
+    let read_from =
+        files_root_of(&ConfigurationSource::named("local:../config", &absolute(inner)).unwrap())
+            .await;
 
-    assert_eq!(location, SourceLocation::Checkout(absolute(outer)));
+    assert_eq!(read_from, ReadFrom::Checkout(absolute(outer)));
 }
 
 #[test]
@@ -60,25 +69,26 @@ fn a_local_source_stepping_above_the_root_stays_at_the_root() {
     assert_eq!(directory_read(source), root.join("config"));
 }
 
+const HEAD: &str = "3bd27908c1a2b3c4d5e6f708192a3b4c5d6e7f80";
+
+fn head() -> GitCommit {
+    GitCommit::try_from(HEAD).expect("a full commit hash")
+}
+
 #[test]
 fn a_github_source_resolves_its_files_root_to_the_clone_of_that_repository() {
-    let location = ConfigurationSource::GitHubRepository {
-        repository: GitHubRepository {
-            owner: RepositoryOwner::from("Alice"),
-            repository: RepositoryName::from("dotfiles"),
-        },
-        directory: "config".to_owned(),
+    let repository = alices_dotfiles();
+
+    let location = PinnedSource::GitHubRepository {
+        repository: &repository,
+        directory: "config",
+        at: head(),
     }
     .files_come_from()
-    .unwrap();
+    .unwrap()
+    .location();
 
-    assert_eq!(
-        location,
-        SourceLocation::Repository(GitHubRepository {
-            owner: RepositoryOwner::from("Alice"),
-            repository: RepositoryName::from("dotfiles"),
-        })
-    );
+    assert_eq!(location, SourceLocation::Repository(alices_dotfiles()));
 }
 
 fn absolute(path: PathBuf) -> AbsoluteDirectory {
@@ -801,22 +811,92 @@ async fn a_github_source_reads_an_estate_from_the_folder_in_its_repository() {
     )
     .await;
 
-    let estate = estate_on_github(&personal_estate(), &alices_dotfiles(), &github.client)
-        .await
-        .unwrap();
+    let estate = estate_on_github(
+        &personal_estate(),
+        &alices_dotfiles(),
+        &head(),
+        &github.client,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(keyed_owners(&estate), vec!["Alice", "AliceTools"]);
     assert_eq!(
         estate.file,
         EstateFile::from("Alice/dotfiles/estates/personal/estate.json".to_owned())
     );
-    assert!(
-        github
-            .request_line
-            .await
-            .unwrap()
-            .starts_with("GET /repos/Alice/dotfiles/contents/estates/personal/estate.json"),
+}
+
+#[tokio::test]
+async fn a_github_source_reads_an_estate_at_the_commit_it_read_its_configurations_at() {
+    let github = github_answering(
+        "200 OK",
+        a_file_github_could_send("eyAib3duZXJzIjogeyAiQWxpY2UiOiB7fSB9IH0="),
+    )
+    .await;
+
+    estate_on_github(
+        &personal_estate(),
+        &alices_dotfiles(),
+        &head(),
+        &github.client,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        github.request_line.await.unwrap(),
+        format!(
+            "GET /repos/Alice/dotfiles/contents/estates/personal/estate.json?ref={HEAD} HTTP/1.1"
+        )
     );
+}
+
+#[tokio::test]
+async fn a_github_source_lists_its_configurations_at_the_commit_it_was_pinned_to() {
+    let github = github_answering("200 OK", "[]".to_owned()).await;
+
+    github::list_directory_files(&alices_dotfiles(), "config", &head(), &github.client)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        github.request_line.await.unwrap(),
+        format!("GET /repos/Alice/dotfiles/contents/config?ref={HEAD} HTTP/1.1")
+    );
+}
+
+#[tokio::test]
+async fn a_github_source_is_pinned_to_the_commit_its_default_branch_heads() {
+    let github = github_answering("200 OK", format!(r#"{{ "sha": "{HEAD}" }}"#)).await;
+
+    let at = github::head_commit(&alices_dotfiles(), &github.client)
+        .await
+        .unwrap();
+
+    assert_eq!(at, head());
+    assert_eq!(
+        github.request_line.await.unwrap(),
+        "GET /repos/Alice/dotfiles/commits/HEAD HTTP/1.1"
+    );
+}
+
+#[tokio::test]
+async fn a_head_github_names_by_something_other_than_a_full_hash_is_refused() {
+    let github = github_answering("200 OK", r#"{ "sha": "3bd2790" }"#.to_owned()).await;
+
+    let failure = github::head_commit(&alices_dotfiles(), &github.client)
+        .await
+        .unwrap_err();
+
+    let EnvironmentFailure::GitHubFetch {
+        path,
+        failure: octocrab::Error::Json { .. },
+    } = failure
+    else {
+        panic!("expected the head to be refused as undecodable, got: {failure:?}");
+    };
+    assert_eq!(path, "the head commit of Alice/dotfiles");
 }
 
 #[tokio::test]
@@ -828,9 +908,14 @@ async fn a_github_source_whose_estate_folder_holds_no_estate_file_names_the_file
     )
     .await;
 
-    let failure = estate_on_github(&personal_estate(), &alices_dotfiles(), &github.client)
-        .await
-        .unwrap_err();
+    let failure = estate_on_github(
+        &personal_estate(),
+        &alices_dotfiles(),
+        &head(),
+        &github.client,
+    )
+    .await
+    .unwrap_err();
 
     let SourceFailure::Environment(EnvironmentFailure::GitHubFetch { path, .. }) = failure else {
         panic!("expected the estate file to be unreadable, got: {failure:?}");
