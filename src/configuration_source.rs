@@ -1,21 +1,24 @@
 use {
     crate::{
         configuration::{
-            Configuration, ConfigurationName, Context, EstateConflict, GitHubAccount,
-            GitHubRepository, MachineClass, MachineManifest, Migration, Notice, RecordedRun,
-            RecordedSource, RenderedManifest, RepositoriesDirectory, RepositoryName,
-            RepositoryOwner, SlotsPerBankDeclaredTwice, Unreadable, parse_configuration,
-            resolve_estates, resolve_slots_per_bank,
+            BUILD_GENERATION, Configuration, ConfigurationName, Context, EstateConflict,
+            EstateDeclaration, EstateFile, GitHubAccount, GitHubRepository, MachineClass,
+            MachineManifest, Migration, Notice, ReadEstate, Reading, RecordedRun, RecordedSource,
+            RenderedManifest, RepositoriesDirectory, RepositoryName, RepositoryOwner,
+            SlotsPerBankDeclaredTwice, Unreadable, parse_configuration, resolve_estates,
+            resolve_slots_per_bank,
         },
         desired_state::{DesiredState, Irreconcilable, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
     },
     anyhow::{Result, anyhow},
     github_authentication::cli,
+    octocrab::Octocrab,
     std::{
         fmt::{Display, Formatter},
         fs, io,
         path::{Component, Path, PathBuf},
+        sync::Arc,
     },
 };
 
@@ -139,9 +142,23 @@ const EXPECTED_SOURCE: &str = "expected `local:<directory>` or `github:<owner>/<
 const CONFIGURATION_SUFFIX: &str = ".dotconfig.json";
 
 #[derive(Debug)]
+struct ParsedConfiguration {
+    name: ConfigurationName,
+    reading: Reading,
+    written: Written,
+}
+
+#[derive(Debug)]
+enum Written {
+    Locally(PathBuf),
+    OnGitHub,
+}
+
+#[derive(Debug)]
 struct LoadedConfiguration {
     name: ConfigurationName,
     configuration: Configuration,
+    estate: Option<ReadEstate>,
     pending: Pending,
 }
 
@@ -162,10 +179,10 @@ pub async fn load_desired_state(
     repositories_root: &Path,
     github: &GitHubAccess,
 ) -> Result<DesiredState, LoadFailure> {
-    let mut per_source: Vec<(&ConfigurationSource, Vec<LoadedConfiguration>)> = Vec::new();
+    let mut per_source: Vec<(&ConfigurationSource, Vec<ParsedConfiguration>)> = Vec::new();
     let mut failures: Vec<SourceFailure> = Vec::new();
     for source in sources {
-        let mut from_this_source: Vec<LoadedConfiguration> = Vec::new();
+        let mut from_this_source: Vec<ParsedConfiguration> = Vec::new();
         for attempt in source.load(github).await {
             match attempt {
                 Ok(configuration) => from_this_source.push(configuration),
@@ -179,14 +196,14 @@ pub async fn load_desired_state(
         return Err(refusal);
     }
 
-    let mut read: Vec<(LoadedConfiguration, SourceLocation)> = Vec::new();
+    let mut read: Vec<(ParsedConfiguration, SourceLocation)> = Vec::new();
     for (source, from_this_source) in per_source {
         refuse_two_trees_for_one_source(source, &from_this_source)?;
         let location = source.files_come_from()?;
         read.extend(
             from_this_source
                 .into_iter()
-                .map(|loaded| (loaded, location.clone())),
+                .map(|parsed| (parsed, location.clone())),
         );
     }
 
@@ -194,19 +211,32 @@ pub async fn load_desired_state(
         return Err(LoadFailure::NoConfigurationFound(sources.to_vec()));
     }
 
-    let applicable: Vec<(LoadedConfiguration, SourceLocation)> = read
+    let parsed_applicable: Vec<(ParsedConfiguration, SourceLocation)> = read
         .into_iter()
-        .filter(|(loaded, _)| loaded.configuration.applies_to.applies_on(machine))
+        .filter(|(parsed, _)| parsed.reading.configuration.applies_to.applies_on(machine))
         .collect();
 
-    if applicable.is_empty() {
+    if parsed_applicable.is_empty() {
         return Err(LoadFailure::NoneAppliesTo(machine));
+    }
+
+    let mut applicable: Vec<(LoadedConfiguration, SourceLocation)> = Vec::new();
+    let mut failures: Vec<SourceFailure> = Vec::new();
+    for (parsed, location) in parsed_applicable {
+        match parsed.settled(&location, github).await {
+            Ok(loaded) => applicable.push((loaded, location)),
+            Err(failure) => failures.push(failure),
+        }
+    }
+
+    if let Some(refusal) = refusal_of(failures) {
+        return Err(refusal);
     }
 
     let estates = resolve_estates(
         applicable
             .iter()
-            .map(|(loaded, _)| (&loaded.name, &loaded.configuration)),
+            .map(|(loaded, _)| (&loaded.name, &loaded.configuration, loaded.estate.as_ref())),
     )
     .map_err(LoadFailure::Estates)?;
 
@@ -499,9 +529,11 @@ impl std::error::Error for LoadFailure {}
 // ADR 0025
 fn refuse_two_trees_for_one_source(
     source: &ConfigurationSource,
-    loaded: &[LoadedConfiguration],
+    parsed: &[ParsedConfiguration],
 ) -> Result<(), LoadFailure> {
-    let contexts = loaded.iter().map(|loaded| loaded.configuration.applies_to);
+    let contexts = parsed
+        .iter()
+        .map(|parsed| parsed.reading.configuration.applies_to);
 
     let Some(first) = contexts.clone().next() else {
         return Ok(());
@@ -606,7 +638,7 @@ impl ConfigurationSource {
         }
     }
 
-    async fn load(&self, github: &GitHubAccess) -> Vec<Result<LoadedConfiguration, SourceFailure>> {
+    async fn load(&self, github: &GitHubAccess) -> Vec<Result<ParsedConfiguration, SourceFailure>> {
         match self {
             ConfigurationSource::LocalDirectory(directory) => Self::load_local(directory.as_ref()),
             ConfigurationSource::GitHubRepository {
@@ -616,7 +648,7 @@ impl ConfigurationSource {
         }
     }
 
-    fn load_local(directory: &Path) -> Vec<Result<LoadedConfiguration, SourceFailure>> {
+    fn load_local(directory: &Path) -> Vec<Result<ParsedConfiguration, SourceFailure>> {
         let entries = match fs::read_dir(directory) {
             Ok(entries) => entries,
             Err(failure) => {
@@ -647,17 +679,10 @@ impl ConfigurationSource {
                     })?;
                 let reading = parse_configuration(&contents, &source)?;
 
-                let pending = match reading.migrated_from {
-                    None => Pending::Nothing,
-                    Some(from) => Pending::Rewriting(
-                        Migration::of(&path, &reading.configuration, from)
-                            .map_err(Unreadable::Malformed)?,
-                    ),
-                };
-                Ok(LoadedConfiguration {
+                Ok(ParsedConfiguration {
                     name: source,
-                    configuration: reading.configuration,
-                    pending,
+                    reading,
+                    written: Written::Locally(path),
                 })
             })
             .collect()
@@ -667,10 +692,8 @@ impl ConfigurationSource {
         repository: &GitHubRepository,
         directory: &str,
         github: &GitHubAccess,
-    ) -> Vec<Result<LoadedConfiguration, SourceFailure>> {
-        // ADR 0020
-        let reading_as = GitHubAccount::from(repository.owner.as_ref());
-        let account = match github.account(&reading_as) {
+    ) -> Vec<Result<ParsedConfiguration, SourceFailure>> {
+        let account = match github.account_reading(repository) {
             Ok(account) => account,
             Err(failure) => return vec![Err(SourceFailure::Environment(failure))],
         };
@@ -681,7 +704,7 @@ impl ConfigurationSource {
                 Err(failure) => return vec![Err(SourceFailure::Environment(failure))],
             };
 
-        let mut loaded: Vec<Result<LoadedConfiguration, SourceFailure>> = Vec::new();
+        let mut loaded: Vec<Result<ParsedConfiguration, SourceFailure>> = Vec::new();
         for file_path in file_paths
             .iter()
             .filter(|file_path| is_configuration_file(file_path))
@@ -697,22 +720,120 @@ impl ConfigurationSource {
                         &reading.configuration.github_account,
                         &repository.owner,
                     )?;
-                    Ok(LoadedConfiguration {
-                        pending: match reading.migrated_from {
-                            None => Pending::Nothing,
-                            Some(from) => Pending::Announcing(Notice::SourceCannotBeRewritten {
-                                source: source.clone(),
-                                from,
-                            }),
-                        },
+                    Ok(ParsedConfiguration {
                         name: source.clone(),
-                        configuration: reading.configuration,
+                        reading,
+                        written: Written::OnGitHub,
                     })
                 })),
             }
         }
         loaded
     }
+}
+
+impl ParsedConfiguration {
+    async fn settled(
+        self,
+        location: &SourceLocation,
+        github: &GitHubAccess,
+    ) -> Result<LoadedConfiguration, SourceFailure> {
+        let Self {
+            name,
+            reading,
+            written,
+        } = self;
+        let estate = match &reading.configuration.estate {
+            None => None,
+            Some(declaration) => Some(read_estate(declaration, location, github).await?),
+        };
+
+        let pending = match reading.migration {
+            None => Pending::Nothing,
+            Some(migration) => {
+                let from = migration.completed(estate.as_ref()).map_err(|refused| {
+                    Unreadable::Malformed(anyhow::Error::new(refused).context(format!(
+                        "{name} cannot be migrated to generation {BUILD_GENERATION}"
+                    )))
+                })?;
+                match written {
+                    Written::Locally(path) => Pending::Rewriting(
+                        Migration::of(&path, &reading.configuration, from)
+                            .map_err(Unreadable::Malformed)?,
+                    ),
+                    Written::OnGitHub => Pending::Announcing(Notice::SourceCannotBeRewritten {
+                        source: name.clone(),
+                        from,
+                    }),
+                }
+            }
+        };
+
+        Ok(LoadedConfiguration {
+            name,
+            configuration: reading.configuration,
+            estate,
+            pending,
+        })
+    }
+}
+
+async fn read_estate(
+    declaration: &EstateDeclaration,
+    location: &SourceLocation,
+    github: &GitHubAccess,
+) -> Result<ReadEstate, SourceFailure> {
+    match location {
+        SourceLocation::Checkout(checkout) => estate_in_checkout(declaration, checkout),
+        SourceLocation::Repository(repository) => {
+            let account = github.account_reading(repository)?;
+            estate_on_github(declaration, repository, account.client()).await
+        }
+    }
+}
+
+fn estate_in_checkout(
+    declaration: &EstateDeclaration,
+    checkout: &AbsoluteDirectory,
+) -> Result<ReadEstate, SourceFailure> {
+    let path = checkout
+        .as_ref()
+        .join(declaration.file_within_the_repository().as_path());
+    let contents = fs::read_to_string(&path).map_err(|failure| EnvironmentFailure::LocalRead {
+        path: path.clone(),
+        failure,
+    })?;
+
+    decoded_estate(declaration, EstateFile::from(path.as_path()), &contents)
+}
+
+async fn estate_on_github(
+    declaration: &EstateDeclaration,
+    repository: &GitHubRepository,
+    client: &Arc<Octocrab>,
+) -> Result<ReadEstate, SourceFailure> {
+    let file_path = declaration.file_within_the_repository().to_string();
+    let file = EstateFile::from(format!("{repository}/{file_path}"));
+    let documents = github::get_file_contents(repository, &file_path, client).await?;
+
+    let [document] = <[_; 1]>::try_from(documents).map_err(|documents| {
+        Unreadable::Malformed(anyhow!(
+            "{file} names {} entries on GitHub rather than one file",
+            documents.len()
+        ))
+    })?;
+    let contents = document.map_err(Unreadable::Malformed)?;
+
+    decoded_estate(declaration, file, &contents)
+}
+
+fn decoded_estate(
+    declaration: &EstateDeclaration,
+    file: EstateFile,
+    contents: &str,
+) -> Result<ReadEstate, SourceFailure> {
+    ReadEstate::decoded(declaration.name.clone(), file, contents)
+        .map_err(|refused| Unreadable::Malformed(anyhow::Error::new(refused)).into())
 }
 
 #[cfg(test)]

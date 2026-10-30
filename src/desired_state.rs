@@ -382,7 +382,16 @@ impl ResolvedConfiguration {
             },
             context: configuration.applies_to,
             workspaces: configuration.workspaces,
-            resources: configuration.resources,
+            resources: configuration
+                .resources
+                .into_iter()
+                .chain(
+                    configuration
+                        .estate
+                        .as_ref()
+                        .map(|estate| Resource::Symlink(estate.link())),
+                )
+                .collect(),
             notices: configuration.notices,
         }
     }

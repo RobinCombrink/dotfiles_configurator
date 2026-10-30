@@ -67,6 +67,14 @@ impl GitHubAccess {
         held.insert(account.clone(), Arc::clone(&authenticated));
         Ok(authenticated)
     }
+
+    // ADR 0020
+    pub fn account_reading(
+        &self,
+        repository: &GitHubRepository,
+    ) -> Result<Arc<AuthenticatedAccount>, EnvironmentFailure> {
+        self.account(&GitHubAccount::from(repository.owner.as_ref()))
+    }
 }
 
 pub async fn get_file_contents(
@@ -127,6 +135,28 @@ pub async fn list_directory_files(
         .collect();
     file_paths.sort();
     Ok(file_paths)
+}
+
+#[cfg(test)]
+pub(crate) fn content_github_could_send(
+    path: &str,
+    kind: &str,
+    encoded: Option<&str>,
+) -> serde_json::Value {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let mut document = serde_json::json!({
+        "name": name,
+        "path": path,
+        "sha": "8d3dfe1",
+        "size": 7,
+        "url": "https://api.github.invalid/contents",
+        "type": kind,
+        "_links": { "self": "https://api.github.invalid/contents" }
+    });
+    if let Some(encoded) = encoded {
+        document["content"] = serde_json::Value::String(encoded.to_owned());
+    }
+    document
 }
 
 #[cfg(test)]

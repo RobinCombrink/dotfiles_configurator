@@ -8,18 +8,7 @@ fn dotfiles() -> GitHubRepository {
 }
 
 fn item_reported_as(kind: &str, encoded: Option<&str>) -> Content {
-    let mut document = serde_json::json!({
-        "name": "configuration.json",
-        "path": "configurations/configuration.json",
-        "sha": "8d3dfe1",
-        "size": 7,
-        "url": "https://api.github.invalid/contents",
-        "type": kind,
-        "_links": { "self": "https://api.github.invalid/contents" }
-    });
-    if let Some(encoded) = encoded {
-        document["content"] = serde_json::Value::String(encoded.to_owned());
-    }
+    let document = content_github_could_send("configurations/configuration.json", kind, encoded);
 
     serde_json::from_value(document).expect("a content item the API could have sent")
 }

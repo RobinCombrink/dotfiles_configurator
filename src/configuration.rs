@@ -37,10 +37,13 @@ pub mod workspace;
 
 pub use {
     context::Context,
-    estate::{EstateConflict, EstateDeclaration, resolve_estates},
+    estate::{
+        EstateConflict, EstateDeclaration, EstateFile, EstateFileRefused, EstateOwners,
+        OutsideTheRepository, ReadEstate, WithinTheRepository, resolve_estates,
+    },
     generation::{BUILD_GENERATION, Generation, OLDEST_READABLE_GENERATION},
     identity::{Identity, LinkPath},
-    migration::Migration,
+    migration::{Migration, MigrationRefused, PendingMigration},
     names::{
         ApplicationName, BinaryName, ConfigurationName, CrateName, CrateVersion, DartPackageName,
         GitCommit, GitHubAccount, GitReferenceName, GitRemoteUrl, McpServerName, PythonInterpreter,
@@ -194,7 +197,7 @@ impl Display for Notice {
 #[derive(Debug)]
 pub struct Reading {
     pub configuration: Configuration,
-    pub migrated_from: Option<Generation>,
+    pub migration: Option<PendingMigration>,
 }
 
 pub fn parse_configuration(
@@ -246,9 +249,14 @@ pub fn parse_configuration(
             .with_context(|| format!("{source} is not a valid generation {required} configuration"))
             .map_err(Unreadable::Malformed)?;
 
+        let (configuration, migration) = outgoing.migrated().map_err(|refused| {
+            Unreadable::Malformed(anyhow::Error::new(refused).context(format!(
+                "{source} cannot be migrated to generation {BUILD_GENERATION}"
+            )))
+        })?;
         return Ok(Reading {
-            migrated_from: Some(outgoing.stated_generation()),
-            configuration: outgoing.into(),
+            configuration,
+            migration: Some(migration),
         });
     }
 
@@ -259,7 +267,7 @@ pub fn parse_configuration(
         .map_err(Unreadable::Malformed)
         .map(|configuration| Reading {
             configuration,
-            migrated_from: None,
+            migration: None,
         })
 }
 

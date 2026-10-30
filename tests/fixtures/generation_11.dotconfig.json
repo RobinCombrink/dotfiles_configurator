@@ -3,8 +3,12 @@
     "applies_to": "personal",
     "github_account": "Alice",
     "estate": {
-        "name": "personal"
+        "name": "personal",
+        "owners": [
+            "AliceTools"
+        ]
     },
+    "slots_per_bank": 2,
     "workspaces": [
         {
             "repository": {
@@ -18,6 +22,11 @@
             "kind": "symlink",
             "source_path": "gitconfig/.gitconfig",
             "link_path": ".gitconfig"
+        },
+        {
+            "kind": "symlink",
+            "source_path": "estates/personal",
+            "link_path": ".dotconfig/estates/personal"
         },
         {
             "kind": "package",

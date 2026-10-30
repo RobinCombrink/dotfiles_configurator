@@ -321,11 +321,14 @@ records none refuses such a plan rather than assuming a class.
 _Avoid_: last run, saved arguments, defaults
 
 **Estate**:
-A named body of work a configuration governs, and the owners whose repositories belong to it: the
-account the configuration acts as, the owners of its workspaces, and any it names besides. Each
-estate is declared by one configuration, and each owner belongs to one estate. The owner of a
-repository a configuration only clones is in none. An estate acts as the account its configuration
-acts as, which answers for its owners without having to be one of them.
+A named body of work a configuration governs, declared by its name and the folder of the dotfiles
+repository holding its `estate.json`, which this program reads only for the keys of its `owners`
+object: those keys are the owners whose repositories belong to the estate. The account the
+configuration acts as and the owners of its workspaces are among them, or the configuration is
+refused. Each estate is declared by one configuration, and each owner belongs to one estate. The
+owner of a repository a configuration only clones belongs to none unless the file keys it. An
+estate acts as the account its configuration acts as, and its folder is linked at
+`.dotconfig/estates/<name>`.
 _Avoid_: context, organisation, owner, tenant
 
 **Tool directory**:

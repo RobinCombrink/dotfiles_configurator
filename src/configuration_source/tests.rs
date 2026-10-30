@@ -1,5 +1,5 @@
 use super::*;
-use crate::configuration::{BUILD_GENERATION, OLDEST_READABLE_GENERATION};
+use crate::configuration::{BUILD_GENERATION, OLDEST_READABLE_GENERATION, WithinTheRepository};
 use std::{env, fs::File, io::Write, process};
 
 #[test]
@@ -662,4 +662,178 @@ async fn a_configuration_in_the_superseded_format_is_rejected_by_file_name() {
         .unwrap_err();
 
     assert!(error.to_string().contains("everywhere.dotconfig.json"));
+}
+
+fn personal_estate() -> EstateDeclaration {
+    EstateDeclaration {
+        name: crate::configuration::EstateName::try_from("personal").unwrap(),
+        folder: WithinTheRepository::try_from(PathBuf::from("estates/personal"))
+            .expect("a folder within the repository"),
+    }
+}
+
+fn keyed_owners(estate: &ReadEstate) -> Vec<&str> {
+    estate
+        .owners
+        .owners()
+        .iter()
+        .map(github_owner::Owner::as_declared)
+        .collect()
+}
+
+fn alices_dotfiles() -> GitHubRepository {
+    GitHubRepository {
+        owner: RepositoryOwner::from("Alice"),
+        repository: RepositoryName::from("dotfiles"),
+    }
+}
+
+#[test]
+fn a_local_source_reads_an_estate_from_the_folder_in_its_checkout() {
+    let checkout = temporary_checkout("estate_in_checkout");
+    fs::create_dir_all(checkout.join("estates").join("personal")).unwrap();
+    let file = checkout
+        .join("estates")
+        .join("personal")
+        .join("estate.json");
+    fs::write(&file, r#"{ "owners": { "Alice": {}, "AliceTools": {} } }"#).unwrap();
+
+    let estate = estate_in_checkout(&personal_estate(), &absolute(checkout.clone())).unwrap();
+
+    assert_eq!(keyed_owners(&estate), vec!["Alice", "AliceTools"]);
+    assert_eq!(estate.file, EstateFile::from(file.as_path()));
+}
+
+#[test]
+fn a_local_source_whose_estate_folder_holds_no_estate_file_names_the_file_it_could_not_read() {
+    let checkout = temporary_checkout("estate_file_absent");
+    fs::create_dir_all(checkout.join("estates").join("personal")).unwrap();
+
+    let failure = estate_in_checkout(&personal_estate(), &absolute(checkout.clone())).unwrap_err();
+
+    let SourceFailure::Environment(EnvironmentFailure::LocalRead { path, .. }) = failure else {
+        panic!("expected the estate file to be unreadable, got: {failure:?}");
+    };
+    assert_eq!(
+        path,
+        checkout
+            .join("estates")
+            .join("personal")
+            .join("estate.json")
+    );
+}
+
+#[test]
+fn a_local_source_whose_estate_folder_is_absent_names_the_file_it_could_not_read() {
+    let checkout = temporary_checkout("estate_folder_absent");
+
+    let failure = estate_in_checkout(&personal_estate(), &absolute(checkout.clone())).unwrap_err();
+
+    let SourceFailure::Environment(EnvironmentFailure::LocalRead { path, .. }) = failure else {
+        panic!("expected the estate file to be unreadable, got: {failure:?}");
+    };
+    assert_eq!(
+        path,
+        checkout
+            .join("estates")
+            .join("personal")
+            .join("estate.json")
+    );
+}
+
+struct GitHubAnswering {
+    client: Arc<Octocrab>,
+    request_line: tokio::task::JoinHandle<String>,
+}
+
+async fn github_answering(status: &'static str, body: String) -> GitHubAnswering {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let request_line = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let read = stream.read(&mut buffer).await.unwrap();
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..read]);
+        }
+        let response = format!(
+            "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\
+             connection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).await.unwrap();
+        String::from_utf8_lossy(&request)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_owned()
+    });
+    let client = Octocrab::builder()
+        .base_uri(format!("http://{address}"))
+        .unwrap()
+        .build()
+        .unwrap();
+
+    GitHubAnswering {
+        client: Arc::new(client),
+        request_line,
+    }
+}
+
+fn a_file_github_could_send(encoded: &str) -> String {
+    github::content_github_could_send("estates/personal/estate.json", "file", Some(encoded))
+        .to_string()
+}
+
+#[tokio::test]
+async fn a_github_source_reads_an_estate_from_the_folder_in_its_repository() {
+    let github = github_answering(
+        "200 OK",
+        a_file_github_could_send(
+            "eyAib3duZXJzIjogeyAiQWxpY2UiOiB7fSwgIkFsaWNlVG9vbHMiOiB7fSB9IH0=",
+        ),
+    )
+    .await;
+
+    let estate = estate_on_github(&personal_estate(), &alices_dotfiles(), &github.client)
+        .await
+        .unwrap();
+
+    assert_eq!(keyed_owners(&estate), vec!["Alice", "AliceTools"]);
+    assert_eq!(
+        estate.file,
+        EstateFile::from("Alice/dotfiles/estates/personal/estate.json".to_owned())
+    );
+    assert!(
+        github
+            .request_line
+            .await
+            .unwrap()
+            .starts_with("GET /repos/Alice/dotfiles/contents/estates/personal/estate.json"),
+    );
+}
+
+#[tokio::test]
+async fn a_github_source_whose_estate_folder_holds_no_estate_file_names_the_file_it_could_not_read()
+{
+    let github = github_answering(
+        "404 Not Found",
+        r#"{ "message": "Not Found", "status": "404" }"#.to_owned(),
+    )
+    .await;
+
+    let failure = estate_on_github(&personal_estate(), &alices_dotfiles(), &github.client)
+        .await
+        .unwrap_err();
+
+    let SourceFailure::Environment(EnvironmentFailure::GitHubFetch { path, .. }) = failure else {
+        panic!("expected the estate file to be unreadable, got: {failure:?}");
+    };
+    assert_eq!(path, "Alice/dotfiles/estates/personal/estate.json");
 }

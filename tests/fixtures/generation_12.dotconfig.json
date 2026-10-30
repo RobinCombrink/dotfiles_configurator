@@ -1,10 +1,12 @@
 {
-    "version": "10",
+    "version": "12",
     "applies_to": "personal",
     "github_account": "Alice",
     "estate": {
-        "name": "personal"
+        "name": "personal",
+        "folder": "estates/personal"
     },
+    "slots_per_bank": 2,
     "workspaces": [
         {
             "repository": {

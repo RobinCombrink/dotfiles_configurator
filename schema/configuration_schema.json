@@ -451,21 +451,20 @@
       ]
     },
     "EstateDeclaration": {
-      "description": "The estate this configuration governs. Its owners are the configuration's GitHub account, the\nowners of its workspaces, and any named here besides; the owner of a repository it only clones\nis never one of them.",
+      "description": "The estate this configuration governs.",
       "type": "object",
       "properties": {
+        "folder": {
+          "description": "Path within the dotfiles repository of the folder holding the estate's estate.json, linked at .dotconfig/estates/<name>.",
+          "type": "string"
+        },
         "name": {
           "$ref": "#/$defs/EstateName"
-        },
-        "owners": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Owner"
-          }
         }
       },
       "required": [
-        "name"
+        "name",
+        "folder"
       ]
     },
     "EstateName": {
@@ -531,11 +530,6 @@
     "McpServerName": {
       "description": "The name Claude Code holds an MCP server under.",
       "type": "string"
-    },
-    "Owner": {
-      "description": "An account or organisation that owns repositories on GitHub, compared without regard to case.",
-      "type": "string",
-      "pattern": "^[A-Za-z0-9-]+$"
     },
     "Package": {
       "description": "A resource whose installation is owned by a package manager, which is consequently also what\ncan be asked whether it is installed. Which manager owns it is part of what the resource is,\nso it is the variant rather than a field.",

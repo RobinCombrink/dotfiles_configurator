@@ -563,6 +563,22 @@ Feature: Applying a change set
     When Alice applies her configurations for a personal machine
     Then the link ".gitconfig" resolves to "gitconfig/.gitconfig" in Alice's checkout
 
+  Scenario: An estate's folder is linked at its directory beside the machine's manifest
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And the estate "personal" keys the owners "Alice"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    And Alice's checkout holds "npm/.npmrc"
+    When Alice applies her configurations for a personal machine
+    Then the link ".dotconfig/estates/personal" resolves to "estates/personal" in Alice's checkout
+
+  Scenario: An estate's link already targeting its folder is converged
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And the estate "personal" keys the owners "Alice"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    And the link ".dotconfig/estates/personal" already resolves to "estates/personal" in Alice's checkout
+    When Alice plans her configurations for a personal machine
+    Then the link ".dotconfig/estates/personal" is planned as converged
+
   Scenario: An apply naming no machine applies the class and the sources the last apply recorded
     Given Alice's last apply was for a work machine reading "github:Employer/dotfiles/config"
     When Alice applies naming neither a machine nor a source

@@ -86,6 +86,8 @@ struct MachineWorld {
     configurations_are_inside_a_checkout: bool,
     configurations_are_named: SourceNaming,
     files_the_checkout_holds: Vec<PathBuf>,
+    estate_files: Vec<(PathBuf, String)>,
+    estate_folders_holding_no_file: Vec<PathBuf>,
     links_already_into_the_checkout: Vec<(PathBuf, PathBuf)>,
     checkout: Option<PathBuf>,
     documents: Vec<String>,
@@ -129,6 +131,8 @@ impl MachineWorld {
             configurations_are_inside_a_checkout: true,
             configurations_are_named: SourceNaming::InFull,
             files_the_checkout_holds: Vec::new(),
+            estate_files: Vec::new(),
+            estate_folders_holding_no_file: Vec::new(),
             links_already_into_the_checkout: Vec::new(),
             checkout: None,
             documents: Vec::new(),
@@ -1484,14 +1488,44 @@ fn workspace_of(owner_and_name: &str) -> String {
     )
 }
 
+fn estate_in_its_folder(estate: &str) -> String {
+    format!(r#"{{ "name": "{estate}", "folder": "estates/{estate}" }}"#)
+}
+
 #[given(expr = "Alice has a configuration for every machine declaring the estate {string}")]
 fn every_machine_declaring_an_estate(world: &mut MachineWorld, estate: String) {
     world.documents.push(document_declaring_an_estate(
         "everywhere",
-        &format!(r#"{{ "name": "{estate}" }}"#),
+        &estate_in_its_folder(&estate),
         "[]",
         "[]",
     ));
+}
+
+#[given(expr = "the estate {string} keys the owners {string}")]
+fn estate_keys_the_owners(world: &mut MachineWorld, estate: String, owners: String) {
+    let keyed: Vec<String> = owners
+        .split(',')
+        .map(|owner| format!(r#""{}": {{}}"#, owner.trim()))
+        .collect();
+    world.estate_files.push((
+        PathBuf::from("estates").join(&estate),
+        format!(r#"{{ "owners": {{ {} }} }}"#, keyed.join(", ")),
+    ));
+}
+
+#[given(expr = "the estate {string} has a folder holding no estate file")]
+fn estate_folder_holds_no_file(world: &mut MachineWorld, estate: String) {
+    world
+        .estate_folders_holding_no_file
+        .push(PathBuf::from("estates").join(&estate));
+}
+
+#[given(expr = "the estate {string} is written as {string}")]
+fn estate_is_written_as(world: &mut MachineWorld, estate: String, contents: String) {
+    world
+        .estate_files
+        .push((PathBuf::from("estates").join(&estate), contents));
 }
 
 #[given(
@@ -1505,7 +1539,7 @@ fn every_machine_declaring_an_estate_building(
 ) {
     world.documents.push(document_declaring_an_estate(
         "everywhere",
-        &format!(r#"{{ "name": "{estate}" }}"#),
+        &estate_in_its_folder(&estate),
         &workspace_of(&workspace),
         "[]",
     ));
@@ -1523,7 +1557,7 @@ fn every_machine_declaring_an_estate_cloning(
     let repository = named_repository(&cloned);
     world.documents.push(document_declaring_an_estate(
         "everywhere",
-        &format!(r#"{{ "name": "{estate}" }}"#),
+        &estate_in_its_folder(&estate),
         "[]",
         &format!(
             r#"[{{ "kind": "repository", "owner": "{}", "repository": "{}" }}]"#,
@@ -1532,18 +1566,11 @@ fn every_machine_declaring_an_estate_cloning(
     ));
 }
 
-#[given(
-    expr = "Alice has a configuration for personal machines declaring the estate {string} with the \
-            owner {string}"
-)]
-fn personal_declaring_an_estate_with_an_owner(
-    world: &mut MachineWorld,
-    estate: String,
-    owner: String,
-) {
+#[given(expr = "Alice has a configuration for personal machines declaring the estate {string}")]
+fn personal_declaring_an_estate(world: &mut MachineWorld, estate: String) {
     world.documents.push(document_declaring_an_estate(
         "personal",
-        &format!(r#"{{ "name": "{estate}", "owners": ["{owner}"] }}"#),
+        &estate_in_its_folder(&estate),
         "[]",
         "[]",
     ));
@@ -1551,18 +1578,17 @@ fn personal_declaring_an_estate_with_an_owner(
 
 #[given(
     expr = "Alice has a configuration for personal machines acting as {string}, declaring the \
-            estate {string} with the owner {string}"
+            estate {string}"
 )]
-fn personal_acting_as_declaring_an_estate_with_an_owner(
+fn personal_acting_as_declaring_an_estate(
     world: &mut MachineWorld,
     account: String,
     estate: String,
-    owner: String,
 ) {
     world.documents.push(document_acting_as_declaring_an_estate(
         &account,
         "personal",
-        &format!(r#"{{ "name": "{estate}", "owners": ["{owner}"] }}"#),
+        &estate_in_its_folder(&estate),
         "[]",
         "[]",
     ));
@@ -2283,6 +2309,15 @@ fn write_the_configurations_alice_names(world: &mut MachineWorld) -> Vec<Configu
         .to_path_buf();
     for held in &world.files_the_checkout_holds {
         world.machine.add_own_file(checkout.join(held));
+    }
+    for (folder, contents) in &world.estate_files {
+        fs::create_dir_all(checkout.join(folder)).unwrap();
+        fs::write(checkout.join(folder).join("estate.json"), contents).unwrap();
+        world.machine.add_own_file(checkout.join(folder));
+    }
+    for folder in &world.estate_folders_holding_no_file {
+        fs::create_dir_all(checkout.join(folder)).unwrap();
+        world.machine.add_own_file(checkout.join(folder));
     }
     for (link_path, held) in &world.links_already_into_the_checkout {
         world

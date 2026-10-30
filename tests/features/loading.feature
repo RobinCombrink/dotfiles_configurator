@@ -168,30 +168,83 @@ Feature: Loading a configuration
     Then loading is refused
     And the refusal mentions "^27"
 
-  Scenario: The account a configuration acts as is an owner in the estate it declares
+  Scenario: An estate's owners are the keys of the owners object in its estate file
     Given Alice has a configuration for every machine declaring the estate "personal"
+    And the estate "personal" keys the owners "Alice, Bob"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then the machine's manifest places "Alice" in the estate "personal"
+    And the machine's manifest places "Bob" in the estate "personal"
+
+  Scenario: An estate file's fields and values other than its owners' keys are not read
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And the estate "personal" is written as '{ "$schema": "./estate.schema.json", "owners": { "Alice": { "labels": 7 } }, "tracker": null }'
     And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
     When Alice loads her configurations for a personal machine
     Then the machine's manifest places "Alice" in the estate "personal"
 
-  Scenario: The owner of a workspace a configuration builds is an owner in its estate
+  Scenario: The owner of a workspace a configuration builds is keyed by its estate file
     Given Alice has a configuration for every machine declaring the estate "personal" and building the workspace "AliceTools/tools"
+    And the estate "personal" keys the owners "Alice, AliceTools"
     And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
     When Alice loads her configurations for a personal machine
     Then the machine's manifest places "AliceTools" in the estate "personal"
 
+  Scenario: A workspace owner its estate file does not key is refused
+    Given Alice has a configuration for every machine declaring the estate "personal" and building the workspace "AliceTools/tools"
+    And the estate "personal" keys the owners "Alice"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "AliceTools"
+    And the refusal mentions "estate.json"
+
+  Scenario: An account its estate file does not key is refused
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And the estate "personal" keys the owners "Bob"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "00.dotconfig.json"
+    And the refusal mentions "estate.json"
+
+  Scenario: An estate whose folder holds no estate file is refused naming the file
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And the estate "personal" has a folder holding no estate file
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "estate.json"
+
+  Scenario: An estate whose folder is absent is refused naming the file
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "estate.json"
+
+  Scenario: An estate file holding no owners object is refused naming the file
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And the estate "personal" is written as '{ "labels": {} }'
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "estate.json"
+
+  Scenario: An estate file keying something GitHub would not name as an owner is refused
+    Given Alice has a configuration for every machine declaring the estate "personal"
+    And the estate "personal" is written as '{ "owners": { "Alice": {}, "Not An Owner": {} } }'
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "Not An Owner"
+
   Scenario: The owner of a repository a configuration only clones is in no estate
     Given Alice has a configuration for every machine declaring the estate "personal" and cloning "flutter/flutter"
+    And the estate "personal" keys the owners "Alice"
     And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
     When Alice loads her configurations for a personal machine
     Then the machine's manifest places "flutter" in no estate
-
-  Scenario: An owner a configuration names besides its own is an owner in its estate
-    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
-    And Alice has a configuration for personal machines declaring the estate "hobby" with the owner "Bob"
-    When Alice loads her configurations for a personal machine
-    Then the machine's manifest places "Bob" in the estate "hobby"
-    And the machine's manifest places "Alice" in the estate "hobby"
 
   Scenario: Configurations declaring no estate place no owner in any
     Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
@@ -207,28 +260,35 @@ Feature: Loading a configuration
 
   Scenario: Two configurations declaring one estate are refused
     Given Alice has a configuration for every machine declaring the estate "personal"
-    And Alice has a configuration for personal machines declaring the estate "personal" with the owner "Bob"
+    And Alice has a configuration for personal machines declaring the estate "personal"
+    And the estate "personal" keys the owners "Alice"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "declared by both"
 
   Scenario: One owner in two estates is refused, however it is capitalised
     Given Alice has a configuration for every machine declaring the estate "personal"
-    And Alice has a configuration for personal machines acting as "AliceHobbies", declaring the estate "hobby" with the owner "alice"
+    And the estate "personal" keys the owners "Alice"
+    And Alice has a configuration for personal machines acting as "AliceHobbies", declaring the estate "hobby"
+    And the estate "hobby" keys the owners "AliceHobbies, alice"
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "one estate"
 
   Scenario: Two estates with no owner in common are both placed
     Given Alice has a configuration for every machine declaring the estate "personal"
-    And Alice has a configuration for personal machines acting as "AliceHobbies", declaring the estate "hobby" with the owner "Bob"
+    And the estate "personal" keys the owners "Alice"
+    And Alice has a configuration for personal machines acting as "AliceHobbies", declaring the estate "hobby"
+    And the estate "hobby" keys the owners "AliceHobbies, Bob"
     When Alice loads her configurations for a personal machine
     Then the machine's manifest places "Alice" in the estate "personal"
     And the machine's manifest places "Bob" in the estate "hobby"
 
   Scenario: Each estate acts as the account its configuration acts as
     Given Alice has a configuration for every machine declaring the estate "personal"
-    And Alice has a configuration for personal machines acting as "AliceHobbies", declaring the estate "hobby" with the owner "Bob"
+    And the estate "personal" keys the owners "Alice"
+    And Alice has a configuration for personal machines acting as "AliceHobbies", declaring the estate "hobby"
+    And the estate "hobby" keys the owners "AliceHobbies, Bob"
     When Alice loads her configurations for a personal machine
     Then the machine's manifest answers for "Alice" as the account "Alice"
     And the machine's manifest answers for "Bob" as the account "AliceHobbies"

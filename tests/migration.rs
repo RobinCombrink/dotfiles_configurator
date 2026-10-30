@@ -3,9 +3,12 @@
 
 use {
     dotfiles_configurator::{
-        configuration::{BUILD_GENERATION, MachineClass, Migration, OLDEST_READABLE_GENERATION},
+        configuration::{
+            BUILD_GENERATION, MachineClass, Migration, MigrationRefused,
+            OLDEST_READABLE_GENERATION, Unreadable,
+        },
         configuration_source::{
-            AbsoluteDirectory, ConfigurationSource, WriteSource, load_desired_state,
+            AbsoluteDirectory, ConfigurationSource, LoadFailure, WriteSource, load_desired_state,
         },
         convergence::plan,
         desired_state::DesiredState,
@@ -46,7 +49,18 @@ fn a_checkout_holding(name: &str, documents: &[(&str, String)]) -> PathBuf {
     for (file_name, contents) in documents {
         fs::write(checkout.join("config").join(file_name), contents).unwrap();
     }
+    an_estate_keying(&checkout, r#"{ "Alice": {}, "AliceTools": {} }"#);
     checkout
+}
+
+fn an_estate_keying(checkout: &Path, owners: &str) {
+    let folder = checkout.join("estates").join("personal");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(
+        folder.join("estate.json"),
+        format!(r#"{{ "owners": {owners} }}"#),
+    )
+    .unwrap();
 }
 
 fn a_readable_set(personal: String) -> Vec<(&'static str, String)> {
@@ -64,7 +78,7 @@ fn personal_document(checkout: &Path) -> String {
     fs::read_to_string(checkout.join("config").join("personal.dotconfig.json")).unwrap()
 }
 
-async fn load(checkout: &Path) -> DesiredState {
+async fn attempt_to_load(checkout: &Path) -> Result<DesiredState, LoadFailure> {
     load_desired_state(
         &[ConfigurationSource::LocalDirectory(
             AbsoluteDirectory::of(checkout.join("config"))
@@ -75,7 +89,10 @@ async fn load(checkout: &Path) -> DesiredState {
         &GitHubAccess::new(),
     )
     .await
-    .unwrap()
+}
+
+async fn load(checkout: &Path) -> DesiredState {
+    attempt_to_load(checkout).await.unwrap()
 }
 
 struct RealFilesystem;
@@ -94,8 +111,8 @@ fn rewrite_all(migrations: &[Migration]) {
 }
 
 #[tokio::test]
-async fn a_generation_10_document_is_rewritten_as_the_generation_11_document_beside_it() {
-    let documents = a_readable_set(fixture("generation_10.dotconfig.json"));
+async fn a_generation_11_document_is_rewritten_as_the_generation_12_document_beside_it() {
+    let documents = a_readable_set(fixture("generation_11.dotconfig.json"));
     let checkout = a_checkout_holding("rewritten_document", &documents);
 
     let desired_state = load(&checkout).await;
@@ -103,13 +120,44 @@ async fn a_generation_10_document_is_rewritten_as_the_generation_11_document_bes
 
     assert_eq!(
         personal_document(&checkout),
+        fixture("generation_12.dotconfig.json")
+    );
+}
+
+#[tokio::test]
+async fn a_generation_11_estate_naming_an_owner_its_estate_file_does_not_key_is_not_migrated() {
+    let documents = a_readable_set(fixture("generation_11.dotconfig.json"));
+    let checkout = a_checkout_holding("owner_outside_the_estate_file", &documents);
+    an_estate_keying(&checkout, r#"{ "Alice": {} }"#);
+
+    let refusal = attempt_to_load(&checkout)
+        .await
+        .expect_err("an owner the estate file does not key refuses the migration");
+
+    let [unreadable] = refusal.unreadable() else {
+        panic!("expected one unreadable configuration, got: {refusal}");
+    };
+    assert!(
+        matches!(
+            unreadable,
+            Unreadable::Malformed(fault)
+                if fault.downcast_ref::<MigrationRefused>().is_some_and(|refused| matches!(
+                    refused,
+                    MigrationRefused::OwnerMissingFromTheEstateFile { owner, .. }
+                        if owner.as_declared() == "AliceTools"
+                ))
+        ),
+        "{refusal}"
+    );
+    assert_eq!(
+        personal_document(&checkout),
         fixture("generation_11.dotconfig.json")
     );
 }
 
 #[tokio::test]
-async fn a_generation_10_document_reports_one_migration_naming_the_generation_it_came_from() {
-    let documents = a_readable_set(fixture("generation_10.dotconfig.json"));
+async fn a_generation_11_document_reports_one_migration_naming_the_generation_it_came_from() {
+    let documents = a_readable_set(fixture("generation_11.dotconfig.json"));
     let checkout = a_checkout_holding("reported_migration", &documents);
 
     let desired_state = load(&checkout).await;
@@ -127,7 +175,7 @@ async fn a_generation_10_document_reports_one_migration_naming_the_generation_it
 
 #[tokio::test]
 async fn planning_reports_a_pending_migration_and_leaves_the_document_as_it_was() {
-    let documents = a_readable_set(fixture("generation_10.dotconfig.json"));
+    let documents = a_readable_set(fixture("generation_11.dotconfig.json"));
     let checkout = a_checkout_holding("plan_rewrites_nothing", &documents);
     let before = personal_document(&checkout);
 
@@ -146,7 +194,7 @@ async fn planning_reports_a_pending_migration_and_leaves_the_document_as_it_was(
 
 #[tokio::test]
 async fn a_document_already_at_this_generation_leaves_nothing_to_migrate() {
-    let documents = a_readable_set(fixture("generation_11.dotconfig.json"));
+    let documents = a_readable_set(fixture("generation_12.dotconfig.json"));
     let checkout = a_checkout_holding("nothing_to_migrate", &documents);
 
     let desired_state = load(&checkout).await;
@@ -156,7 +204,7 @@ async fn a_document_already_at_this_generation_leaves_nothing_to_migrate() {
 
 #[tokio::test]
 async fn a_document_rewritten_once_is_read_as_the_same_desired_state_and_migrated_no_further() {
-    let documents = a_readable_set(fixture("generation_10.dotconfig.json"));
+    let documents = a_readable_set(fixture("generation_11.dotconfig.json"));
     let checkout = a_checkout_holding("read_back_migrated", &documents);
 
     let before_the_rewrite = load(&checkout).await;
