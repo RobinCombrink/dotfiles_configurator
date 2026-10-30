@@ -10,6 +10,7 @@ use {
     std::{
         collections::{BTreeMap, BTreeSet},
         fmt::Display,
+        path::Path,
     },
 };
 
@@ -69,6 +70,105 @@ impl Display for EstateConflict {
 }
 
 impl std::error::Error for EstateConflict {}
+
+pub const ESTATE_FILE: &str = "estate.json";
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct EstateFile(String);
+
+impl From<&Path> for EstateFile {
+    fn from(path: &Path) -> Self {
+        Self(path.display().to_string())
+    }
+}
+
+impl From<String> for EstateFile {
+    fn from(named: String) -> Self {
+        Self(named)
+    }
+}
+
+impl Display for EstateFile {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct EstateOwners(BTreeSet<Owner>);
+
+#[derive(Debug)]
+pub enum EstateFileFault {
+    NotJson(serde_json::Error),
+    NoOwnersObject,
+    NotAnOwner(NotAnOwner),
+}
+
+impl Display for EstateFileFault {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EstateFileFault::NotJson(failure) => {
+                write!(formatter, "it is not valid JSON: {failure}")
+            }
+            EstateFileFault::NoOwnersObject => formatter.write_str(
+                "it holds no top-level `owners` object, and an estate's owners are that object's \
+                 keys",
+            ),
+            EstateFileFault::NotAnOwner(cause) => {
+                write!(
+                    formatter,
+                    "a key of its `owners` object is not one: {cause}"
+                )
+            }
+        }
+    }
+}
+
+impl EstateOwners {
+    pub fn decoded(contents: &str) -> Result<Self, EstateFileFault> {
+        let document: serde_json::Value =
+            serde_json::from_str(contents).map_err(EstateFileFault::NotJson)?;
+        let owners = document
+            .get("owners")
+            .and_then(serde_json::Value::as_object)
+            .ok_or(EstateFileFault::NoOwnersObject)?;
+
+        owners
+            .keys()
+            .map(|key| Owner::try_from(key.as_str()))
+            .collect::<Result<_, _>>()
+            .map(Self)
+            .map_err(EstateFileFault::NotAnOwner)
+    }
+
+    pub fn contains(&self, owner: &Owner) -> bool {
+        self.0.contains(owner)
+    }
+
+    pub fn owners(&self) -> &BTreeSet<Owner> {
+        &self.0
+    }
+}
+
+#[derive(Debug)]
+pub struct EstateFileRefused {
+    pub file: EstateFile,
+    pub fault: EstateFileFault,
+}
+
+impl Display for EstateFileRefused {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} cannot be read as an estate's owners: {}",
+            self.file, self.fault
+        )
+    }
+}
+
+impl std::error::Error for EstateFileRefused {}
 
 impl Configuration {
     fn estate_account(&self) -> Result<Account, NotAnOwner> {

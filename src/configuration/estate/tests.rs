@@ -117,3 +117,68 @@ fn an_estate_acting_as_an_account_github_would_not_name_is_refused() {
 fn a_configuration_declaring_no_estate_may_act_as_any_account() {
     assert!(resolved(&[configuration("Robin Combrink", None)]).is_ok());
 }
+
+#[test]
+fn an_estate_files_owners_are_the_keys_of_its_owners_object_whatever_their_values_hold() {
+    let decoded = EstateOwners::decoded(
+        r#"{
+            "$schema": "./estate.schema.json",
+            "owners": {
+                "Alice": { "tracker": { "github": {} }, "labels": { "ready": "kind/apply" } },
+                "AliceTools": 7
+            },
+            "anything": ["else"]
+        }"#,
+    )
+    .unwrap();
+
+    assert_eq!(decoded.owners(), &owners(&["Alice", "AliceTools"]));
+}
+
+#[test]
+fn an_estate_file_with_an_empty_owners_object_names_no_owner() {
+    assert!(
+        EstateOwners::decoded(r#"{ "owners": {} }"#)
+            .unwrap()
+            .owners()
+            .is_empty()
+    );
+}
+
+#[test]
+fn an_estate_file_without_an_owners_object_is_refused() {
+    let fault = EstateOwners::decoded(r#"{ "labels": {} }"#).unwrap_err();
+
+    let EstateFileFault::NoOwnersObject = fault else {
+        panic!("expected the file to be refused as holding no owners object, got: {fault:?}");
+    };
+}
+
+#[test]
+fn an_estate_file_whose_owners_are_a_list_rather_than_an_object_is_refused() {
+    let fault = EstateOwners::decoded(r#"{ "owners": ["Alice"] }"#).unwrap_err();
+
+    let EstateFileFault::NoOwnersObject = fault else {
+        panic!("expected the file to be refused as holding no owners object, got: {fault:?}");
+    };
+}
+
+#[test]
+fn an_estate_file_keying_an_owner_github_would_not_name_is_refused_naming_it() {
+    let fault = EstateOwners::decoded(r#"{ "owners": { "Alice": {}, "Robin Combrink": {} } }"#)
+        .unwrap_err();
+
+    let EstateFileFault::NotAnOwner(cause) = fault else {
+        panic!("expected the key to be refused as no owner, got: {fault:?}");
+    };
+    assert_eq!(cause, NotAnOwner("Robin Combrink".to_owned()));
+}
+
+#[test]
+fn an_estate_file_that_is_not_json_is_refused() {
+    let fault = EstateOwners::decoded("owners: Alice").unwrap_err();
+
+    let EstateFileFault::NotJson(_) = fault else {
+        panic!("expected the file to be refused as not JSON, got: {fault:?}");
+    };
+}
