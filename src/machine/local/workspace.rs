@@ -3,7 +3,7 @@ use {
         configuration::{BinaryName, CrateName},
         machine::workspace_reading::{
             Fingerprint, InferableBinary, MemberReading, MemberTree, ObjectHash, Revision,
-            WorkspaceReading, member_paths, read_member_manifest,
+            WorkspaceReading, read_member_manifest,
         },
     },
     anyhow::{Context, Result, anyhow},
@@ -13,6 +13,7 @@ use {
         path::Path,
     },
     workspace_lock::{BuildClosure, WorkspaceLock, inherited_by},
+    workspace_members::members_of,
 };
 
 struct MemberAtRevision {
@@ -99,7 +100,8 @@ fn members_at(
     let lock = WorkspaceLock::read(&blob_text(repository, &tree, "Cargo.lock")?)?;
 
     let mut members = BTreeMap::new();
-    for path in member_paths(&manifest)? {
+    let member_paths = members_of(&manifest, |parent| crates_under(repository, &tree, parent))?;
+    for path in member_paths {
         let crate_subtree = entry_hash(&tree, &path).ok_or_else(|| {
             anyhow!("its [workspace] member \"{path}\" is not in the repository at {revision}")
         })?;
@@ -217,6 +219,40 @@ fn inferable_binaries_in(
             }
         })
         .collect())
+}
+
+fn crates_under(
+    repository: &Repository,
+    tree: &Tree,
+    parent: &str,
+) -> Result<Vec<String>, git2::Error> {
+    let entry = match tree.get_path(Path::new(parent)) {
+        Ok(entry) => entry,
+        Err(error) if error.code() == git2::ErrorCode::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let children = repository.find_tree(entry.id())?;
+
+    let mut crates = Vec::new();
+    for child in children.iter() {
+        if child.kind() != Some(ObjectType::Tree) {
+            continue;
+        }
+        let holds_a_manifest = repository
+            .find_tree(child.id())?
+            .get_name("Cargo.toml")
+            .is_some_and(|manifest| manifest.kind() == Some(ObjectType::Blob));
+        if !holds_a_manifest {
+            continue;
+        }
+        let name = child.name().ok_or_else(|| {
+            git2::Error::from_str(&format!(
+                "a directory under \"{parent}\" holding a Cargo.toml is not named in UTF-8"
+            ))
+        })?;
+        crates.push(name.to_owned());
+    }
+    Ok(crates)
 }
 
 fn entry_hash(tree: &Tree, path: &str) -> Option<ObjectHash> {

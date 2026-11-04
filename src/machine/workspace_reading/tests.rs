@@ -1,45 +1,6 @@
 use super::*;
 
 #[test]
-fn a_workspace_manifest_lists_the_paths_of_its_members() {
-    let manifest = r#"
-        [workspace]
-        resolver = "2"
-        members = ["tools/stop-gate", "tools/ci-checks"]
-    "#;
-
-    assert_eq!(
-        member_paths(manifest).unwrap(),
-        vec!["tools/stop-gate".to_owned(), "tools/ci-checks".to_owned()]
-    );
-}
-
-#[test]
-fn a_member_path_holding_a_glob_is_refused_by_name() {
-    let manifest = r#"
-        [workspace]
-        members = ["tools/*"]
-    "#;
-
-    let error = member_paths(manifest).unwrap_err().to_string();
-
-    assert!(
-        error.contains("tools/*"),
-        "expected the message to name the entry, got: {error}"
-    );
-}
-
-#[test]
-fn a_manifest_that_declares_no_workspace_is_refused() {
-    let manifest = r#"
-        [package]
-        name = "stop-gate"
-    "#;
-
-    assert!(member_paths(manifest).is_err());
-}
-
-#[test]
 fn a_member_is_known_by_the_name_its_own_manifest_gives_it() {
     let manifest = r#"
         [package]

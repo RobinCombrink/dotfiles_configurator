@@ -168,17 +168,6 @@ impl MemberManifest {
 }
 
 #[derive(Deserialize)]
-struct WorkspaceDocument {
-    workspace: Option<WorkspaceSection>,
-}
-
-#[derive(Deserialize)]
-struct WorkspaceSection {
-    #[serde(default)]
-    members: Vec<String>,
-}
-
-#[derive(Deserialize)]
 struct MemberDocument {
     package: Option<PackageSection>,
     #[serde(default, rename = "bin")]
@@ -194,23 +183,6 @@ struct BinarySection {
 #[derive(Deserialize)]
 struct PackageSection {
     name: String,
-}
-
-pub fn member_paths(manifest: &str) -> Result<Vec<String>> {
-    let document: WorkspaceDocument =
-        toml::from_str(manifest).map_err(|error| anyhow!("{error}"))?;
-
-    let Some(workspace) = document.workspace else {
-        bail!("its Cargo.toml declares no [workspace]");
-    };
-
-    for path in &workspace.members {
-        if path.contains('*') {
-            bail!("its [workspace] members entry \"{path}\" is a glob, which is not resolved");
-        }
-    }
-
-    Ok(workspace.members)
 }
 
 pub fn read_member_manifest(manifest: &str) -> Result<MemberManifest> {

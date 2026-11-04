@@ -46,6 +46,7 @@ toml = "0.8.23"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 semver = "1.0.28"
 workspace-lock = { path = "crates/workspace-lock" }
+workspace-members = { path = "crates/workspace-members" }
 sha2 = "0.11.0"
 github-owner = { path = "crates/github-owner", features = ["schema"] }
 machine-manifest-document = { path = "crates/machine-manifest-document", features = ["schema"] }

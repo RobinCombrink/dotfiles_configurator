@@ -624,6 +624,38 @@ fn a_member_whose_binaries_directory_cannot_be_read_as_one_refuses_the_workspace
 }
 
 #[test]
+fn every_directory_under_a_parent_holding_a_manifest_at_the_tracked_revision_is_a_member() {
+    let repository = TemporaryRepository::create();
+    repository.write("Cargo.toml", "[workspace]\nmembers = [\"tools/*\"]\n");
+    repository.write(
+        "Cargo.lock",
+        &lock_of(&[member_entry("a", &[]), member_entry("b", &[])]),
+    );
+    for name in ["a", "b"] {
+        repository.write(
+            &format!("tools/{name}/Cargo.toml"),
+            &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"),
+        );
+        repository.write(&format!("tools/{name}/src/main.rs"), "fn main() {}\n");
+    }
+    repository.write("tools/notes/README.md", "no crate here\n");
+    repository.write("tools/README.md", "a file beside the crates\n");
+    repository.commit("the workspace");
+    repository.push();
+    repository.write(
+        "tools/c/Cargo.toml",
+        "[package]\nname = \"c\"\nversion = \"0.1.0\"\n",
+    );
+    repository.write("tools/c/src/main.rs", "fn main() {}\n");
+    repository.commit("a crate not yet pushed");
+
+    let reading = workspace::read(repository.path()).unwrap().unwrap();
+
+    let members: Vec<String> = reading.members.keys().map(CrateName::to_string).collect();
+    assert_eq!(members, vec!["a", "b"]);
+}
+
+#[test]
 fn a_directory_holding_no_clone_yet_reports_no_workspace_rather_than_failing() {
     let directory = tempfile::tempdir().unwrap();
 

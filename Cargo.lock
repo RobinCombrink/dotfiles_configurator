@@ -575,6 +575,7 @@ dependencies = [
  "windows-sys 0.60.2",
  "winresource",
  "workspace-lock",
+ "workspace-members",
  "zip",
 ]
 
