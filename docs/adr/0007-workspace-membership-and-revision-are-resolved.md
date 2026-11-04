@@ -81,11 +81,13 @@ kind, and the registry covers the ordinary way to install someone else's crate.
   fingerprint. None of
   dotfiles' 21 root-manifest commits in the same month changed more than membership.
 - **A workspace that cannot be read refuses the whole run.** Cloned but with no tracked remote
-  branch, an unparseable manifest, a member named by a glob, a member inheriting what the
-  manifest does not hold, no lockfile, or a lockfile naming a dependency it holds no entry for
-  or holding no entry for a member: each leaves which crates exist, or what they are built from,
-  unknown, and a source that decides which resources exist cannot fail softly the way a source
-  that describes one resource can. Reporting drift instead
+  branch, an unparseable manifest, a member named by a glob other than a `<dir>/*` member, a
+  member inheriting what the manifest does not hold, no lockfile, or a lockfile naming a
+  dependency it holds no entry for or holding no entry for a member: each leaves which crates
+  exist, or what they are built from, unknown, and a source that decides which resources exist
+  cannot fail softly the way a source that describes one resource can. A `<dir>/*` member
+  resolves to every subdirectory of `<dir>` holding a `Cargo.toml` at the tracked revision, so
+  the membership it names is known. Reporting drift instead
   would apply a change set built from a membership nobody established, and a closure hashed
   around an entry it could not reach would read as a plausible fingerprint rather than as an
   error. ADR 0009 already refuses to apply any configuration it could not read; this is that rule
