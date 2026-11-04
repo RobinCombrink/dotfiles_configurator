@@ -6,12 +6,18 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace]
-members = ["crates/github-owner", "crates/machine-manifest-document", "crates/workspace-lock"]
+members = [
+    "crates/github-owner",
+    "crates/machine-manifest-document",
+    "crates/workspace-lock",
+    "crates/workspace-members",
+]
 default-members = [
     ".",
     "crates/github-owner",
     "crates/machine-manifest-document",
     "crates/workspace-lock",
+    "crates/workspace-members",
 ]
 
 [dependencies]

@@ -3414,6 +3414,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "workspace-members"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml 0.8.23",
+]
+
+[[package]]
 name = "writeable"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
