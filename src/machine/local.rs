@@ -9,7 +9,7 @@ use {
         github::GitHubAccess,
         machine::{
             CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
-            ElevatedWork, Elevation, Exited, HeldReason, Placement, PrivilegeRefusal,
+            ElevatedWork, Elevation, Exited, HeldReason, OsError, Placement, PrivilegeRefusal,
             ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool,
             WorkspaceBuild, WriteInvocation, WriteMachine, crate_index_reading,
             dart_reading::DartReading,
@@ -162,7 +162,10 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
     async fn run_installer(&self, installer_path: &Path) -> Result<Placement> {
         match run_installer_at(installer_path, self.report).await {
             Ok(()) => Ok(Placement::Placed),
-            Err(error) if refused_for_want_of(&error, Want::Elevation) => {
+            Err(error) => {
+                let Some(os_error) = refused_for_want_of(&error, Want::Elevation) else {
+                    return Err(error);
+                };
                 let digest = fs::File::open(installer_path)
                     .and_then(ContentDigest::of)
                     .with_context(|| format!("Could not read {}", installer_path.display()))?;
@@ -171,10 +174,9 @@ impl<'report, 'access> LocalMachine<'report, 'access> {
                         installer_path: installer_path.to_path_buf(),
                         digest,
                     },
-                    refusal: format!("{error:#}"),
+                    os_error,
                 }))
             }
-            Err(error) => Err(error),
         }
     }
 
@@ -492,22 +494,26 @@ enum Want {
 }
 
 #[cfg(target_family = "windows")]
-fn refused_for_want_of(error: &anyhow::Error, want: Want) -> bool {
+fn refused_for_want_of(error: &anyhow::Error, want: Want) -> Option<OsError> {
     use windows_sys::Win32::Foundation::{ERROR_ELEVATION_REQUIRED, ERROR_PRIVILEGE_NOT_HELD};
 
-    let refusal = match want {
-        Want::Privilege => ERROR_PRIVILEGE_NOT_HELD,
-        Want::Elevation => ERROR_ELEVATION_REQUIRED,
-    };
+    let refusal = OsError(
+        match want {
+            Want::Privilege => ERROR_PRIVILEGE_NOT_HELD,
+            Want::Elevation => ERROR_ELEVATION_REQUIRED,
+        }
+        .cast_signed(),
+    );
     error
         .chain()
         .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
-        .any(|cause| cause.raw_os_error() == Some(refusal.cast_signed()))
+        .any(|cause| cause.raw_os_error() == Some(refusal.0))
+        .then_some(refusal)
 }
 
 #[cfg(target_family = "unix")]
-fn refused_for_want_of(_error: &anyhow::Error, _want: Want) -> bool {
-    false
+fn refused_for_want_of(_error: &anyhow::Error, _want: Want) -> Option<OsError> {
+    None
 }
 
 #[cfg(target_family = "windows")]
@@ -817,16 +823,16 @@ impl WriteMachine for LocalMachine<'_, '_> {
     fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<Placement> {
         match place_link(link_path, target_path) {
             Ok(()) => Ok(Placement::Placed),
-            Err(error) if refused_for_want_of(&error, Want::Privilege) => {
-                Ok(Placement::Refused(PrivilegeRefusal {
+            Err(error) => match refused_for_want_of(&error, Want::Privilege) {
+                Some(os_error) => Ok(Placement::Refused(PrivilegeRefusal {
                     work: ElevatedWork::Link {
                         link_path: link_path.to_path_buf(),
                         target_path: target_path.to_path_buf(),
                     },
-                    refusal: format!("{error:#}"),
-                }))
-            }
-            Err(error) => Err(error),
+                    os_error,
+                })),
+                None => Err(error),
+            },
         }
     }
 

@@ -29,7 +29,7 @@ use {
         confirmation::{Confirm, Confirmation, Operator},
         convergence::{
             ApplyOutcome, ChangeSet, DriftReason, Finding, Impediment, UnreadableReason,
-            apply::{Enactment, apply},
+            apply::{Enactment, FailureReason, apply},
             assess::{ServerDifference, WantedVersion},
             member_currency::{BinaryDrift, CopyDrift, SearchPathFinding},
             plan,
@@ -38,7 +38,8 @@ use {
         desired_state::{ChangeSetResource, DesiredState},
         github::GitHubAccess,
         machine::{
-            CommandOutput, Exited, HeldReason, ReadInvocation, ReadMachine, WriteMachine,
+            CommandOutput, ElevatedWork, Exited, HeldReason, OsError, PrivilegeRefusal,
+            ReadInvocation, ReadMachine, WriteMachine,
             dart_reading::DartReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
@@ -52,7 +53,7 @@ use {
     },
     fake_machine::{
         CONFIGURATOR_VERSION_RUNNING_AND_NEWEST_PUBLISHED, FakeMachine, LauncherCopy,
-        dotfiles_repository_path, filesystem_root, repositories_root_path,
+        PRIVILEGE_NOT_HELD, dotfiles_repository_path, filesystem_root, repositories_root_path,
     },
     github_owner::Owner,
     machine_manifest_document::{Document, SlotsPerBank},
@@ -2056,6 +2057,25 @@ fn apply_is_already_elevated(world: &mut MachineWorld) {
 #[then(expr = "Alice was asked for elevation {int} time(s)")]
 fn alice_was_asked_for_elevation(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.machine.elevation_prompts(), expected);
+}
+
+#[then(expr = "Alice's run fails the link {string} with the privilege it was refused")]
+fn the_run_fails_a_link_refused_a_privilege(world: &mut MachineWorld, name: String) {
+    let refused: Vec<OsError> = world
+        .outcome()
+        .failed
+        .iter()
+        .filter(|failure| failure.resource.name() == name)
+        .filter_map(|failure| match &failure.reason {
+            FailureReason::Refused(PrivilegeRefusal {
+                work: ElevatedWork::Link { .. },
+                os_error,
+            }) => Some(*os_error),
+            FailureReason::Refused(_) | FailureReason::Error(_) => None,
+        })
+        .collect();
+
+    assert_eq!(refused, vec![PRIVILEGE_NOT_HELD]);
 }
 
 #[then(expr = "Alice's run holds {string} because elevation was declined")]

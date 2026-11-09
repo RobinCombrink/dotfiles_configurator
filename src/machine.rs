@@ -31,7 +31,7 @@ pub mod workspace_reading;
 
 pub use {
     elevation::{
-        Batched, ContentDigest, ElevatedBatch, ElevatedOutcome, ElevatedWork, Elevation,
+        Batched, ContentDigest, ElevatedBatch, ElevatedOutcome, ElevatedWork, Elevation, OsError,
         PrivilegeRefusal,
     },
     invocation::{

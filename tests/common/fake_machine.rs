@@ -16,7 +16,7 @@ use {
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             Batched, CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
-            ElevatedOutcome, ElevatedWork, Elevation, Exited, HeldReason, Placement,
+            ElevatedOutcome, ElevatedWork, Elevation, Exited, HeldReason, OsError, Placement,
             PrivilegeRefusal, ReadInvocation, ReadMachine, Replacement, ReplacingInvocation,
             ResolvedCargoSource, WorkspaceBuild, WriteInvocation, WriteMachine,
             dart_reading::{DartDrift, DartReading},
@@ -1310,6 +1310,13 @@ const WINGET_EXITS_FINDING_NO_PACKAGE: i32 = 0x8A15_0014_u32.cast_signed();
 
 const WINGET_VERSION_UNLESS_DECLARED: &str = "1.0.0";
 
+pub const PRIVILEGE_NOT_HELD: OsError = OsError(1314);
+
+const ELEVATION_REQUIRED: OsError = OsError(740);
+
+#[cfg(target_family = "windows")]
+const ACCESS_DENIED: OsError = OsError(5);
+
 struct WingetRow {
     id: String,
     version: String,
@@ -1693,12 +1700,7 @@ impl WriteMachine for FakeMachine {
                     link_path: link_path.to_path_buf(),
                     target_path: target_path.to_path_buf(),
                 },
-                refusal: format!(
-                    "Could not link {} to {}: A required privilege is not held by the client. \
-                     (os error 1314)",
-                    link_path.display(),
-                    target_path.display()
-                ),
+                os_error: PRIVILEGE_NOT_HELD,
             }));
         }
 
@@ -1789,10 +1791,7 @@ impl WriteMachine for FakeMachine {
                     installer_path: downloaded.file().to_path_buf(),
                     digest: ContentDigest::of(installer.name.to_string().as_bytes())?,
                 },
-                refusal: format!(
-                    "Could not run {}: The requested operation requires elevation. (os error 740)",
-                    downloaded.file().display()
-                ),
+                os_error: ELEVATION_REQUIRED,
             }))
         })
         .await
@@ -1868,10 +1867,7 @@ impl WriteMachine for FakeMachine {
                 work: ElevatedWork::MachineSearchPathFront {
                     directory: directory.to_path_buf(),
                 },
-                refusal: format!(
-                    "Could not put {} first on the Machine PATH: Access is denied. (0x80070005)",
-                    directory.display()
-                ),
+                os_error: ACCESS_DENIED,
             }));
         }
 

@@ -74,10 +74,25 @@ impl Display for ContentDigest {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OsError(pub i32);
+
+impl Display for OsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(&io::Error::from_raw_os_error(self.0), formatter)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrivilegeRefusal {
     pub work: ElevatedWork,
-    pub refusal: String,
+    pub os_error: OsError,
+}
+
+impl Display for PrivilegeRefusal {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "Could not {}: {}", self.work, self.os_error)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

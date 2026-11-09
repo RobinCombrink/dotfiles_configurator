@@ -31,6 +31,16 @@ fn each_entry_of_a_settled_batch_answers_for_its_own_work() {
 }
 
 #[test]
+fn a_refusal_is_shown_with_the_os_error_it_was_refused_with() {
+    let refusal = PrivilegeRefusal {
+        work: linking(".gitconfig"),
+        os_error: OsError(1314),
+    };
+
+    assert!(refusal.to_string().contains("(os error 1314)"), "{refusal}");
+}
+
+#[test]
 fn work_a_settled_batch_never_held_has_no_outcome_in_it() {
     let settled = ElevatedBatch {
         entries: vec![Batched {

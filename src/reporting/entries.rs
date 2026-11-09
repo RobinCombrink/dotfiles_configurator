@@ -2,7 +2,7 @@ use {
     crate::{
         configuration::{Resource, ResourceKind},
         convergence::Lane,
-        machine::HeldReason,
+        machine::{HeldReason, PrivilegeRefusal},
     },
     indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle},
     std::{
@@ -192,6 +192,7 @@ impl EntryStatus {
 pub enum EntryOutcome {
     Converged,
     Failed { reason: String },
+    Refused { refusal: PrivilegeRefusal },
     Held { reason: HeldReason },
 }
 
@@ -209,6 +210,7 @@ impl From<EntryOutcome> for Ending {
         match outcome {
             EntryOutcome::Converged => Ending::Converged,
             EntryOutcome::Failed { reason } => Ending::Failed(reason),
+            EntryOutcome::Refused { refusal } => Ending::Failed(refusal.to_string()),
             EntryOutcome::Held { reason } => Ending::Held(reason.to_string()),
         }
     }

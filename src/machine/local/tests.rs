@@ -515,25 +515,34 @@ fn refused_with(os_error: i32) -> anyhow::Error {
 #[cfg(target_family = "windows")]
 #[test]
 fn a_link_refused_with_os_error_1314_wants_a_privilege() {
-    assert!(refused_for_want_of(&refused_with(1314), Want::Privilege));
+    assert_eq!(
+        refused_for_want_of(&refused_with(1314), Want::Privilege),
+        Some(OsError(1314))
+    );
 }
 
 #[cfg(target_family = "windows")]
 #[test]
 fn a_link_refused_for_any_other_reason_wants_no_privilege() {
-    assert!(!refused_for_want_of(&refused_with(5), Want::Privilege));
+    assert_eq!(refused_for_want_of(&refused_with(5), Want::Privilege), None);
 }
 
 #[cfg(target_family = "windows")]
 #[test]
 fn an_installer_refused_with_os_error_740_wants_elevation() {
-    assert!(refused_for_want_of(&refused_with(740), Want::Elevation));
+    assert_eq!(
+        refused_for_want_of(&refused_with(740), Want::Elevation),
+        Some(OsError(740))
+    );
 }
 
 #[cfg(target_family = "windows")]
 #[test]
 fn an_installer_refused_for_want_of_a_privilege_is_not_read_as_wanting_elevation() {
-    assert!(!refused_for_want_of(&refused_with(1314), Want::Elevation));
+    assert_eq!(
+        refused_for_want_of(&refused_with(1314), Want::Elevation),
+        None
+    );
 }
 
 #[test]

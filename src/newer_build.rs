@@ -98,7 +98,7 @@ async fn obtain_a_newer_build(machine: &impl WriteMachine) -> Result<()> {
         ) => {
             bail!("The newer build could not be installed: {reason}")
         }
-        Placement::Refused(refusal) => bail!("{}", refusal.refusal),
+        Placement::Refused(refusal) => bail!("{refusal}"),
     }
 }
 

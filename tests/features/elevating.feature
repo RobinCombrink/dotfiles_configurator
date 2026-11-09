@@ -95,5 +95,5 @@ Feature: Elevating what the machine refuses without elevation
     And Alice's apply is already elevated
     When Alice applies
     Then 1 resource is reported as failed
-    And the run reports a failure mentioning "os error 1314"
+    And Alice's run fails the link ".gitconfig" with the privilege it was refused
     And Alice was asked for elevation 0 times

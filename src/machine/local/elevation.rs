@@ -87,7 +87,7 @@ async fn performed(work: &ElevatedWork, report: &RunReport) -> Result<()> {
         ElevatedWork::MachineSearchPathFront { directory } => {
             match super::environment::put_first_on_machine_search_path(directory)? {
                 Placement::Placed => Ok(()),
-                Placement::Refused(refusal) => bail!("{}, elevated", refusal.refusal),
+                Placement::Refused(refusal) => bail!("{refusal}, elevated"),
                 Placement::Held(reason) => bail!("{work} was held: {reason}"),
             }
         }

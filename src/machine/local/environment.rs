@@ -1,13 +1,14 @@
 #[cfg(target_family = "windows")]
 use {
     crate::machine::{
-        ElevatedWork, Placement, PrivilegeRefusal,
+        ElevatedWork, OsError, Placement, PrivilegeRefusal,
         environment_reading::{carrying, entries_of, fronting},
     },
     anyhow::Context,
     std::{iter::once, path::PathBuf, ptr},
     windows_registry::{CURRENT_USER, Key, LOCAL_MACHINE, Type, Value},
     windows_sys::Win32::{
+        Foundation::ERROR_ACCESS_DENIED,
         System::Environment::ExpandEnvironmentStringsW,
         UI::WindowsAndMessaging::{
             HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE,
@@ -60,10 +61,7 @@ pub fn put_first_on_machine_search_path(directory: &Path) -> Result<Placement> {
             work: ElevatedWork::MachineSearchPathFront {
                 directory: directory.to_path_buf(),
             },
-            refusal: format!(
-                "Could not put {} first on the Machine PATH: {error}",
-                directory.display()
-            ),
+            os_error: OsError(ERROR_ACCESS_DENIED.cast_signed()),
         })),
         Err(error) => Err(error).with_context(|| {
             format!(

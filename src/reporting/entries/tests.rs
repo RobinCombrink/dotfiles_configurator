@@ -57,6 +57,24 @@ fn failed(reason: &str) -> EntryOutcome {
 }
 
 #[test]
+fn a_refusal_ends_its_entry_failed_with_the_refusal_as_its_reason() {
+    let refusal = PrivilegeRefusal {
+        work: crate::machine::ElevatedWork::Link {
+            link_path: ".gitconfig".into(),
+            target_path: "dotfiles/gitconfig/.gitconfig".into(),
+        },
+        os_error: crate::machine::OsError(1314),
+    };
+
+    assert_eq!(
+        Ending::from(EntryOutcome::Refused {
+            refusal: refusal.clone()
+        }),
+        Ending::Failed(refusal.to_string())
+    );
+}
+
+#[test]
 fn without_a_terminal_each_state_change_is_a_line_then_the_diagnostics_then_the_tally() {
     let transcript = Transcript::default();
     let began = Instant::now();

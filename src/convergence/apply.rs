@@ -13,7 +13,7 @@ use {
         desired_state::{ChangeSetResource, DesiredState, ResolvedWorkspace},
         machine::{
             ElevatedBatch, ElevatedOutcome, ElevatedWork, Elevation, HeldReason, Placement,
-            ReadMachine, WriteInvocation, WriteMachine,
+            PrivilegeRefusal, ReadMachine, WriteInvocation, WriteMachine,
         },
         reporting::{Closing, Entry, EntryOutcome, RunReport},
     },
@@ -26,9 +26,15 @@ use {
 };
 
 #[derive(Debug)]
+pub enum FailureReason {
+    Error(anyhow::Error),
+    Refused(PrivilegeRefusal),
+}
+
+#[derive(Debug)]
 pub struct Failure {
     pub resource: ChangeSetResource,
-    pub error: anyhow::Error,
+    pub reason: FailureReason,
 }
 
 #[derive(Debug)]
@@ -331,7 +337,7 @@ impl Handled {
 enum Attempted {
     Converged,
     Held(HeldReason),
-    Failed(anyhow::Error),
+    Failed(FailureReason),
 }
 
 // ADR 0042
@@ -379,7 +385,7 @@ impl Pass {
             match attempted {
                 Attempted::Converged => pass.converged.push(resource),
                 Attempted::Held(reason) => pass.held.push(Held { resource, reason }),
-                Attempted::Failed(error) => pass.failed.push(Failure { resource, error }),
+                Attempted::Failed(reason) => pass.failed.push(Failure { resource, reason }),
             }
         }
         pass
@@ -793,7 +799,7 @@ fn reached(
 ) -> Reached {
     match outcome {
         Ok(Placement::Refused(refusal)) if !machine.is_elevated() => {
-            report.awaiting_elevation(entry, &refusal.refusal);
+            report.awaiting_elevation(entry, &refusal.to_string());
             Reached::AwaitingElevation(refusal.work)
         }
         outcome => Reached::Attempted(conclude(change, entry, outcome, report)),
@@ -822,7 +828,16 @@ fn conclude(
             );
             Attempted::Held(reason)
         }
-        Ok(Placement::Refused(refusal)) => failed(change, entry, anyhow!(refusal.refusal), report),
+        Ok(Placement::Refused(refusal)) => {
+            report.note(&format!("FAILED {}: {refusal}", change.resource));
+            report.entry_finished(
+                entry,
+                EntryOutcome::Refused {
+                    refusal: refusal.clone(),
+                },
+            );
+            Attempted::Failed(FailureReason::Refused(refusal))
+        }
         Err(error) => failed(change, entry, error, report),
     }
 }
@@ -831,5 +846,5 @@ fn failed(change: &Change, entry: &Entry, error: anyhow::Error, report: &RunRepo
     let reason = format!("{error:#}");
     report.note(&format!("FAILED {}: {reason}", change.resource));
     report.entry_finished(entry, EntryOutcome::Failed { reason });
-    Attempted::Failed(error)
+    Attempted::Failed(FailureReason::Error(error))
 }
