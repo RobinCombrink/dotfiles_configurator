@@ -33,14 +33,15 @@ use {
             assess::{ServerDifference, WantedVersion},
             member_currency::{BinaryDrift, CopyDrift, SearchPathFinding},
             plan,
+            source_reading::ReadFailure,
         },
         currency::SelfReplacement,
         desired_state::{ChangeSetResource, DesiredState},
         github::GitHubAccess,
         machine::{
-            CommandOutput, ElevatedWork, Exited, HeldReason, OsError, PrivilegeRefusal,
+            CommandOutput, ElevatedWork, Exited, FailedExit, HeldReason, OsError, PrivilegeRefusal,
             ReadInvocation, ReadMachine, WriteMachine,
-            dart_reading::DartReading,
+            dart_reading::{DartReadFailure, DartReading},
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
                 Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
@@ -1107,11 +1108,36 @@ fn dart_holds_package_currently(world: &mut MachineWorld, name: String) {
         .hold_dart_package_reading(&name.into(), Ok(DartReading::Current));
 }
 
+fn declared_dart_package(world: &MachineWorld, name: &str) -> DartPackage {
+    world
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let Resource::Package(Package::Dart(package)) = resource else {
+                return None;
+            };
+            (package.name.as_ref() == name).then(|| package.clone())
+        })
+        .expect("a scenario declares the dart package it asks about")
+}
+
+const ORIGIN_REFUSING_AUTHENTICATION: Exited = Exited::Code(128);
+const AUTHENTICATION_FAILED: &str = "Authentication failed";
+
 #[given(expr = "origin cannot be asked about {string} from Alice's machine")]
 fn dart_origin_cannot_be_asked(world: &mut MachineWorld, name: String) {
+    let DartSource::Git { url, .. } = declared_dart_package(world, &name).source;
+    let mirror = world.machine.dart_locations().mirrors().join(&name);
     world.machine.hold_dart_package_reading(
         &name.into(),
-        Err("git ls-remote exited with 128: Authentication failed".to_owned()),
+        Err(DartReadFailure::OriginUnlisted {
+            mirror,
+            url,
+            failure: FailedExit {
+                exited: ORIGIN_REFUSING_AUTHENTICATION,
+                standard_error: AUTHENTICATION_FAILED.to_owned(),
+            },
+        }),
     );
 }
 
@@ -1129,16 +1155,7 @@ fn dart_cannot_replace_a_running_package(world: &mut MachineWorld, name: String)
 
 #[then(expr = "dart holds {string} as its reference names it on Alice's machine")]
 fn dart_now_holds_package_currently(world: &mut MachineWorld, name: String) {
-    let declared = world
-        .resources
-        .iter()
-        .find_map(|resource| {
-            let Resource::Package(Package::Dart(package)) = resource else {
-                return None;
-            };
-            (package.name.as_ref() == name).then(|| package.clone())
-        })
-        .expect("a scenario declares the dart package it asks about");
+    let declared = declared_dart_package(world, &name);
 
     assert_eq!(
         world.machine.read_dart_package(&declared).unwrap(),
@@ -2878,9 +2895,14 @@ fn change_set_reports_no_release(world: &mut MachineWorld, name: String, owner_a
 )]
 fn change_set_reports_a_read_failure(world: &mut MachineWorld, name: String) {
     let impediment = world.impediment_of(&name);
-    let Impediment::ActualStateUnreadable(UnreadableReason::ReadFailed(_)) = impediment else {
+    let Impediment::ActualStateUnreadable(UnreadableReason::ReadFailed(ReadFailure::Dart(
+        DartReadFailure::OriginUnlisted { failure, .. },
+    ))) = impediment
+    else {
         panic!("{impediment:?}");
     };
+    assert_eq!(failure.exited, ORIGIN_REFUSING_AUTHENTICATION);
+    assert_eq!(failure.standard_error, AUTHENTICATION_FAILED);
 }
 
 #[then(

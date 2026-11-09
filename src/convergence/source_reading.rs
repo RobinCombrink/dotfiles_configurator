@@ -6,7 +6,7 @@ use {
         },
         convergence::Impediment,
         machine::{
-            FailedExit, FileReadFailure, ProgramStartFailure,
+            FailedExit, FileReadFailure, ProgramStartFailure, dart_reading::DartReadFailure,
             workspace_reading::WorkspaceReadFailure,
         },
     },
@@ -17,6 +17,7 @@ use {
 pub enum ReadFailure {
     Chain(String),
     Workspace(WorkspaceReadFailure),
+    Dart(DartReadFailure),
     ProgramStart(ProgramStartFailure),
     FileRead(FileReadFailure),
 }
@@ -30,6 +31,12 @@ impl From<&anyhow::Error> for ReadFailure {
 impl From<WorkspaceReadFailure> for ReadFailure {
     fn from(failure: WorkspaceReadFailure) -> Self {
         Self::Workspace(failure)
+    }
+}
+
+impl From<DartReadFailure> for ReadFailure {
+    fn from(failure: DartReadFailure) -> Self {
+        Self::Dart(failure)
     }
 }
 
@@ -50,6 +57,7 @@ impl Display for ReadFailure {
         match self {
             ReadFailure::Chain(chain) => formatter.write_str(chain),
             ReadFailure::Workspace(failure) => Display::fmt(failure, formatter),
+            ReadFailure::Dart(failure) => Display::fmt(failure, formatter),
             ReadFailure::ProgramStart(failure) => Display::fmt(failure, formatter),
             ReadFailure::FileRead(failure) => Display::fmt(failure, formatter),
         }

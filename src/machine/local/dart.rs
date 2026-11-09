@@ -5,16 +5,16 @@ use {
             GitRemoteUrl, RepositorySubdirectory,
         },
         machine::{
-            CommandOutput,
-            dart_reading::{DartDrift, DartLocations, DartReading},
+            CommandOutput, FailedExit, FileReadFailure, ProgramStartFailure,
+            dart_reading::{DartDrift, DartLocations, DartReadFailure, DartReading},
         },
     },
-    anyhow::{Context, Result, anyhow, bail},
     serde::{Deserialize, de::IgnoredAny},
     std::{
         collections::BTreeMap,
         fs,
         path::{Path, PathBuf},
+        sync::Arc,
     },
 };
 
@@ -26,8 +26,8 @@ const PEELED_SUFFIX: &str = "^{}";
 pub fn read(
     locations: &DartLocations,
     package: &DartPackage,
-    git: &impl Fn(&Path, &[&str]) -> Result<CommandOutput>,
-) -> Result<DartReading> {
+    git: &impl Fn(&Path, &[&str]) -> Result<CommandOutput, ProgramStartFailure>,
+) -> Result<DartReading, DartReadFailure> {
     let DartSource::Git {
         url,
         path,
@@ -45,8 +45,9 @@ pub fn read(
         }
     };
 
-    let lock = BundleLock::read(&bundle.join(LOCK_FILE))?;
-    let installed = match lock.installed_from(&package.name, url, path)? {
+    let lock_path = bundle.join(LOCK_FILE);
+    let lock = BundleLock::read(&lock_path)?;
+    let installed = match lock.installed_from(&lock_path, &package.name, url, path)? {
         Installed::FromTheDeclaredSource(commit) => commit,
         Installed::FromElsewhere(source) => {
             return Ok(DartReading::Drifted(DartDrift::InstalledFromElsewhere(
@@ -97,19 +98,20 @@ fn compared_by_commit(installed: GitCommit, desired: GitCommit) -> DartReading {
     }
 }
 
-fn directories_in(directory: &Path) -> Result<Vec<PathBuf>> {
+fn directories_in(directory: &Path) -> Result<Vec<PathBuf>, FileReadFailure> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => {
-            return Err(error).with_context(|| format!("Could not read {}", directory.display()));
-        }
+        Err(error) => return Err(FileReadFailure::of(directory, error)),
     };
 
     let mut bundles = Vec::new();
     for entry in entries {
-        let entry = entry.with_context(|| format!("Could not read {}", directory.display()))?;
-        if entry.file_type()?.is_dir() {
+        let entry = entry.map_err(|error| FileReadFailure::of(directory, error))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| FileReadFailure::of(&entry.path(), error))?;
+        if file_type.is_dir() {
             bundles.push(entry.path());
         }
     }
@@ -130,24 +132,25 @@ struct BundlePubspec {
 // with no value, and `dart install` wrote the shim `install\bin\dhttpd.bat` for that key and
 // compiled `bundle\bin\dhttpd.exe`; `dart install --help` says a package declaring no executables
 // section has every `bin/*.dart` entry point installed. Dart 3.11.1 on Windows 11.
-fn executables_of(bundle: &Path) -> Result<Vec<String>> {
+fn executables_of(bundle: &Path) -> Result<Vec<String>, DartReadFailure> {
     let path = bundle.join(PUBSPEC_FILE);
-    let text =
-        fs::read_to_string(&path).with_context(|| format!("Could not read {}", path.display()))?;
-    let pubspec: BundlePubspec = serde_saphyr::from_str(&text)
-        .map_err(|error| anyhow!("{} could not be read as a pubspec: {error}", path.display()))?;
+    let text = fs::read_to_string(&path).map_err(|error| FileReadFailure::of(&path, error))?;
+    let pubspec: BundlePubspec =
+        serde_saphyr::from_str(&text).map_err(|error| DartReadFailure::PubspecUnparsed {
+            pubspec: path.clone(),
+            error: Arc::new(error),
+        })?;
 
     if let Some(declared) = pubspec.executables {
         return Ok(declared.into_keys().collect());
     }
 
     let compiled = bundle.join("bundle").join("bin");
-    let entries = fs::read_dir(&compiled)
-        .with_context(|| format!("Could not read {}", compiled.display()))?;
+    let entries = fs::read_dir(&compiled).map_err(|error| FileReadFailure::of(&compiled, error))?;
     let mut executables = Vec::new();
     for entry in entries {
         let name = entry
-            .with_context(|| format!("Could not read {}", compiled.display()))?
+            .map_err(|error| FileReadFailure::of(&compiled, error))?
             .file_name()
             .to_string_lossy()
             .into_owned();
@@ -191,25 +194,26 @@ enum Installed {
 }
 
 impl BundleLock {
-    fn read(path: &Path) -> Result<Self> {
-        let text = fs::read_to_string(path)
-            .with_context(|| format!("Could not read {}", path.display()))?;
-        serde_saphyr::from_str(&text).map_err(|error| {
-            anyhow!(
-                "{} could not be read as a lock file: {error}",
-                path.display()
-            )
+    fn read(path: &Path) -> Result<Self, DartReadFailure> {
+        let text = fs::read_to_string(path).map_err(|error| FileReadFailure::of(path, error))?;
+        serde_saphyr::from_str(&text).map_err(|error| DartReadFailure::LockUnparsed {
+            lock: path.to_path_buf(),
+            error: Arc::new(error),
         })
     }
 
     fn installed_from(
         &self,
+        lock: &Path,
         name: &DartPackageName,
         url: &GitRemoteUrl,
         path: &RepositorySubdirectory,
-    ) -> Result<Installed> {
+    ) -> Result<Installed, DartReadFailure> {
         let Some(entry) = self.packages.get(name.as_ref()) else {
-            bail!("the bundle's {LOCK_FILE} holds no entry for {name}");
+            return Err(DartReadFailure::LockHoldsNoEntry {
+                lock: lock.to_path_buf(),
+                package: name.clone(),
+            });
         };
         let (LockedDescription::Git(description), GIT_SOURCE) =
             (&entry.description, entry.source.as_str())
@@ -228,7 +232,10 @@ impl BundleLock {
 
         GitCommit::try_from(description.resolved_reference.as_str())
             .map(Installed::FromTheDeclaredSource)
-            .map_err(|reason| anyhow!("the bundle's {LOCK_FILE} names {reason}"))
+            .map_err(|_| DartReadFailure::LockNamesAnUnreadableCommit {
+                lock: lock.to_path_buf(),
+                listed: description.resolved_reference.clone(),
+            })
     }
 
     fn depends_beyond(&self, name: &DartPackageName) -> bool {
@@ -242,8 +249,8 @@ impl BundleLock {
 fn mirror_of(
     mirrors: &Path,
     url: &GitRemoteUrl,
-    git: &impl Fn(&Path, &[&str]) -> Result<CommandOutput>,
-) -> Result<Option<PathBuf>> {
+    git: &impl Fn(&Path, &[&str]) -> Result<CommandOutput, ProgramStartFailure>,
+) -> Result<Option<PathBuf>, DartReadFailure> {
     let mut matching = Vec::new();
     for candidate in directories_in(mirrors)? {
         let output = git(&candidate, &["config", "--get", "remote.origin.url"])?;
@@ -254,10 +261,11 @@ fn mirror_of(
 
     match matching.len() {
         0 | 1 => Ok(matching.pop()),
-        several => bail!(
-            "{several} copies of {url} sit under {}, so which one pub reads cannot be told",
-            mirrors.display()
-        ),
+        several => Err(DartReadFailure::SeveralMirrors {
+            count: several,
+            url: url.clone(),
+            mirrors: mirrors.to_path_buf(),
+        }),
     }
 }
 
@@ -265,8 +273,8 @@ fn commit_origin_names(
     mirror: &Path,
     name: &GitReferenceName,
     url: &GitRemoteUrl,
-    git: &impl Fn(&Path, &[&str]) -> Result<CommandOutput>,
-) -> Result<GitCommit> {
+    git: &impl Fn(&Path, &[&str]) -> Result<CommandOutput, ProgramStartFailure>,
+) -> Result<GitCommit, DartReadFailure> {
     // 2026-10-06: `git ls-remote origin v1` listed only `refs/tags/v1` at the annotated tag's own
     // object; naming `v1^{}` beside it added the `refs/tags/v1^{}` line carrying the commit. git
     // 2.52.0 on Windows 11.
@@ -276,7 +284,11 @@ fn commit_origin_names(
         &["ls-remote", "origin", name.as_ref(), peeled.as_str()],
     )?;
     if !output.exited.succeeded() {
-        bail!("{}", unauthenticated("ls-remote", mirror, url, &output));
+        return Err(DartReadFailure::OriginUnlisted {
+            mirror: mirror.to_path_buf(),
+            url: url.clone(),
+            failure: FailedExit::from(&output),
+        });
     }
 
     let listed: Vec<(&str, &str)> = output
@@ -291,9 +303,16 @@ fn commit_origin_names(
         .map(|(commit, _)| *commit);
 
     match commit {
-        Some(commit) => GitCommit::try_from(commit)
-            .map_err(|reason| anyhow!("origin answered for {name} with {reason}")),
-        None => bail!("origin {url} holds no reference named {name}"),
+        Some(commit) => GitCommit::try_from(commit).map_err(|_| {
+            DartReadFailure::OriginAnsweredAnUnreadableCommit {
+                reference: name.clone(),
+                listed: commit.to_owned(),
+            }
+        }),
+        None => Err(DartReadFailure::OriginHoldsNoReference {
+            url: url.clone(),
+            reference: name.clone(),
+        }),
     }
 }
 
@@ -301,45 +320,34 @@ fn fetch(
     mirror: &Path,
     name: &GitReferenceName,
     url: &GitRemoteUrl,
-    git: &impl Fn(&Path, &[&str]) -> Result<CommandOutput>,
-) -> Result<()> {
+    git: &impl Fn(&Path, &[&str]) -> Result<CommandOutput, ProgramStartFailure>,
+) -> Result<(), DartReadFailure> {
     let output = git(mirror, &["fetch", "origin", name.as_ref()])?;
     match output.exited.succeeded() {
         true => Ok(()),
-        false => bail!("{}", unauthenticated("fetch", mirror, url, &output)),
+        false => Err(DartReadFailure::OriginUnfetched {
+            mirror: mirror.to_path_buf(),
+            url: url.clone(),
+            failure: FailedExit::from(&output),
+        }),
     }
-}
-
-fn unauthenticated(
-    operation: &str,
-    mirror: &Path,
-    url: &GitRemoteUrl,
-    output: &CommandOutput,
-) -> String {
-    format!(
-        "git {operation} in {} {}: {}. Check that the shared .gitconfig routes the pub cache to \
-         an account that can read {url}",
-        mirror.display(),
-        output.exited,
-        output.standard_error.trim()
-    )
 }
 
 fn subtree(
     mirror: &Path,
     commit: &GitCommit,
     path: &RepositorySubdirectory,
-    git: &impl Fn(&Path, &[&str]) -> Result<CommandOutput>,
-) -> Result<String> {
+    git: &impl Fn(&Path, &[&str]) -> Result<CommandOutput, ProgramStartFailure>,
+) -> Result<String, DartReadFailure> {
     let object = format!("{commit}:{path}");
     let output = git(mirror, &["rev-parse", object.as_str()])?;
     match output.exited.succeeded() {
         true => Ok(output.standard_output.trim().to_owned()),
-        false => bail!(
-            "git could not name the tree of {path} at {commit} in {}, {}: {}",
-            mirror.display(),
-            output.exited,
-            output.standard_error.trim()
-        ),
+        false => Err(DartReadFailure::TreeUnnamed {
+            mirror: mirror.to_path_buf(),
+            commit: commit.clone(),
+            path: path.clone(),
+            failure: FailedExit::from(&output),
+        }),
     }
 }

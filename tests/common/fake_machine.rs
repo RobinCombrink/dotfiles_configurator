@@ -20,7 +20,7 @@ use {
             Placement, PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine,
             Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
             WriteMachine,
-            dart_reading::{DartDrift, DartReading},
+            dart_reading::{DartDrift, DartReadFailure, DartReading},
             environment_reading::{MachineSearchPath, SearchPathPlace, SearchPathReading},
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
@@ -62,7 +62,7 @@ struct MachineState {
     winget_versions: BTreeMap<WingetPackageId, WingetVersion>,
     winget_offers: BTreeMap<WingetPackageId, WingetVersion>,
     winget_upgrade_refusals: BTreeMap<WingetPackageId, CommandOutput>,
-    dart_readings: BTreeMap<DartPackageName, Result<DartReading, String>>,
+    dart_readings: BTreeMap<DartPackageName, Result<DartReading, DartReadFailure>>,
     dart_install_refusals: BTreeMap<DartPackageName, CommandOutput>,
     uv_tools: BTreeMap<UvToolName, UvToolVersion>,
     uv_newest_versions: BTreeMap<UvToolName, UvToolVersion>,
@@ -963,7 +963,7 @@ impl FakeMachine {
     pub fn hold_dart_package_reading(
         &self,
         name: &DartPackageName,
-        reading: Result<DartReading, String>,
+        reading: Result<DartReading, DartReadFailure>,
     ) {
         self.state
             .borrow_mut()
@@ -1687,11 +1687,10 @@ impl ReadMachine for FakeMachine {
         Ok(state.releases.get(repository).cloned())
     }
 
-    fn read_dart_package(&self, package: &DartPackage) -> Result<DartReading> {
+    fn read_dart_package(&self, package: &DartPackage) -> Result<DartReading, DartReadFailure> {
         match self.state.borrow().dart_readings.get(&package.name) {
             None => Ok(DartReading::Drifted(DartDrift::NoBundle)),
-            Some(Ok(reading)) => Ok(reading.clone()),
-            Some(Err(reason)) => bail!("{reason}"),
+            Some(reading) => reading.clone(),
         }
     }
 

@@ -13,7 +13,7 @@ use {
             PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine, Replacement,
             ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild, WriteInvocation,
             WriteMachine, crate_index_reading,
-            dart_reading::DartReading,
+            dart_reading::{DartReadFailure, DartReading},
             environment_reading::{MachineSearchPath, SearchPathReading},
             invocation::without_terminal_prompts,
             partial_download_path,
@@ -825,18 +825,18 @@ impl ReadMachine for LocalMachine<'_, '_> {
         environment::read_variable(name)
     }
 
-    fn read_dart_package(&self, package: &DartPackage) -> Result<DartReading> {
+    fn read_dart_package(&self, package: &DartPackage) -> Result<DartReading, DartReadFailure> {
         dart::read(&self.dart_locations(), package, &|directory, arguments| {
             let arguments: Vec<String> = ["-C".to_owned(), directory.display().to_string()]
                 .into_iter()
                 .chain(arguments.iter().map(|argument| (*argument).to_owned()))
                 .collect();
-            Ok(capture_with(
+            capture_with(
                 Path::new(Tool::Git.program()),
                 &arguments,
                 &without_terminal_prompts(),
                 self.report,
-            )?)
+            )
         })
     }
 }

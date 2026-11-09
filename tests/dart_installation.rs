@@ -1,15 +1,14 @@
 #![allow(clippy::disallowed_macros)]
 
 use {
-    anyhow::Result,
     dotfiles_configurator::{
         configuration::{
-            DartPackage, DartPackageName, DartReference, DartSource, GitCommit, GitRemoteUrl,
-            RepositorySubdirectory,
+            DartPackage, DartPackageName, DartReference, DartSource, GitCommit, GitReferenceName,
+            GitRemoteUrl, RepositorySubdirectory,
         },
         machine::{
             CommandOutput, Exited,
-            dart_reading::{DartDrift, DartLocations, DartReading},
+            dart_reading::{DartDrift, DartLocations, DartReadFailure, DartReading},
             local::dart,
         },
     },
@@ -166,7 +165,7 @@ impl Machine {
         fs::remove_file(self.locations().shim_of(executable)).expect("the shim is removable");
     }
 
-    fn read(&self, package: &DartPackage) -> Result<DartReading> {
+    fn read(&self, package: &DartPackage) -> Result<DartReading, DartReadFailure> {
         dart::read(&self.locations(), package, &|directory, arguments| {
             Ok(git_in(directory, arguments))
         })
@@ -416,12 +415,10 @@ fn a_reference_origin_does_not_hold_is_unassessable_saying_so() {
         .read(&declared(origin.url(), "no-such-branch"))
         .unwrap_err();
 
-    assert!(
-        refusal
-            .to_string()
-            .contains("holds no reference named no-such-branch"),
-        "{refusal:#}"
-    );
+    let DartReadFailure::OriginHoldsNoReference { reference, .. } = refusal else {
+        panic!("{refusal:?}");
+    };
+    assert_eq!(reference, GitReferenceName::from("no-such-branch"));
 }
 
 #[test]
@@ -430,7 +427,11 @@ fn a_bundle_whose_lock_cannot_be_read_is_unassessable_rather_than_drifted() {
     let machine = Machine::new();
     machine.bundle(&origin.head(), "packages: [unclosed\n");
 
-    assert!(machine.read(&declared(origin.url(), "main")).is_err());
+    let refusal = machine.read(&declared(origin.url(), "main")).unwrap_err();
+
+    let DartReadFailure::LockUnparsed { .. } = refusal else {
+        panic!("{refusal:?}");
+    };
 }
 
 #[test]
@@ -444,7 +445,10 @@ fn a_bundle_whose_lock_holds_no_entry_for_the_package_is_unassessable() {
 
     let refusal = machine.read(&declared(origin.url(), "main")).unwrap_err();
 
-    assert!(refusal.to_string().contains(PACKAGE), "{refusal:#}");
+    let DartReadFailure::LockHoldsNoEntry { package, .. } = refusal else {
+        panic!("{refusal:?}");
+    };
+    assert_eq!(package, DartPackageName::from(PACKAGE));
 }
 
 #[test]

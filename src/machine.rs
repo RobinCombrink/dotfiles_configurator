@@ -5,7 +5,7 @@ use {
             McpServerName, PresenceCheck, Shell, Tool, VariableName, VariableValue, path_folding,
         },
         machine::{
-            dart_reading::{DartLocations, DartReading},
+            dart_reading::{DartLocations, DartReadFailure, DartReading},
             environment_reading::{MachineSearchPath, SearchPathReading},
             release_reading::ReleaseReading,
             workspace_reading::{Fingerprint, Revision, WorkspaceReadFailure, WorkspaceReading},
@@ -368,7 +368,7 @@ pub trait ReadMachine {
         }
     }
 
-    fn read_dart_package(&self, package: &DartPackage) -> Result<DartReading>;
+    fn read_dart_package(&self, package: &DartPackage) -> Result<DartReading, DartReadFailure>;
 
     // ADR 0022
     fn displacement_directories(&self) -> Vec<PathBuf>;

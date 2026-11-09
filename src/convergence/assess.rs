@@ -487,8 +487,8 @@ fn assess_dart_package(package: &DartPackage, machine: &impl ReadMachine) -> Ass
     match machine.read_dart_package(package) {
         Ok(DartReading::Current) => Assessment::Converged,
         Ok(DartReading::Drifted(drift)) => Assessment::Drifted(DriftReason::Dart(drift)),
-        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            UnreadableReason::from(&error),
+        Err(failure) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            UnreadableReason::read_failed(failure),
         )),
     }
 }
