@@ -29,6 +29,16 @@ fn a_code_with_its_high_bit_set_is_written_in_hex_as_windows_documents_it() {
 }
 
 #[test]
+fn declined_elevation_names_applying_again_and_allowing_the_prompt_as_its_remedy() {
+    let shown = HeldReason::ElevationDeclined.to_string();
+
+    assert!(
+        shown.contains("apply again") && shown.contains("allow the elevation prompt"),
+        "{shown}"
+    );
+}
+
+#[test]
 fn a_child_ending_without_a_code_is_written_without_one() {
     assert_eq!(Exited::WithoutCode.to_string(), "exited without a code");
 }

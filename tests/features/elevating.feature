@@ -59,7 +59,8 @@ Feature: Elevating what the machine refuses without elevation
     When Alice applies
     Then 2 resources are reported as held
     And 0 resources are reported as failed
-    And Alice's run shows "Steam" as held because "elevation declined"
+    And Alice's run holds "Steam" because elevation was declined
+    And Alice's run holds ".gitconfig" because elevation was declined
 
   Scenario: Declined elevation is asked for once rather than on every pass
     Given Alice declares the application "Steam"

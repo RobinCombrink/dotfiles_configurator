@@ -163,7 +163,8 @@ impl Display for HeldReason {
             HeldReason::BeingExecuted(path) => {
                 write!(formatter, "{} is being executed", path.display())
             }
-            HeldReason::ElevationDeclined => formatter.write_str("elevation declined"),
+            HeldReason::ElevationDeclined => formatter
+                .write_str("elevation declined; apply again and allow the elevation prompt"),
             HeldReason::ReportedInUse(reported) => write!(formatter, "in use: {reported}"),
             HeldReason::UpgradedByItsPublisher => {
                 formatter.write_str("its publisher upgrades it rather than winget")

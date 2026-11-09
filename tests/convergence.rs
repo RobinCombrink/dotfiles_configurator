@@ -38,7 +38,7 @@ use {
         desired_state::{ChangeSetResource, DesiredState},
         github::GitHubAccess,
         machine::{
-            CommandOutput, Exited, ReadInvocation, ReadMachine, WriteMachine,
+            CommandOutput, Exited, HeldReason, ReadInvocation, ReadMachine, WriteMachine,
             dart_reading::DartReading,
             release_reading::{ReleaseAsset, ReleaseReading},
             workspace_reading::{
@@ -2058,19 +2058,17 @@ fn alice_was_asked_for_elevation(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.machine.elevation_prompts(), expected);
 }
 
-#[then(expr = "Alice's run shows {string} as held because {string}")]
-fn the_run_shows_an_entry_held(world: &mut MachineWorld, name: String, because: String) {
-    let diagnostics = world.diagnostics_shown();
-    let after_the_entry = diagnostics
-        .split_once(&format!(" {name}: held\n"))
-        .map(|(_, after)| after.lines().next().unwrap_or_default().to_owned())
-        .unwrap_or_default();
+#[then(expr = "Alice's run holds {string} because elevation was declined")]
+fn the_run_holds_an_entry_for_declined_elevation(world: &mut MachineWorld, name: String) {
+    let reasons: Vec<&HeldReason> = world
+        .outcome()
+        .held
+        .iter()
+        .filter(|held| held.resource.name() == name)
+        .map(|held| &held.reason)
+        .collect();
 
-    assert!(
-        after_the_entry.contains(&because),
-        "{}",
-        world.screen.text()
-    );
+    assert_eq!(reasons, vec![&HeldReason::ElevationDeclined]);
 }
 
 #[then(expr = "{int} binary/binaries is/are superseded on Alice's machine")]
