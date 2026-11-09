@@ -5,7 +5,10 @@ use {
             WingetPackageId,
         },
         convergence::Impediment,
-        machine::{FailedExit, ProgramStartFailure, workspace_reading::WorkspaceReadFailure},
+        machine::{
+            FailedExit, FileReadFailure, ProgramStartFailure,
+            workspace_reading::WorkspaceReadFailure,
+        },
     },
     std::{fmt::Display, path::PathBuf},
 };
@@ -15,6 +18,7 @@ pub enum ReadFailure {
     Chain(String),
     Workspace(WorkspaceReadFailure),
     ProgramStart(ProgramStartFailure),
+    FileRead(FileReadFailure),
 }
 
 impl From<&anyhow::Error> for ReadFailure {
@@ -35,12 +39,19 @@ impl From<ProgramStartFailure> for ReadFailure {
     }
 }
 
+impl From<FileReadFailure> for ReadFailure {
+    fn from(failure: FileReadFailure) -> Self {
+        Self::FileRead(failure)
+    }
+}
+
 impl Display for ReadFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ReadFailure::Chain(chain) => formatter.write_str(chain),
             ReadFailure::Workspace(failure) => Display::fmt(failure, formatter),
             ReadFailure::ProgramStart(failure) => Display::fmt(failure, formatter),
+            ReadFailure::FileRead(failure) => Display::fmt(failure, formatter),
         }
     }
 }

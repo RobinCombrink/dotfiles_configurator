@@ -1109,8 +1109,8 @@ fn assess_machine_manifest(manifest: &RenderedManifest, machine: &impl ReadMachi
         Ok(None) => Assessment::Drifted(DriftReason::NoManifest),
         Ok(Some(held)) if held == manifest.document() => Assessment::Converged,
         Ok(Some(_)) => Assessment::Drifted(DriftReason::ManifestDiffers),
-        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            UnreadableReason::from(&error),
+        Err(failure) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            UnreadableReason::read_failed(failure),
         )),
     }
 }

@@ -2,7 +2,7 @@ use {
     crate::{
         configuration::{MachineClass, MachineManifest, RecordedSource, recorded_run_in},
         configuration_source::{ConfigurationSource, DEFAULT_SOURCE},
-        machine::ReadMachine,
+        machine::{FileReadFailure, ReadMachine},
     },
     std::{
         fmt::{Display, Formatter},
@@ -31,16 +31,13 @@ impl ResolvingRun {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum UnrecordedRun {
     NoManifest {
         run: ResolvingRun,
         manifest: PathBuf,
     },
-    ManifestUnreadable {
-        manifest: PathBuf,
-        cause: String,
-    },
+    ManifestUnreadable(FileReadFailure),
     NoRecordedRun {
         manifest: PathBuf,
         cause: String,
@@ -64,10 +61,11 @@ impl Display for UnrecordedRun {
                 run.naming_no_machine(),
                 manifest.display()
             ),
-            UnrecordedRun::ManifestUnreadable { manifest, cause } => write!(
+            UnrecordedRun::ManifestUnreadable(failure) => write!(
                 formatter,
-                "The manifest at {} could not be read: {cause}; {NAMING_THE_MACHINE}",
-                manifest.display()
+                "The manifest at {} could not be read: {}; {NAMING_THE_MACHINE}",
+                failure.path.display(),
+                failure.error
             ),
             UnrecordedRun::NoRecordedRun { manifest, cause } => write!(
                 formatter,
@@ -119,12 +117,7 @@ impl PlannedRun {
         let document = match machine.text_file_at(&manifest) {
             Ok(Some(document)) => document,
             Ok(None) => return Err(UnrecordedRun::NoManifest { run, manifest }),
-            Err(error) => {
-                return Err(UnrecordedRun::ManifestUnreadable {
-                    manifest,
-                    cause: format!("{error:#}"),
-                });
-            }
+            Err(failure) => return Err(UnrecordedRun::ManifestUnreadable(failure)),
         };
         let recorded =
             recorded_run_in(&document).map_err(|error| UnrecordedRun::NoRecordedRun {

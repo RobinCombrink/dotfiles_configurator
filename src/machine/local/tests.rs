@@ -76,12 +76,10 @@ fn a_file_that_is_there_but_is_not_text_is_refused_rather_than_read_as_absent() 
     let path = directory.path().join("machine.json");
     fs::write(&path, [0xF0, 0x28, 0x8C, 0x28]).unwrap();
 
-    let error = read_text_file(&path).unwrap_err();
+    let failure = read_text_file(&path).unwrap_err();
 
-    assert!(
-        format!("{error:#}").contains("machine.json"),
-        "expected the message to name the file it could not read, got: {error:#}"
-    );
+    assert_eq!(failure.path, path);
+    assert_eq!(failure.error.kind(), std::io::ErrorKind::InvalidData);
 }
 
 #[test]

@@ -16,9 +16,9 @@ use {
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             Batched, CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
-            ElevatedOutcome, ElevatedWork, Elevation, Exited, HeldReason, OsError, Placement,
-            PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine, Replacement,
-            ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
+            ElevatedOutcome, ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason, OsError,
+            Placement, PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine,
+            Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
             WriteMachine,
             dart_reading::{DartDrift, DartReading},
             environment_reading::{MachineSearchPath, SearchPathPlace, SearchPathReading},
@@ -1459,10 +1459,13 @@ impl ReadMachine for FakeMachine {
         self.state.borrow().links.get(path).cloned()
     }
 
-    fn directory_entries(&self, directory: &Path) -> Result<Vec<PathBuf>> {
+    fn directory_entries(&self, directory: &Path) -> Result<Vec<PathBuf>, FileReadFailure> {
         let state = self.state.borrow();
         if state.unreadable_directories.contains(directory) {
-            bail!("Could not list {}", directory.display());
+            return Err(FileReadFailure::of(
+                directory,
+                std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+            ));
         }
         let entries: BTreeSet<PathBuf> = state
             .paths
@@ -1483,7 +1486,7 @@ impl ReadMachine for FakeMachine {
         }
     }
 
-    fn text_file_at(&self, path: &Path) -> Result<Option<String>> {
+    fn text_file_at(&self, path: &Path) -> Result<Option<String>, FileReadFailure> {
         Ok(self.state.borrow().text_files.get(path).cloned())
     }
 

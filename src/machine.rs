@@ -139,6 +139,38 @@ impl Error for ProgramStartFailure {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct FileReadFailure {
+    pub path: PathBuf,
+    pub error: Arc<io::Error>,
+}
+
+impl FileReadFailure {
+    pub fn of(path: &Path, error: io::Error) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            error: Arc::new(error),
+        }
+    }
+}
+
+impl Display for FileReadFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} could not be read: {}",
+            self.path.display(),
+            self.error
+        )
+    }
+}
+
+impl Error for FileReadFailure {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.error.as_ref())
+    }
+}
+
 pub const SUPERSEDED_SUFFIX: &str = ".superseded";
 
 pub fn superseded_name(destination: &Path) -> PathBuf {
@@ -229,7 +261,7 @@ pub trait ReadMachine {
 
     fn link_target(&self, path: &Path) -> Option<PathBuf>;
 
-    fn directory_entries(&self, directory: &Path) -> Result<Vec<PathBuf>>;
+    fn directory_entries(&self, directory: &Path) -> Result<Vec<PathBuf>, FileReadFailure>;
 
     fn canonical_path(&self, path: &Path) -> Option<PathBuf>;
 
@@ -246,11 +278,11 @@ pub trait ReadMachine {
     /// match machine.text_file_at(path) {
     ///     Ok(Some(text)) => text,
     ///     Ok(None) => "the machine holds no such file".to_owned(),
-    ///     Err(error) => format!("{error:#}"),
+    ///     Err(failure) => failure.to_string(),
     /// }
     /// # }
     /// ```
-    fn text_file_at(&self, path: &Path) -> Result<Option<String>>;
+    fn text_file_at(&self, path: &Path) -> Result<Option<String>, FileReadFailure>;
 
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput, ProgramStartFailure>;
 

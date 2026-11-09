@@ -9,10 +9,10 @@ use {
         github::GitHubAccess,
         machine::{
             CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
-            ElevatedWork, Elevation, Exited, HeldReason, OsError, Placement, PrivilegeRefusal,
-            ProgramStartFailure, ReadInvocation, ReadMachine, Replacement, ReplacingInvocation,
-            SUPERSEDED_SUFFIX, Tool, WorkspaceBuild, WriteInvocation, WriteMachine,
-            crate_index_reading,
+            ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason, OsError, Placement,
+            PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine, Replacement,
+            ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild, WriteInvocation,
+            WriteMachine, crate_index_reading,
             dart_reading::DartReading,
             environment_reading::{MachineSearchPath, SearchPathReading},
             invocation::without_terminal_prompts,
@@ -560,11 +560,11 @@ fn executable_extensions(pathext: Option<&OsStr>) -> Vec<String> {
         .collect()
 }
 
-fn read_text_file(path: &Path) -> Result<Option<String>> {
+fn read_text_file(path: &Path) -> Result<Option<String>, FileReadFailure> {
     match fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).with_context(|| format!("Could not read {}", path.display())),
+        Err(error) => Err(FileReadFailure::of(path, error)),
     }
 }
 
@@ -652,21 +652,21 @@ impl ReadMachine for LocalMachine<'_, '_> {
         fs::read_link(path).ok()
     }
 
-    fn directory_entries(&self, directory: &Path) -> Result<Vec<PathBuf>> {
+    fn directory_entries(&self, directory: &Path) -> Result<Vec<PathBuf>, FileReadFailure> {
         fs::read_dir(directory)
             .and_then(|entries| {
                 entries
                     .map(|entry| entry.map(|entry| entry.path()))
                     .collect()
             })
-            .with_context(|| format!("Could not list {}", directory.display()))
+            .map_err(|error| FileReadFailure::of(directory, error))
     }
 
     fn canonical_path(&self, path: &Path) -> Option<PathBuf> {
         path.canonicalize().ok()
     }
 
-    fn text_file_at(&self, path: &Path) -> Result<Option<String>> {
+    fn text_file_at(&self, path: &Path) -> Result<Option<String>, FileReadFailure> {
         read_text_file(path)
     }
 
