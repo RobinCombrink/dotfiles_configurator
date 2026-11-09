@@ -23,7 +23,7 @@ use {
             environment_reading::{MachineSearchPath, SearchPathPlace, SearchPathReading},
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
-            workspace_reading::{Fingerprint, Revision, WorkspaceReading},
+            workspace_reading::{Fingerprint, Revision, WorkspaceReadFailure, WorkspaceReading},
         },
         tool_directory_within,
         version::Version,
@@ -32,6 +32,7 @@ use {
         cell::RefCell,
         collections::{BTreeMap, BTreeSet},
         path::{Path, PathBuf},
+        sync::Arc,
     },
     url::Url,
 };
@@ -1558,7 +1559,10 @@ impl ReadMachine for FakeMachine {
         })
     }
 
-    fn read_cargo_workspace(&self, repository_path: &Path) -> Result<Option<WorkspaceReading>> {
+    fn read_cargo_workspace(
+        &self,
+        repository_path: &Path,
+    ) -> Result<Option<WorkspaceReading>, WorkspaceReadFailure> {
         let is_cloned = self.path_exists(&repository_path.join(".git"));
 
         let mut state = self.state.borrow_mut();
@@ -1574,7 +1578,7 @@ impl ReadMachine for FakeMachine {
         &self,
         repository_path: &Path,
         revision: &Revision,
-    ) -> Result<BTreeMap<CrateName, Fingerprint>> {
+    ) -> Result<BTreeMap<CrateName, Fingerprint>, WorkspaceReadFailure> {
         let state = self.state.borrow();
         if let Some(reading) = state.cargo_workspaces.get(repository_path)
             && reading.revision == *revision
@@ -1591,7 +1595,14 @@ impl ReadMachine for FakeMachine {
             .get(&(repository_path.to_path_buf(), revision.clone()))
         {
             Some(members) => Ok(members.clone()),
-            None => bail!("{revision} is not in this clone"),
+            None => Err(WorkspaceReadFailure::RevisionNotInClone {
+                revision: revision.clone(),
+                error: Arc::new(git2::Error::new(
+                    git2::ErrorCode::NotFound,
+                    git2::ErrorClass::Reference,
+                    format!("revspec '{revision}' not found"),
+                )),
+            }),
         }
     }
 

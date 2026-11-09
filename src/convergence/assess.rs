@@ -14,7 +14,9 @@ use {
             Assessment, DriftReason, Finding, Impediment, ReadSource, SourceReading,
             UnreadableReason,
             member_currency::{OwnCopies, OwnCopy, judged, own_copies_of, resolution_of},
-            search_path_directory, symlink_location,
+            search_path_directory,
+            source_reading::ReadFailure,
+            symlink_location,
             withdrawal::{InstallRecord, install_records},
         },
         desired_state::{ChangeSetResource, DesiredState, ResolvedResource, WorkspaceMember},
@@ -32,7 +34,7 @@ use {
 };
 
 // ADR 0010
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct SourceReadings {
     winget_packages: SourceReading<String>,
     winget_upgrades: SourceReading<WingetUpgradeListing>,
@@ -125,7 +127,9 @@ impl SourceReadings {
             let repository_path = workspace.clone_directory(&workspace.declared().repository);
             let reading = match machine.read_cargo_workspace(&repository_path) {
                 Ok(reading) => SourceReading::Read(reading),
-                Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
+                Err(failure) => SourceReading::Unreadable(UnreadableReason::ReadFailed(
+                    ReadFailure::from(failure),
+                )),
             };
             if let SourceReading::Read(Some(reading)) = &reading {
                 own_copies.insert(

@@ -2,15 +2,15 @@ use {
     crate::{
         configuration::{BinaryName, CrateName},
         machine::workspace_reading::{
-            Fingerprint, InferableBinary, MemberReading, MemberTree, ObjectHash, Revision,
-            WorkspaceReading, read_member_manifest,
+            CrateListingFailure, Fingerprint, InferableBinary, MemberReading, MemberTree,
+            ObjectHash, Revision, WorkspaceReadFailure, WorkspaceReading, read_member_manifest,
         },
     },
-    anyhow::{Context, Result, anyhow},
     git2::{BranchType, ObjectType, Oid, Repository, Tree},
     std::{
         collections::{BTreeMap, BTreeSet},
-        path::Path,
+        path::{Path, PathBuf},
+        sync::Arc,
     },
     workspace_lock::{BuildClosure, WorkspaceLock, inherited_by},
     workspace_members::members_of,
@@ -21,13 +21,13 @@ struct MemberAtRevision {
     binaries: BTreeSet<BinaryName>,
 }
 
-pub fn read(repository_path: &Path) -> Result<Option<WorkspaceReading>> {
+pub fn read(repository_path: &Path) -> Result<Option<WorkspaceReading>, WorkspaceReadFailure> {
     if !repository_path.join(".git").exists() {
         return Ok(None);
     }
 
     let repository = open(repository_path)?;
-    let revision = tracked_remote_revision(&repository)?;
+    let revision = tracked_remote_revision(&repository, repository_path)?;
     let members = members_at(&repository, &revision)?
         .into_iter()
         .map(|(crate_name, member)| {
@@ -47,7 +47,7 @@ pub fn read(repository_path: &Path) -> Result<Option<WorkspaceReading>> {
 pub fn read_at(
     repository_path: &Path,
     revision: &Revision,
-) -> Result<BTreeMap<CrateName, Fingerprint>> {
+) -> Result<BTreeMap<CrateName, Fingerprint>, WorkspaceReadFailure> {
     let repository = open(repository_path)?;
 
     Ok(members_at(&repository, revision)?
@@ -56,32 +56,52 @@ pub fn read_at(
         .collect())
 }
 
-fn open(repository_path: &Path) -> Result<Repository> {
-    Repository::open(repository_path).with_context(|| {
-        format!(
-            "Could not open the repository at {}",
-            repository_path.display()
-        )
+fn open(repository_path: &Path) -> Result<Repository, WorkspaceReadFailure> {
+    Repository::open(repository_path).map_err(|error| WorkspaceReadFailure::CloneUnopened {
+        clone: repository_path.to_path_buf(),
+        error: Arc::new(error),
     })
 }
 
-fn tracked_remote_revision(repository: &Repository) -> Result<Revision> {
-    let head = repository.head().context("its HEAD could not be read")?;
-    let branch_name = head
-        .shorthand()
-        .ok_or_else(|| anyhow!("its checked-out revision is not a branch"))?
-        .to_owned();
+fn tracked_remote_revision(
+    repository: &Repository,
+    clone: &Path,
+) -> Result<Revision, WorkspaceReadFailure> {
+    let not_a_branch = || WorkspaceReadFailure::NotABranch {
+        clone: clone.to_path_buf(),
+    };
+    let head_unreadable = |error| WorkspaceReadFailure::HeadUnreadable {
+        clone: clone.to_path_buf(),
+        error: Arc::new(error),
+    };
+    if repository.head_detached().map_err(head_unreadable)? {
+        return Err(not_a_branch());
+    }
+    let head = repository.head().map_err(head_unreadable)?;
+    let branch_name = head.shorthand().ok_or_else(not_a_branch)?.to_owned();
 
     let branch = repository
         .find_branch(&branch_name, BranchType::Local)
-        .with_context(|| format!("{branch_name} is not a local branch"))?;
-    let upstream = branch
-        .upstream()
-        .map_err(|_| anyhow!("its branch {branch_name} tracks no remote branch"))?;
-    let commit = upstream
-        .get()
-        .peel_to_commit()
-        .with_context(|| format!("what {branch_name} tracks does not name a commit"))?;
+        .map_err(|error| WorkspaceReadFailure::NoLocalBranch {
+            clone: clone.to_path_buf(),
+            branch: branch_name.clone(),
+            error: Arc::new(error),
+        })?;
+    let upstream =
+        branch
+            .upstream()
+            .map_err(|error| WorkspaceReadFailure::TracksNoRemoteBranch {
+                clone: clone.to_path_buf(),
+                branch: branch_name.clone(),
+                error: Arc::new(error),
+            })?;
+    let commit = upstream.get().peel_to_commit().map_err(|error| {
+        WorkspaceReadFailure::TrackedNamesNoCommit {
+            clone: clone.to_path_buf(),
+            branch: branch_name.clone(),
+            error: Arc::new(error),
+        }
+    })?;
 
     Ok(Revision::from(commit.id().to_string()))
 }
@@ -89,26 +109,43 @@ fn tracked_remote_revision(repository: &Repository) -> Result<Revision> {
 fn members_at(
     repository: &Repository,
     revision: &Revision,
-) -> Result<BTreeMap<CrateName, MemberAtRevision>> {
+) -> Result<BTreeMap<CrateName, MemberAtRevision>, WorkspaceReadFailure> {
     let commit = repository
         .revparse_single(revision.as_ref())
         .and_then(|object| object.peel_to_commit())
-        .with_context(|| format!("{revision} is not in this clone"))?;
-    let tree = commit.tree()?;
+        .map_err(|error| WorkspaceReadFailure::RevisionNotInClone {
+            revision: revision.clone(),
+            error: Arc::new(error),
+        })?;
+    let tree = commit
+        .tree()
+        .map_err(|error| WorkspaceReadFailure::TreeUnreadable {
+            revision: revision.clone(),
+            error: Arc::new(error),
+        })?;
 
     let manifest = blob_text(repository, &tree, "Cargo.toml")?;
-    let lock = WorkspaceLock::read(&blob_text(repository, &tree, "Cargo.lock")?)?;
+    let lock = WorkspaceLock::read(&blob_text(repository, &tree, "Cargo.lock")?)
+        .map_err(|error| WorkspaceReadFailure::LockRefused(Arc::new(error)))?;
 
     let mut members = BTreeMap::new();
-    let member_paths = members_of(&manifest, |parent| crates_under(repository, &tree, parent))?;
+    let member_paths = members_of(&manifest, |parent| crates_under(repository, &tree, parent))
+        .map_err(|error| WorkspaceReadFailure::MembersRefused(Arc::new(error)))?;
     for path in member_paths {
-        let crate_subtree = entry_hash(&tree, &path).ok_or_else(|| {
-            anyhow!("its [workspace] member \"{path}\" is not in the repository at {revision}")
-        })?;
+        let crate_subtree =
+            entry_hash(&tree, &path).ok_or_else(|| WorkspaceReadFailure::MemberMissing {
+                member: PathBuf::from(&path),
+                revision: revision.clone(),
+            })?;
 
         let member_manifest = blob_text(repository, &tree, &format!("{path}/Cargo.toml"))?;
         let workspace_binding = workspace_binding(&manifest, &path, &member_manifest)?;
-        let member = read_member_manifest(&member_manifest)?;
+        let member = read_member_manifest(&member_manifest).map_err(|refusal| {
+            WorkspaceReadFailure::MemberManifestRefused {
+                member: PathBuf::from(&path),
+                refusal,
+            }
+        })?;
         let member_tree = MemberTree {
             holds_a_main_file: entry_hash(&tree, &format!("{path}/src/main.rs")).is_some(),
             inferable_binaries: inferable_binaries_in(repository, &tree, &path)?,
@@ -118,14 +155,16 @@ fn members_at(
         if !binaries.is_empty() {
             let mut closure = path_dependency_closure(repository, &tree, &path, &manifest)?;
             closure.workspace_bindings.insert(path, workspace_binding);
-            let lock_closure = content_hash(lock.closure_of(member.name.as_ref())?.as_str())?;
+            let lock_closure = lock
+                .closure_of(member.name.as_ref())
+                .map_err(|error| WorkspaceReadFailure::LockRefused(Arc::new(error)))?;
             members.insert(
                 member.name,
                 MemberAtRevision {
                     fingerprint: Fingerprint {
                         crate_subtree,
                         workspace_bindings: closure.workspace_bindings,
-                        lock_closure,
+                        lock_closure: content_hash(lock_closure.as_str())?,
                         dependency_subtrees: closure.subtrees,
                     },
                     binaries,
@@ -141,9 +180,12 @@ fn workspace_binding(
     workspace_manifest: &str,
     directory: &str,
     member_manifest: &str,
-) -> Result<ObjectHash> {
-    let binding = inherited_by(workspace_manifest, member_manifest).with_context(|| {
-        format!("\"{directory}\" could not be read against its workspace manifest")
+) -> Result<ObjectHash, WorkspaceReadFailure> {
+    let binding = inherited_by(workspace_manifest, member_manifest).map_err(|error| {
+        WorkspaceReadFailure::BindingRefused {
+            directory: PathBuf::from(directory),
+            error: Arc::new(error),
+        }
     })?;
     content_hash(&binding)
 }
@@ -158,11 +200,14 @@ fn path_dependency_closure(
     tree: &Tree,
     member_path: &str,
     workspace_manifest: &str,
-) -> Result<PathDependencyClosure> {
+) -> Result<PathDependencyClosure, WorkspaceReadFailure> {
     let build_closure = BuildClosure::of(workspace_manifest, member_path, |directory| {
         blob_text(repository, tree, &directory.manifest()).ok()
     })
-    .with_context(|| format!("the path dependencies of \"{member_path}\" could not be walked"))?;
+    .map_err(|error| WorkspaceReadFailure::PathDependenciesRefused {
+        member: PathBuf::from(member_path),
+        error: Arc::new(error),
+    })?;
 
     let mut closure = PathDependencyClosure {
         subtrees: BTreeMap::new(),
@@ -170,9 +215,11 @@ fn path_dependency_closure(
     };
     for reached in build_closure.directories() {
         let directory = reached.as_str();
-        let subtree = entry_hash(tree, directory).ok_or_else(|| {
-            anyhow!("\"{directory}\", which \"{member_path}\" depends on, is not in the repository")
-        })?;
+        let subtree =
+            entry_hash(tree, directory).ok_or_else(|| WorkspaceReadFailure::DependencyMissing {
+                directory: PathBuf::from(directory),
+                member: PathBuf::from(member_path),
+            })?;
         closure.subtrees.insert(directory.to_owned(), subtree);
 
         let dependency_manifest = blob_text(repository, tree, &reached.manifest())?;
@@ -188,18 +235,24 @@ fn inferable_binaries_in(
     repository: &Repository,
     tree: &Tree,
     member_path: &str,
-) -> Result<Vec<InferableBinary>> {
+) -> Result<Vec<InferableBinary>, WorkspaceReadFailure> {
     let directory = format!("{member_path}/src/bin");
     let entry = match tree.get_path(Path::new(&directory)) {
         Ok(entry) => entry,
         Err(error) if error.code() == git2::ErrorCode::NotFound => return Ok(Vec::new()),
         Err(error) => {
-            return Err(error).with_context(|| format!("{directory} could not be read"));
+            return Err(WorkspaceReadFailure::BinariesUnreadable {
+                directory: PathBuf::from(directory),
+                error: Arc::new(error),
+            });
         }
     };
-    let entries = repository
-        .find_tree(entry.id())
-        .with_context(|| format!("{directory} is not a directory"))?;
+    let entries = repository.find_tree(entry.id()).map_err(|error| {
+        WorkspaceReadFailure::BinariesNotADirectory {
+            directory: PathBuf::from(&directory),
+            error: Arc::new(error),
+        }
+    })?;
 
     Ok(entries
         .iter()
@@ -225,13 +278,15 @@ fn crates_under(
     repository: &Repository,
     tree: &Tree,
     parent: &str,
-) -> Result<Vec<String>, git2::Error> {
+) -> Result<Vec<String>, CrateListingFailure> {
     let entry = match tree.get_path(Path::new(parent)) {
         Ok(entry) => entry,
         Err(error) if error.code() == git2::ErrorCode::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error),
+        Err(error) => return Err(CrateListingFailure::Unread(error)),
     };
-    let children = repository.find_tree(entry.id())?;
+    let children = repository
+        .find_tree(entry.id())
+        .map_err(CrateListingFailure::Unread)?;
 
     let mut crates = Vec::new();
     for child in children.iter() {
@@ -239,17 +294,18 @@ fn crates_under(
             continue;
         }
         let holds_a_manifest = repository
-            .find_tree(child.id())?
+            .find_tree(child.id())
+            .map_err(CrateListingFailure::Unread)?
             .get_name("Cargo.toml")
             .is_some_and(|manifest| manifest.kind() == Some(ObjectType::Blob));
         if !holds_a_manifest {
             continue;
         }
-        let name = child.name().ok_or_else(|| {
-            git2::Error::from_str(&format!(
-                "a directory under \"{parent}\" holding a Cargo.toml is not named in UTF-8"
-            ))
-        })?;
+        let name = child
+            .name()
+            .ok_or_else(|| CrateListingFailure::NotNamedInUtf8 {
+                parent: PathBuf::from(parent),
+            })?;
         crates.push(name.to_owned());
     }
     Ok(crates)
@@ -261,18 +317,33 @@ fn entry_hash(tree: &Tree, path: &str) -> Option<ObjectHash> {
         .map(|entry| ObjectHash::from(entry.id().to_string()))
 }
 
-fn content_hash(content: &str) -> Result<ObjectHash> {
-    let object = Oid::hash_object(ObjectType::Blob, content.as_bytes())?;
+fn content_hash(content: &str) -> Result<ObjectHash, WorkspaceReadFailure> {
+    let object = Oid::hash_object(ObjectType::Blob, content.as_bytes())
+        .map_err(|error| WorkspaceReadFailure::ContentUnhashed(Arc::new(error)))?;
     Ok(ObjectHash::from(object.to_string()))
 }
 
-fn blob_text(repository: &Repository, tree: &Tree, path: &str) -> Result<String> {
-    let entry = tree
-        .get_path(Path::new(path))
-        .with_context(|| format!("it holds no {path}"))?;
-    let blob = repository
-        .find_blob(entry.id())
-        .with_context(|| format!("{path} is not a file"))?;
+fn blob_text(
+    repository: &Repository,
+    tree: &Tree,
+    path: &str,
+) -> Result<String, WorkspaceReadFailure> {
+    let entry =
+        tree.get_path(Path::new(path))
+            .map_err(|error| WorkspaceReadFailure::FileAbsent {
+                path: PathBuf::from(path),
+                error: Arc::new(error),
+            })?;
+    let blob =
+        repository
+            .find_blob(entry.id())
+            .map_err(|error| WorkspaceReadFailure::NotAFile {
+                path: PathBuf::from(path),
+                error: Arc::new(error),
+            })?;
 
-    String::from_utf8(blob.content().to_vec()).with_context(|| format!("{path} is not text"))
+    String::from_utf8(blob.content().to_vec()).map_err(|error| WorkspaceReadFailure::NotText {
+        path: PathBuf::from(path),
+        error: Arc::new(error),
+    })
 }

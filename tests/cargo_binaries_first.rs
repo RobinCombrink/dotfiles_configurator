@@ -166,7 +166,12 @@ async fn nothing_installing_into_the_cargo_binaries_directory_derives_nothing() 
 async fn a_machine_path_starting_with_the_cargo_binaries_directory_is_converged() {
     let machine = FakeMachine::default();
 
-    assert_eq!(assessed(&machine).await, Assessment::Converged);
+    let assessment = assessed(&machine).await;
+
+    assert!(
+        matches!(assessment, Assessment::Converged),
+        "{assessment:?}"
+    );
 }
 
 #[tokio::test]

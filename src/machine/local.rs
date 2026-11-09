@@ -18,7 +18,7 @@ use {
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
-            workspace_reading::{Fingerprint, Revision, WorkspaceReading},
+            workspace_reading::{Fingerprint, Revision, WorkspaceReadFailure, WorkspaceReading},
         },
         reporting::{Advancing, Entry, RunReport, entry_of_this_task},
         version::Version,
@@ -681,7 +681,10 @@ impl ReadMachine for LocalMachine<'_, '_> {
         )
     }
 
-    fn read_cargo_workspace(&self, repository_path: &Path) -> Result<Option<WorkspaceReading>> {
+    fn read_cargo_workspace(
+        &self,
+        repository_path: &Path,
+    ) -> Result<Option<WorkspaceReading>, WorkspaceReadFailure> {
         workspace::read(repository_path)
     }
 
@@ -689,7 +692,7 @@ impl ReadMachine for LocalMachine<'_, '_> {
         &self,
         repository_path: &Path,
         revision: &Revision,
-    ) -> Result<BTreeMap<CrateName, Fingerprint>> {
+    ) -> Result<BTreeMap<CrateName, Fingerprint>, WorkspaceReadFailure> {
         workspace::read_at(repository_path, revision)
     }
 

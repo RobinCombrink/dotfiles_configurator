@@ -2642,12 +2642,11 @@ fn change_set_reports_an_application_at_none_of_its_paths(
             .expect("a scenario names at least one candidate"),
     };
 
-    assert_eq!(
-        world.drift_of(&name),
-        &DriftReason::NotInstalled {
-            presence_check: expected
-        }
-    );
+    let reason = world.drift_of(&name);
+    let DriftReason::NotInstalled { presence_check } = reason else {
+        panic!("{reason:?}");
+    };
+    assert_eq!(*presence_check, expected);
 }
 
 #[then(
@@ -2700,13 +2699,16 @@ fn change_set_reports_a_winget_offer(
     installed: String,
     offered: String,
 ) {
-    assert_eq!(
-        world.drift_of(&name),
-        &DriftReason::WingetOffersNewer {
-            installed,
-            offered: WingetVersion::from(offered.as_str()),
-        }
-    );
+    let reason = world.drift_of(&name);
+    let DriftReason::WingetOffersNewer {
+        installed: held,
+        offered: offer,
+    } = reason
+    else {
+        panic!("{reason:?}");
+    };
+    assert_eq!(*held, installed);
+    assert_eq!(*offer, WingetVersion::from(offered.as_str()));
 }
 
 #[then(expr = "the change set reports {string} at {string} where {string} is declared")]
@@ -2751,13 +2753,16 @@ fn change_set_reports_a_uv_tool_behind(
     installed: String,
     newest: String,
 ) {
-    assert_eq!(
-        world.drift_of(&name),
-        &DriftReason::UvBehindNewest {
-            installed: UvToolVersion::from(installed.as_str()),
-            newest: UvToolVersion::from(newest.as_str()),
-        }
-    );
+    let reason = world.drift_of(&name);
+    let DriftReason::UvBehindNewest {
+        installed: held,
+        newest: resolving,
+    } = reason
+    else {
+        panic!("{reason:?}");
+    };
+    assert_eq!(*held, UvToolVersion::from(installed.as_str()));
+    assert_eq!(*resolving, UvToolVersion::from(newest.as_str()));
 }
 
 #[then(
@@ -2769,14 +2774,21 @@ fn change_set_reports_a_crate_behind(
     installed: String,
     newest: String,
 ) {
+    let reason = world.drift_of(&name);
+    let DriftReason::CargoAtAnotherVersion {
+        installed: held,
+        wanted,
+    } = reason
+    else {
+        panic!("{reason:?}");
+    };
     assert_eq!(
-        world.drift_of(&name),
-        &DriftReason::CargoAtAnotherVersion {
-            installed: CrateVersion::try_from(installed.as_str()).expect("a version"),
-            wanted: WantedVersion::NewestPublished(
-                CrateVersion::try_from(newest.as_str()).expect("a version")
-            ),
-        }
+        *held,
+        CrateVersion::try_from(installed.as_str()).expect("a version")
+    );
+    assert_eq!(
+        *wanted,
+        WantedVersion::NewestPublished(CrateVersion::try_from(newest.as_str()).expect("a version"))
     );
 }
 
@@ -2799,7 +2811,7 @@ fn binary_drift<'world>(
 fn change_set_reports_a_binary_absent(world: &mut MachineWorld, binary: String, name: String) {
     let drift = binary_drift(world, &name, &binary);
 
-    assert_eq!(drift.copy, CopyDrift::Absent, "{drift:?}");
+    assert!(matches!(drift.copy, CopyDrift::Absent), "{drift:?}");
 }
 
 #[then(expr = "the change set reports the binary {string} of {string} as stale")]
@@ -2822,10 +2834,11 @@ fn change_set_reports_a_server_with_other_arguments(
     name: String,
     arguments: String,
 ) {
-    assert_eq!(
-        world.drift_of(&name),
-        &DriftReason::Server(ServerDifference::OtherArguments(arguments))
-    );
+    let reason = world.drift_of(&name);
+    let DriftReason::Server(difference) = reason else {
+        panic!("{reason:?}");
+    };
+    assert_eq!(*difference, ServerDifference::OtherArguments(arguments));
 }
 
 #[then(
@@ -2852,12 +2865,12 @@ fn change_set_reports_a_version_not_reported(
     expr = "the change set reports {string} as blocked because {string} has published no release"
 )]
 fn change_set_reports_no_release(world: &mut MachineWorld, name: String, owner_and_name: String) {
-    assert_eq!(
-        world.impediment_of(&name),
-        &Impediment::ActualStateUnreadable(UnreadableReason::NoRelease {
-            repository: named_repository(&owner_and_name),
-        })
-    );
+    let impediment = world.impediment_of(&name);
+    let Impediment::ActualStateUnreadable(UnreadableReason::NoRelease { repository }) = impediment
+    else {
+        panic!("{impediment:?}");
+    };
+    assert_eq!(*repository, named_repository(&owner_and_name));
 }
 
 #[then(
@@ -2881,15 +2894,20 @@ fn change_set_reports_a_bin_directory_absent(world: &mut MachineWorld, name: Str
         other => panic!("no scenario puts {other}'s bin directory on the search path"),
     };
 
-    assert_eq!(world.impediment_of(&name), &Impediment::Absent(requirement));
+    let impediment = world.impediment_of(&name);
+    let Impediment::Absent(absent) = impediment else {
+        panic!("{impediment:?}");
+    };
+    assert_eq!(*absent, requirement);
 }
 
 #[then(expr = "the change set reports {string} as set to {string}")]
 fn change_set_reports_a_variable_set_to(world: &mut MachineWorld, name: String, value: String) {
-    assert_eq!(
-        world.drift_of(&name),
-        &DriftReason::VariableSetTo(VariableValue::from(value.as_str()))
-    );
+    let reason = world.drift_of(&name);
+    let DriftReason::VariableSetTo(held) = reason else {
+        panic!("{reason:?}");
+    };
+    assert_eq!(*held, VariableValue::from(value.as_str()));
 }
 
 #[then(expr = "the change set mentions {string}")]
@@ -2949,7 +2967,10 @@ fn application_precedes_symlink(world: &mut MachineWorld) {
 
 #[then(expr = "both change sets are the same")]
 fn both_change_sets_are_the_same(world: &mut MachineWorld) {
-    assert_eq!(world.change_set, world.second_change_set);
+    assert_eq!(
+        format!("{:?}", world.change_set),
+        format!("{:?}", world.second_change_set)
+    );
 }
 
 #[then(expr = "nothing on Alice's machine has changed")]

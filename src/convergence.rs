@@ -36,7 +36,7 @@ pub use {
     withdrawal::{Withdrawal, dangling_links, withdrawals},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Assessment {
     Converged,
     // ADR 0032
@@ -73,7 +73,7 @@ fn write_joined(
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Impediment {
     // ADR 0004
     Absent(Requirement),
@@ -89,7 +89,7 @@ impl Display for Impediment {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum DriftReason {
     NoClone {
         clone_directory: PathBuf,
@@ -304,13 +304,13 @@ pub(crate) fn symlink_location(
     )
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Change {
     pub resource: ChangeSetResource,
     pub reason: DriftReason,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Blocked {
     pub resource: ChangeSetResource,
     pub impediment: Impediment,
@@ -322,7 +322,7 @@ pub struct Found {
     pub finding: Finding,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ChangeSet {
     pub changes: Vec<Change>,
     pub withdrawals: Vec<Withdrawal>,

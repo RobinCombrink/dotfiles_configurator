@@ -5,7 +5,10 @@ use {
         machine::{
             CommandOutput, FailedExit, ReadMachine,
             environment_reading::SearchPathReading,
-            workspace_reading::{Fingerprint, FingerprintDifference, Revision, WorkspaceReading},
+            workspace_reading::{
+                Fingerprint, FingerprintDifference, Revision, WorkspaceReadFailure,
+                WorkspaceReading,
+            },
         },
     },
     std::{
@@ -20,7 +23,7 @@ const UNRECORDED_BUILD: &str = "unrecorded";
 const COMMIT_LENGTH: usize = 40;
 
 // ADR 0040
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum OwnCopy {
     Absent,
     Current,
@@ -34,13 +37,13 @@ pub enum Resolution {
     Nothing,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Staleness {
     ContentDiffers(FingerprintDifference),
     NoSuchMemberAt(Revision),
     UnreadableCommit {
         commit: Revision,
-        failure: ReadFailure,
+        failure: WorkspaceReadFailure,
     },
     Unrecorded,
     Unreadable(UnreadableStamp),
@@ -68,7 +71,7 @@ impl Display for Staleness {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum UnreadableStamp {
     RequestFailed(FailedExit),
     NamesNoCommit { printed: String },
@@ -92,7 +95,7 @@ impl Display for UnreadableStamp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 enum Stamp {
     Commit(Revision),
     Unrecorded,
@@ -170,13 +173,11 @@ pub fn own_copies_of(
             Some(_) | None => None,
         })
         .collect();
-    let builds: BTreeMap<Revision, Result<BTreeMap<CrateName, Fingerprint>, ReadFailure>> =
+    let builds: BTreeMap<Revision, Result<BTreeMap<CrateName, Fingerprint>, WorkspaceReadFailure>> =
         stamped_commits
             .into_iter()
             .map(|commit| {
-                let members = machine
-                    .read_cargo_workspace_at(repository_path, commit)
-                    .map_err(|error| ReadFailure::from(&error));
+                let members = machine.read_cargo_workspace_at(repository_path, commit);
                 (commit.clone(), members)
             })
             .collect();
@@ -213,7 +214,7 @@ fn built_at(
     commit: &Revision,
     crate_name: &CrateName,
     desired: &Fingerprint,
-    builds: &BTreeMap<Revision, Result<BTreeMap<CrateName, Fingerprint>, ReadFailure>>,
+    builds: &BTreeMap<Revision, Result<BTreeMap<CrateName, Fingerprint>, WorkspaceReadFailure>>,
 ) -> OwnCopy {
     let members = match &builds[commit] {
         Ok(members) => members,
@@ -253,13 +254,13 @@ pub fn resolution_of(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum CopyDrift {
     Absent,
     Stale(Staleness),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct BinaryDrift {
     pub binary: BinaryName,
     pub copy: CopyDrift,

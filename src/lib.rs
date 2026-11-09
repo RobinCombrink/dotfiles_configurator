@@ -1,4 +1,6 @@
-﻿pub mod arguments;
+﻿#![cfg_attr(test, allow(clippy::disallowed_macros))]
+
+pub mod arguments;
 pub mod conclusion;
 pub mod configuration;
 pub mod configuration_source;

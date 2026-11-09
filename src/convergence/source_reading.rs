@@ -5,27 +5,39 @@ use {
             WingetPackageId,
         },
         convergence::Impediment,
-        machine::FailedExit,
+        machine::{FailedExit, workspace_reading::WorkspaceReadFailure},
     },
     std::{fmt::Display, path::PathBuf},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadFailure(String);
+#[derive(Debug, Clone)]
+pub enum ReadFailure {
+    Chain(String),
+    Workspace(WorkspaceReadFailure),
+}
 
 impl From<&anyhow::Error> for ReadFailure {
     fn from(error: &anyhow::Error) -> Self {
-        Self(format!("{error:#}"))
+        Self::Chain(format!("{error:#}"))
+    }
+}
+
+impl From<WorkspaceReadFailure> for ReadFailure {
+    fn from(failure: WorkspaceReadFailure) -> Self {
+        Self::Workspace(failure)
     }
 }
 
 impl Display for ReadFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        match self {
+            ReadFailure::Chain(chain) => formatter.write_str(chain),
+            ReadFailure::Workspace(failure) => Display::fmt(failure, formatter),
+        }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum UnreadableReason {
     ReadFailed(ReadFailure),
     NotRead(ReadSource),
@@ -203,12 +215,12 @@ impl Display for ReadSource {
 /// let Err(impediment) = reading.read() else {
 ///     panic!("a reading that could not be read answered a value");
 /// };
-/// assert_eq!(
-///     impediment,
-///     Impediment::ActualStateUnreadable(UnreadableReason::WingetListsNoIdColumn)
-/// );
+/// let Impediment::ActualStateUnreadable(UnreadableReason::WingetListsNoIdColumn) = impediment
+/// else {
+///     panic!("{impediment:?}");
+/// };
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum SourceReading<T> {
     Read(T),
     Unreadable(UnreadableReason),

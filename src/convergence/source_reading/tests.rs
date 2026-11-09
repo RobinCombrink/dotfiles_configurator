@@ -7,12 +7,10 @@ fn a_source_nothing_asked_for_is_an_impediment_naming_the_source() {
 
     let impediment = reading.read().expect_err("a reading that holds no value");
 
-    assert_eq!(
-        impediment,
-        Impediment::ActualStateUnreadable(UnreadableReason::NotRead(ReadSource::Tool(
-            Tool::Winget
-        )))
-    );
+    let Impediment::ActualStateUnreadable(UnreadableReason::NotRead(source)) = impediment else {
+        panic!("{impediment:?}");
+    };
+    assert_eq!(source, ReadSource::Tool(Tool::Winget));
 }
 
 #[test]
@@ -23,12 +21,10 @@ fn a_workspace_nothing_asked_for_names_the_directory_it_would_have_been_read_fro
 
     let impediment = reading.read().expect_err("a reading that holds no value");
 
-    assert_eq!(
-        impediment,
-        Impediment::ActualStateUnreadable(UnreadableReason::NotRead(ReadSource::CargoWorkspace(
-            directory
-        )))
-    );
+    let Impediment::ActualStateUnreadable(UnreadableReason::NotRead(source)) = impediment else {
+        panic!("{impediment:?}");
+    };
+    assert_eq!(source, ReadSource::CargoWorkspace(directory));
 }
 
 #[test]

@@ -8,7 +8,7 @@ use {
             dart_reading::{DartLocations, DartReading},
             environment_reading::{MachineSearchPath, SearchPathReading},
             release_reading::ReleaseReading,
-            workspace_reading::{Fingerprint, Revision, WorkspaceReading},
+            workspace_reading::{Fingerprint, Revision, WorkspaceReadFailure, WorkspaceReading},
         },
     },
     anyhow::Result,
@@ -219,14 +219,17 @@ pub trait ReadMachine {
 
     fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput>;
 
-    fn read_cargo_workspace(&self, repository_path: &Path) -> Result<Option<WorkspaceReading>>;
+    fn read_cargo_workspace(
+        &self,
+        repository_path: &Path,
+    ) -> Result<Option<WorkspaceReading>, WorkspaceReadFailure>;
 
     // ADR 0040
     fn read_cargo_workspace_at(
         &self,
         repository_path: &Path,
         revision: &Revision,
-    ) -> Result<BTreeMap<CrateName, Fingerprint>>;
+    ) -> Result<BTreeMap<CrateName, Fingerprint>, WorkspaceReadFailure>;
 
     fn cargo_binaries_directory(&self) -> PathBuf;
 

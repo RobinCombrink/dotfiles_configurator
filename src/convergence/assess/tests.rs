@@ -30,46 +30,51 @@ fn pinned(version: &str) -> WantedVersion {
 
 #[test]
 fn a_crate_installed_at_the_version_declared_is_converged() {
-    assert_eq!(
-        assess_installed_version(&pinned("27.1.0"), "v27.1.0"),
-        Assessment::Converged
+    let assessment = assess_installed_version(&pinned("27.1.0"), "v27.1.0");
+
+    assert!(
+        matches!(assessment, Assessment::Converged),
+        "{assessment:?}"
     );
 }
 
 #[test]
 fn a_crate_installed_at_another_version_than_declared_is_drifted() {
-    assert_eq!(
-        assess_installed_version(&pinned("27.1.0"), "v27.0.0"),
-        Assessment::Drifted(DriftReason::CargoAtAnotherVersion {
-            installed: CrateVersion::try_from("27.0.0").unwrap(),
-            wanted: pinned("27.1.0"),
-        })
-    );
+    let assessment = assess_installed_version(&pinned("27.1.0"), "v27.0.0");
+
+    let Assessment::Drifted(DriftReason::CargoAtAnotherVersion { installed, wanted }) = assessment
+    else {
+        panic!("{assessment:?}");
+    };
+    assert_eq!(installed, CrateVersion::try_from("27.0.0").unwrap());
+    assert_eq!(wanted, pinned("27.1.0"));
 }
 
 #[test]
 fn a_crate_behind_the_newest_published_is_drifted_naming_both_versions() {
     let newest = WantedVersion::NewestPublished(CrateVersion::try_from("15.1.0").unwrap());
 
-    assert_eq!(
-        assess_installed_version(&newest, "v14.1.1"),
-        Assessment::Drifted(DriftReason::CargoAtAnotherVersion {
-            installed: CrateVersion::try_from("14.1.1").unwrap(),
-            wanted: newest.clone(),
-        })
-    );
+    let assessment = assess_installed_version(&newest, "v14.1.1");
+
+    let Assessment::Drifted(DriftReason::CargoAtAnotherVersion { installed, wanted }) = assessment
+    else {
+        panic!("{assessment:?}");
+    };
+    assert_eq!(installed, CrateVersion::try_from("14.1.1").unwrap());
+    assert_eq!(wanted, newest);
 }
 
 #[test]
 fn a_crate_listed_at_a_version_that_cannot_be_read_is_unassessable_rather_than_drifted() {
-    assert_eq!(
-        assess_installed_version(&pinned("27.1.0"), "vtwenty-seven"),
-        Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            UnreadableReason::CargoListsAnUnreadableVersion {
-                listed: "vtwenty-seven".to_owned()
-            }
-        ))
-    );
+    let assessment = assess_installed_version(&pinned("27.1.0"), "vtwenty-seven");
+
+    let Assessment::Unassessable(Impediment::ActualStateUnreadable(
+        UnreadableReason::CargoListsAnUnreadableVersion { listed },
+    )) = assessment
+    else {
+        panic!("{assessment:?}");
+    };
+    assert_eq!(listed, "vtwenty-seven");
 }
 
 #[test]
@@ -118,31 +123,28 @@ fn winget_lists_package(listing: &str, id: &str) -> Result<bool, UnreadableReaso
 
 #[test]
 fn a_package_winget_lists_is_found() {
-    assert_eq!(
-        winget_lists_package(PACKAGES, "Bitwarden.Bitwarden"),
-        Ok(true)
-    );
+    assert!(winget_lists_package(PACKAGES, "Bitwarden.Bitwarden").unwrap());
 }
 
 #[test]
 fn a_package_winget_lists_is_read_at_its_version_and_the_one_winget_offers() {
     assert_eq!(
-        winget_row(PACKAGES, "Bitwarden.Bitwarden"),
-        Ok(Some(WingetRow {
+        winget_row(PACKAGES, "Bitwarden.Bitwarden").unwrap(),
+        Some(WingetRow {
             version: "2026.3.1".to_owned(),
             available: Some("2026.7.0".to_owned()),
-        }))
+        })
     );
 }
 
 #[test]
 fn a_package_winget_offers_nothing_newer_for_is_read_without_an_available_version() {
     assert_eq!(
-        winget_row(PACKAGES, "ARP\\Machine\\X64\\AMD Cat"),
-        Ok(Some(WingetRow {
+        winget_row(PACKAGES, "ARP\\Machine\\X64\\AMD Cat").unwrap(),
+        Some(WingetRow {
             version: "26.7.1".to_owned(),
             available: None,
-        }))
+        })
     );
 }
 
@@ -160,17 +162,17 @@ const UPGRADES: &str = concat!(
 #[test]
 fn a_package_winget_would_upgrade_is_read_with_the_version_it_offers() {
     assert_eq!(
-        winget_row(UPGRADES, "mvdan.shfmt"),
-        Ok(Some(WingetRow {
+        winget_row(UPGRADES, "mvdan.shfmt").unwrap(),
+        Some(WingetRow {
             version: "3.13.1".to_owned(),
             available: Some("3.14.1".to_owned()),
-        }))
+        })
     );
 }
 
 #[test]
 fn the_lines_closing_an_upgrade_listing_are_not_read_as_packages() {
-    assert_eq!(winget_row(UPGRADES, "jqlang.jq"), Ok(None));
+    assert_eq!(winget_row(UPGRADES, "jqlang.jq").unwrap(), None);
 }
 
 fn declared(version: &str) -> WingetVersion {
@@ -179,49 +181,50 @@ fn declared(version: &str) -> WingetVersion {
 
 #[test]
 fn a_package_at_the_version_declared_is_converged() {
-    assert_eq!(
-        assess_winget_version(&declared("2025.1.2.11"), "2025.1.2.11"),
-        Assessment::Converged
+    let assessment = assess_winget_version(&declared("2025.1.2.11"), "2025.1.2.11");
+
+    assert!(
+        matches!(assessment, Assessment::Converged),
+        "{assessment:?}"
     );
 }
 
 #[test]
 fn a_package_newer_than_the_version_declared_is_drifted() {
-    assert_eq!(
-        assess_winget_version(&declared("3.13.1"), "3.14.1"),
-        Assessment::Drifted(DriftReason::WingetAtAnotherVersion {
-            installed: "3.14.1".to_owned(),
-            declared: declared("3.13.1"),
-        })
-    );
+    let assessment = assess_winget_version(&declared("3.13.1"), "3.14.1");
+
+    let Assessment::Drifted(DriftReason::WingetAtAnotherVersion {
+        installed,
+        declared: wanted,
+    }) = assessment
+    else {
+        panic!("{assessment:?}");
+    };
+    assert_eq!(installed, "3.14.1");
+    assert_eq!(wanted, declared("3.13.1"));
 }
 
 #[test]
 fn a_package_winget_knows_no_one_version_of_is_unassessable_rather_than_drifted() {
-    assert_eq!(
-        assess_winget_version(&declared("17.14.41"), "< 17.14.37"),
-        Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            UnreadableReason::WingetListsNoOneVersion {
-                listed: "< 17.14.37".to_owned()
-            }
-        ))
-    );
+    let assessment = assess_winget_version(&declared("17.14.41"), "< 17.14.37");
+
+    let Assessment::Unassessable(Impediment::ActualStateUnreadable(
+        UnreadableReason::WingetListsNoOneVersion { listed },
+    )) = assessment
+    else {
+        panic!("{assessment:?}");
+    };
+    assert_eq!(listed, "< 17.14.37");
 }
 
 #[test]
 fn a_package_winget_does_not_list_is_not_found() {
-    assert_eq!(
-        winget_lists_package(PACKAGES, "Microsoft.PowerShell"),
-        Ok(false)
-    );
+    assert!(!winget_lists_package(PACKAGES, "Microsoft.PowerShell").unwrap());
 }
 
 #[test]
 fn an_identifier_holding_spaces_is_read_whole_rather_than_cut_at_the_first_one() {
-    assert_eq!(
-        winget_lists_package(PACKAGES, "ARP\\Machine\\X64\\AMD Cat"),
-        Ok(true)
-    );
+    assert!(winget_lists_package(PACKAGES, "ARP\\Machine\\X64\\AMD Cat").unwrap());
 }
 
 #[test]
@@ -232,10 +235,7 @@ fn a_package_named_after_another_packages_identifier_is_not_mistaken_for_it() {
         "Bitwarden.Bitwarden   Some.Other.Id  1.0.0                winget\n",
     );
 
-    assert_eq!(
-        winget_lists_package(listing, "Bitwarden.Bitwarden"),
-        Ok(false)
-    );
+    assert!(!winget_lists_package(listing, "Bitwarden.Bitwarden").unwrap());
 }
 
 #[test]
@@ -246,10 +246,7 @@ fn a_name_that_is_not_ascii_does_not_shift_the_column_the_identifier_is_read_fro
         "Café Münchén  Bitwarden.Bitwarden  1.0.0               winget\n",
     );
 
-    assert_eq!(
-        winget_lists_package(listing, "Bitwarden.Bitwarden"),
-        Ok(true)
-    );
+    assert!(winget_lists_package(listing, "Bitwarden.Bitwarden").unwrap());
 }
 
 #[test]
@@ -260,17 +257,21 @@ fn a_listing_that_cut_an_identifier_short_is_refused_rather_than_read_as_an_abse
         "Bitwarden   Bitwarden.Bi…  2026.3.1            winget\n",
     );
 
-    assert_eq!(
-        winget_lists_package(listing, "Bitwarden.Bitwarden"),
-        Err(UnreadableReason::WingetCutAnIdShort)
+    let read = winget_lists_package(listing, "Bitwarden.Bitwarden");
+
+    assert!(
+        matches!(read, Err(UnreadableReason::WingetCutAnIdShort)),
+        "{read:?}"
     );
 }
 
 #[test]
 fn a_listing_whose_columns_cannot_be_located_is_refused() {
-    assert_eq!(
-        winget_lists_package("no columns here\n", "Bitwarden.Bitwarden"),
-        Err(UnreadableReason::WingetListsNoIdColumn)
+    let read = winget_lists_package("no columns here\n", "Bitwarden.Bitwarden");
+
+    assert!(
+        matches!(read, Err(UnreadableReason::WingetListsNoIdColumn)),
+        "{read:?}"
     );
 }
 
@@ -418,27 +419,34 @@ fn claude_exiting_one_saying(standard_error: &str) -> CommandOutput {
 fn a_claude_that_reports_no_server_under_the_name_has_drifted() {
     let refusal = "No MCP server named \"probe-server\". Configured servers: serena, github";
 
-    assert_eq!(
-        claude_refusal(&claude_exiting_one_saying(refusal)),
-        Assessment::Drifted(DriftReason::NoSuchServer)
+    let assessment = claude_refusal(&claude_exiting_one_saying(refusal));
+
+    assert!(
+        matches!(assessment, Assessment::Drifted(DriftReason::NoSuchServer)),
+        "{assessment:?}"
     );
 }
 
 #[test]
 fn a_claude_that_failed_for_any_other_reason_is_unassessable_rather_than_drifted() {
+    let assessment = claude_refusal(&claude_exiting_one_saying(
+        "Invalid API key · Please run /login",
+    ));
+
+    let Assessment::Unassessable(Impediment::ActualStateUnreadable(UnreadableReason::ToolFailed {
+        tool,
+        failure,
+    })) = assessment
+    else {
+        panic!("{assessment:?}");
+    };
+    assert_eq!(tool, Tool::Claude);
     assert_eq!(
-        claude_refusal(&claude_exiting_one_saying(
-            "Invalid API key · Please run /login"
-        )),
-        Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            UnreadableReason::ToolFailed {
-                tool: Tool::Claude,
-                failure: FailedExit {
-                    exited: Exited::Code(1),
-                    standard_error: "Invalid API key · Please run /login".to_owned(),
-                },
-            }
-        ))
+        failure,
+        FailedExit {
+            exited: Exited::Code(1),
+            standard_error: "Invalid API key · Please run /login".to_owned(),
+        }
     );
 }
 
@@ -466,16 +474,16 @@ fn serena() -> UvToolName {
 #[test]
 fn a_tool_uv_lists_is_read_at_the_version_it_is_installed_at() {
     assert_eq!(
-        listed_uv_tool(UV_TOOLS, &serena()),
-        Ok(Some((UvToolVersion::from("1.5.3"), None)))
+        listed_uv_tool(UV_TOOLS, &serena()).unwrap(),
+        Some((UvToolVersion::from("1.5.3"), None))
     );
 }
 
 #[test]
 fn a_tool_uv_does_not_list_is_not_installed() {
     assert_eq!(
-        listed_uv_tool(UV_TOOLS, &UvToolName::from("ruff")),
-        Ok(None)
+        listed_uv_tool(UV_TOOLS, &UvToolName::from("ruff")).unwrap(),
+        None
     );
 }
 
@@ -484,19 +492,19 @@ fn an_executable_named_after_a_tool_is_not_mistaken_for_the_tool() {
     let listing = "serena-agent v1.5.3\n- serena\n";
 
     assert_eq!(
-        listed_uv_tool(listing, &UvToolName::from("serena")),
-        Ok(None)
+        listed_uv_tool(listing, &UvToolName::from("serena")).unwrap(),
+        None
     );
 }
 
 #[test]
 fn a_tool_uv_lists_as_behind_is_read_with_the_newest_version_that_resolves() {
     assert_eq!(
-        listed_uv_tool(UV_OUTDATED_TOOLS, &serena()),
-        Ok(Some((
+        listed_uv_tool(UV_OUTDATED_TOOLS, &serena()).unwrap(),
+        Some((
             UvToolVersion::from("1.5.3"),
             Some(UvToolVersion::from("1.7.0"))
-        )))
+        ))
     );
 }
 
@@ -511,24 +519,24 @@ fn a_tool_is_found_under_the_name_uv_normalises_it_to() {
 
 #[test]
 fn a_tool_listed_without_a_version_is_refused_rather_than_read_as_absent() {
-    assert_eq!(
-        listed_uv_tool("serena-agent\n- serena\n", &serena()),
-        Err(UnreadableReason::UvListsNoInstalledVersion {
-            name: serena(),
-            line: "serena-agent".to_owned(),
-        })
-    );
+    let read = listed_uv_tool("serena-agent\n- serena\n", &serena());
+
+    let Err(UnreadableReason::UvListsNoInstalledVersion { name, line }) = read else {
+        panic!("{read:?}");
+    };
+    assert_eq!(name, serena());
+    assert_eq!(line, "serena-agent");
 }
 
 #[test]
 fn a_tool_listed_as_behind_nothing_it_names_is_refused_rather_than_read_as_current() {
-    assert_eq!(
-        listed_uv_tool("serena-agent v1.5.3 [latest: ]\n", &serena()),
-        Err(UnreadableReason::UvListsAnUnnamedNewerVersion {
-            name: serena(),
-            line: "serena-agent v1.5.3 [latest: ]".to_owned(),
-        })
-    );
+    let read = listed_uv_tool("serena-agent v1.5.3 [latest: ]\n", &serena());
+
+    let Err(UnreadableReason::UvListsAnUnnamedNewerVersion { name, line }) = read else {
+        panic!("{read:?}");
+    };
+    assert_eq!(name, serena());
+    assert_eq!(line, "serena-agent v1.5.3 [latest: ]");
 }
 
 // 2026-10-07: shaped as `uv tool list --show-version-specifiers` printed `black v24.1.0
@@ -556,7 +564,7 @@ fn a_tool_uv_lists_without_a_requirement_is_not_pinned() {
 #[test]
 fn a_pinned_tool_is_still_read_at_the_version_it_is_installed_at() {
     assert_eq!(
-        listed_uv_tool(UV_TOOLS_ONE_PINNED, &serena()),
-        Ok(Some((UvToolVersion::from("1.5.3"), None)))
+        listed_uv_tool(UV_TOOLS_ONE_PINNED, &serena()).unwrap(),
+        Some((UvToolVersion::from("1.5.3"), None))
     );
 }

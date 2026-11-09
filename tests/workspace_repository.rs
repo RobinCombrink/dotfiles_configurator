@@ -3,10 +3,14 @@
 use {
     dotfiles_configurator::{
         configuration::{BinaryName, CrateName},
-        machine::{local::workspace, workspace_reading::Revision},
+        machine::{
+            local::workspace,
+            workspace_reading::{Revision, WorkspaceReadFailure},
+        },
     },
     git2::{IndexAddOption, Repository, Signature},
-    std::{fs, path::Path},
+    std::{fs, path::Path, sync::Arc},
+    workspace_lock::{LockRefusal, ManifestRefusal},
 };
 
 struct TemporaryRepository {
@@ -389,45 +393,52 @@ fn a_member_inheriting_what_the_workspace_manifest_does_not_hold_refuses_the_wor
     repository.commit("beta inherits what the workspace does not hold");
     repository.push();
 
-    let error = format!("{:#}", workspace::read(repository.path()).unwrap_err());
+    let failure = workspace::read(repository.path()).unwrap_err();
 
-    assert!(
-        error.contains("tools/beta") && error.contains("workspace.dependencies.ghost"),
-        "expected the message to name the member and what it inherits, got: {error}"
-    );
+    let WorkspaceReadFailure::BindingRefused { directory, error } = &failure else {
+        panic!("{failure:?}");
+    };
+    assert_eq!(directory, Path::new("tools/beta"));
+    let ManifestRefusal::InheritsWhatTheWorkspaceDoesNotHold(key) = error.as_ref() else {
+        panic!("{failure:?}");
+    };
+    assert_eq!(key, "workspace.dependencies.ghost");
 }
 
-fn refusal_of(lock: &str) -> String {
+fn refusal_of(lock: &str) -> Arc<LockRefusal> {
     let repository = workspace_holding_a_binary_and_a_library();
     repository.write("Cargo.lock", lock);
     repository.commit("a lock cargo did not write");
     repository.push();
 
-    let error = workspace::read(repository.path()).unwrap_err();
-    format!("{error:#}")
+    let failure = workspace::read(repository.path()).unwrap_err();
+    let WorkspaceReadFailure::LockRefused(refusal) = failure else {
+        panic!("{failure:?}");
+    };
+    refusal
 }
 
 #[test]
 fn a_lock_naming_a_dependency_it_holds_no_entry_for_refuses_the_workspace() {
-    let error = refusal_of(&lock_of(&[
+    let refusal = refusal_of(&lock_of(&[
         member_entry("alpha", &["ghost 1.0.0"]),
         member_entry("beta", &[]),
     ]));
 
     assert!(
-        error.contains("Cargo.lock") && error.contains("ghost"),
-        "expected the message to name the lock and the dependency, got: {error}"
+        matches!(refusal.as_ref(), LockRefusal::Unresolvable(_)),
+        "{refusal:?}"
     );
 }
 
 #[test]
 fn a_lock_holding_no_entry_for_a_member_refuses_the_workspace() {
-    let error = refusal_of(&lock_of(&[member_entry("beta", &[])]));
+    let refusal = refusal_of(&lock_of(&[member_entry("beta", &[])]));
 
-    assert!(
-        error.contains("Cargo.lock") && error.contains("alpha"),
-        "expected the message to name the lock and the member, got: {error}"
-    );
+    let LockRefusal::NotExactlyOneEntryFor(member) = refusal.as_ref() else {
+        panic!("{refusal:?}");
+    };
+    assert_eq!(member, "alpha");
 }
 
 fn workspace_where_alpha_declares(dependency_sections: &str) -> TemporaryRepository {
@@ -534,12 +545,26 @@ fn a_branch_that_tracks_no_remote_is_refused_rather_than_read_from_the_local_com
     repository.write("tools/alpha/src/main.rs", "fn main() {}\n");
     repository.commit("never pushed");
 
-    let error = workspace::read(repository.path()).unwrap_err();
+    let failure = workspace::read(repository.path()).unwrap_err();
 
     assert!(
-        format!("{error:#}").contains("tracks no remote branch"),
-        "expected the message to say the branch tracks nothing, got: {error:#}"
+        matches!(failure, WorkspaceReadFailure::TracksNoRemoteBranch { .. }),
+        "{failure:?}"
     );
+}
+
+#[test]
+fn a_clone_checked_out_at_a_commit_rather_than_a_branch_is_refused_naming_the_clone() {
+    let repository = workspace_holding_a_binary_and_a_library();
+    let head = repository.repository.head().unwrap().target().unwrap();
+    repository.repository.set_head_detached(head).unwrap();
+
+    let failure = workspace::read(repository.path()).unwrap_err();
+
+    let WorkspaceReadFailure::NotABranch { clone } = failure else {
+        panic!("{failure:?}");
+    };
+    assert_eq!(clone, repository.path());
 }
 
 #[test]
@@ -559,12 +584,12 @@ fn a_commit_absent_from_the_clone_cannot_be_read() {
     let repository = workspace_holding_a_binary_and_a_library();
     let absent = Revision::from("0123456789012345678901234567890123456789");
 
-    let error = workspace::read_at(repository.path(), &absent).unwrap_err();
+    let failure = workspace::read_at(repository.path(), &absent).unwrap_err();
 
-    assert!(
-        format!("{error:#}").contains("0123456789012345678901234567890123456789"),
-        "expected the message to name the commit, got: {error:#}"
-    );
+    let WorkspaceReadFailure::RevisionNotInClone { revision, .. } = failure else {
+        panic!("{failure:?}");
+    };
+    assert_eq!(revision, absent);
 }
 
 #[test]
@@ -615,12 +640,12 @@ fn a_member_whose_binaries_directory_cannot_be_read_as_one_refuses_the_workspace
     repository.commit("a file where the binaries directory belongs");
     repository.push();
 
-    let error = workspace::read(repository.path()).unwrap_err();
+    let failure = workspace::read(repository.path()).unwrap_err();
 
-    assert!(
-        format!("{error:#}").contains("tools/alpha/src/bin"),
-        "expected the message to name the directory it could not read, got: {error:#}"
-    );
+    let WorkspaceReadFailure::BinariesNotADirectory { directory, .. } = failure else {
+        panic!("{failure:?}");
+    };
+    assert_eq!(directory, Path::new("tools/alpha/src/bin"));
 }
 
 #[test]
