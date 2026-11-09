@@ -647,6 +647,16 @@ impl ReadMachine for LocalMachine<'_, '_> {
         fs::read_link(path).ok()
     }
 
+    fn directory_entries(&self, directory: &Path) -> Result<Vec<PathBuf>> {
+        fs::read_dir(directory)
+            .and_then(|entries| {
+                entries
+                    .map(|entry| entry.map(|entry| entry.path()))
+                    .collect()
+            })
+            .with_context(|| format!("Could not list {}", directory.display()))
+    }
+
     fn canonical_path(&self, path: &Path) -> Option<PathBuf> {
         path.canonicalize().ok()
     }
@@ -834,6 +844,10 @@ impl WriteMachine for LocalMachine<'_, '_> {
                 None => Err(error),
             },
         }
+    }
+
+    fn remove_link(&self, link_path: &Path) -> Result<()> {
+        replace_existing_link(link_path)
     }
 
     fn write_text_file(&self, path: &Path, contents: &str) -> Result<()> {

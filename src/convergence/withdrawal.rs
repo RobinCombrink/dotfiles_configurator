@@ -1,11 +1,18 @@
 use {
     crate::{
-        configuration::{BinaryName, CrateName, GitHubRepository},
-        machine::{WriteInvocation, WriteMachine, workspace_reading::WorkspaceReading},
+        configuration::{BinaryName, CrateName, GitHubRepository, path_folding},
+        convergence::Lane,
+        machine::{
+            ReadMachine, WriteInvocation, WriteMachine, workspace_reading::WorkspaceReading,
+        },
         reporting::{Entry, EntryOutcome, RunReport},
     },
     anyhow::{Result, bail},
-    std::{collections::BTreeSet, fmt::Display},
+    std::{
+        collections::BTreeSet,
+        fmt::Display,
+        path::{Path, PathBuf},
+    },
     url::Url,
 };
 
@@ -85,14 +92,38 @@ pub enum RemovalReason {
     MemberGone,
 }
 
-// ADR 0041
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Withdrawal {
+    // ADR 0041
     Remove {
         record: InstallRecord,
         binary: BinaryName,
         reason: RemovalReason,
     },
+    // ADR 0005
+    Unlink {
+        link_path: PathBuf,
+        target: PathBuf,
+        repository: PathBuf,
+    },
+}
+
+impl Withdrawal {
+    pub fn lane(&self) -> Lane {
+        match self {
+            Withdrawal::Remove { .. } => Lane::Cargo,
+            Withdrawal::Unlink { .. } => Lane::Instant,
+        }
+    }
+
+    fn entry(&self) -> Entry {
+        match self {
+            Withdrawal::Remove { binary, .. } => Entry::removal(self.lane(), binary),
+            Withdrawal::Unlink { link_path, .. } => {
+                Entry::removal(self.lane(), link_path.display())
+            }
+        }
+    }
 }
 
 impl Display for Withdrawal {
@@ -117,8 +148,60 @@ impl Display for Withdrawal {
                  {})",
                 record.crate_name, record.source
             ),
+            Withdrawal::Unlink {
+                link_path,
+                target,
+                repository,
+            } => write!(
+                formatter,
+                "the link {}, which nothing declares and whose target {} is gone from {}",
+                link_path.display(),
+                target.display(),
+                repository.display()
+            ),
         }
     }
+}
+
+pub fn dangling_links<'link>(
+    declared_links: impl IntoIterator<Item = &'link Path>,
+    repositories: &BTreeSet<PathBuf>,
+    machine: &impl ReadMachine,
+) -> Vec<Withdrawal> {
+    let declared_links: Vec<&Path> = declared_links.into_iter().collect();
+    let declared: BTreeSet<String> = declared_links
+        .iter()
+        .map(|link_path| path_folding::comparable(link_path))
+        .collect();
+    let directories: BTreeSet<&Path> = declared_links
+        .iter()
+        .filter_map(|link_path| link_path.parent())
+        .collect();
+
+    let mut withdrawals: Vec<Withdrawal> = directories
+        .into_iter()
+        .filter_map(|directory| machine.directory_entries(directory).ok())
+        .flatten()
+        .filter(|candidate| !declared.contains(&path_folding::comparable(candidate)))
+        .filter_map(|link_path| {
+            let target = machine.link_target(&link_path)?;
+            let repository = repositories
+                .iter()
+                .find(|repository| target.starts_with(repository))?
+                .clone();
+            match machine.path_exists(&target) {
+                true => None,
+                false => Some(Withdrawal::Unlink {
+                    link_path,
+                    target,
+                    repository,
+                }),
+            }
+        })
+        .collect();
+    withdrawals.sort();
+    withdrawals.dedup();
+    withdrawals
 }
 
 pub fn withdrawals<'reading>(
@@ -168,6 +251,14 @@ pub struct Withdrawn {
     pub attempted: BTreeSet<Withdrawal>,
 }
 
+impl Withdrawn {
+    pub fn and(mut self, other: Withdrawn) -> Withdrawn {
+        self.removed.extend(other.removed);
+        self.attempted.extend(other.attempted);
+        self
+    }
+}
+
 pub async fn withdraw(
     withdrawals: Vec<&Withdrawal>,
     machine: &impl WriteMachine,
@@ -175,8 +266,7 @@ pub async fn withdraw(
 ) -> Withdrawn {
     let mut withdrawn = Withdrawn::default();
     for withdrawal in withdrawals {
-        let Withdrawal::Remove { binary, .. } = withdrawal;
-        let entry = Entry::removal(binary);
+        let entry = withdrawal.entry();
         let removed = report
             .converging(&entry, Box::pin(remove(withdrawal, machine)))
             .await;
@@ -199,7 +289,17 @@ pub async fn withdraw(
 }
 
 async fn remove(withdrawal: &Withdrawal, machine: &impl WriteMachine) -> Result<()> {
-    let Withdrawal::Remove { record, binary, .. } = withdrawal;
+    match withdrawal {
+        Withdrawal::Remove { record, binary, .. } => uninstall(record, binary, machine).await,
+        Withdrawal::Unlink { link_path, .. } => machine.remove_link(link_path),
+    }
+}
+
+async fn uninstall(
+    record: &InstallRecord,
+    binary: &BinaryName,
+    machine: &impl WriteMachine,
+) -> Result<()> {
     let invocation = WriteInvocation::UninstallCargoBinary {
         specification: record.specification(),
         binary: binary.clone(),

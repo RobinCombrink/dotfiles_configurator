@@ -194,6 +194,8 @@ pub trait ReadMachine {
 
     fn link_target(&self, path: &Path) -> Option<PathBuf>;
 
+    fn directory_entries(&self, directory: &Path) -> Result<Vec<PathBuf>>;
+
     fn canonical_path(&self, path: &Path) -> Option<PathBuf>;
 
     fn tool_is_present(&self, tool: Tool) -> bool;
@@ -300,6 +302,8 @@ pub trait ReadMachine {
 
 pub trait WriteMachine: ReadMachine {
     fn create_link(&self, link_path: &Path, target_path: &Path) -> Result<Placement>;
+
+    fn remove_link(&self, link_path: &Path) -> Result<()>;
 
     fn write_text_file(&self, path: &Path, contents: &str) -> Result<()>;
 

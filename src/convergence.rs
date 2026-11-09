@@ -2,7 +2,7 @@ use {
     crate::{
         configuration::{
             AnsweringCandidate, CrateVersion, GitHubRepository, Migration, Notice, PresenceCheck,
-            Requirement, Symlink, UvToolVersion, VariableValue, WingetVersion,
+            Requirement, Resource, Symlink, UvToolVersion, VariableValue, WingetVersion,
         },
         desired_state::{
             ChangeSetResource, DesiredState, Precedence, ResolvedResource, ResolvedWorkspace,
@@ -13,7 +13,7 @@ use {
     },
     assess::{InstalledFrom, ServerDifference, WantedVersion},
     member_currency::{BinaryDrift, SearchPathFinding},
-    std::{fmt::Display, path::PathBuf},
+    std::{collections::BTreeSet, fmt::Display, path::PathBuf},
 };
 
 pub mod apply;
@@ -33,7 +33,7 @@ pub use {
     lane::Lane,
     resolve::{Resolution, resolve},
     source_reading::{ReadSource, SourceReading, UnreadableReason},
-    withdrawal::{Withdrawal, withdrawals},
+    withdrawal::{Withdrawal, dangling_links, withdrawals},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -415,7 +415,11 @@ pub async fn plan(
     Ok((
         ChangeSet {
             changes,
-            withdrawals: planned_withdrawals(desired_state, &readings),
+            withdrawals: [
+                planned_withdrawals(desired_state, &readings),
+                planned_unlinks(desired_state, machine),
+            ]
+            .concat(),
             blocked,
             uncloned,
             converged,
@@ -441,6 +445,44 @@ fn planned_withdrawals(desired_state: &DesiredState, readings: &SourceReadings) 
     });
 
     withdrawals(workspaces, &records)
+}
+
+// ADR 0005
+fn planned_unlinks(
+    desired_state: &DesiredState,
+    machine: &impl crate::machine::ReadMachine,
+) -> Vec<Withdrawal> {
+    let declared_links: Vec<PathBuf> = desired_state
+        .resources
+        .iter()
+        .filter_map(|resource| match resource.declared() {
+            Resource::Symlink(symlink) => Some(symlink_location(symlink, resource, machine).0),
+            _ => None,
+        })
+        .collect();
+    let repositories: BTreeSet<PathBuf> = desired_state
+        .resources
+        .iter()
+        .map(|resource| resource.files_root().to_path_buf())
+        .chain(
+            desired_state
+                .workspaces
+                .iter()
+                .map(|workspace| workspace.files_root().to_path_buf()),
+        )
+        .chain(
+            desired_state
+                .notices
+                .iter()
+                .map(|notice| notice.files_root().to_path_buf()),
+        )
+        .collect();
+
+    dangling_links(
+        declared_links.iter().map(PathBuf::as_path),
+        &repositories,
+        machine,
+    )
 }
 
 impl Display for ChangeSet {

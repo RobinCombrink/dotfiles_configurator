@@ -78,7 +78,10 @@ fn workspace_declaring(crate_name: &str, binaries: &[&str]) -> WorkspaceReading 
 fn withdrawn_binaries(withdrawals: &[Withdrawal]) -> Vec<String> {
     withdrawals
         .iter()
-        .map(|Withdrawal::Remove { binary, .. }| binary.to_string())
+        .filter_map(|withdrawal| match withdrawal {
+            Withdrawal::Remove { binary, .. } => Some(binary.to_string()),
+            Withdrawal::Unlink { .. } => None,
+        })
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
@@ -152,7 +155,10 @@ fn a_record_installed_from_another_repository_is_never_withdrawn() {
 fn reasons(withdrawals: &[Withdrawal]) -> BTreeSet<RemovalReason> {
     withdrawals
         .iter()
-        .map(|Withdrawal::Remove { reason, .. }| *reason)
+        .filter_map(|withdrawal| match withdrawal {
+            Withdrawal::Remove { reason, .. } => Some(*reason),
+            Withdrawal::Unlink { .. } => None,
+        })
         .collect()
 }
 

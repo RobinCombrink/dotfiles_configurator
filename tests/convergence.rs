@@ -1031,6 +1031,34 @@ fn alice_has_her_own_file(world: &mut MachineWorld, path: String) {
     world.machine.add_own_file(resolved);
 }
 
+#[given(expr = "{string} links to {string}, which the dotfiles repository no longer holds")]
+fn link_into_the_repository_dangles(world: &mut MachineWorld, link_path: String, held: String) {
+    let link_path = world.machine.resolve_against_home(Path::new(&link_path));
+    world
+        .machine
+        .add_link(link_path, dotfiles_repository_path().join(held));
+}
+
+#[given(expr = "{string} links to {string}, which the dotfiles repository still holds")]
+fn link_into_the_repository_holds(world: &mut MachineWorld, link_path: String, held: String) {
+    let link_path = world.machine.resolve_against_home(Path::new(&link_path));
+    let target = dotfiles_repository_path().join(held);
+    world.machine.add_own_file(target.clone());
+    world.machine.add_link(link_path, target);
+}
+
+#[given(expr = "{string} links to {string} in Alice's home, which no longer holds it")]
+fn link_into_the_home_dangles(world: &mut MachineWorld, link_path: String, held: String) {
+    let link_path = world.machine.resolve_against_home(Path::new(&link_path));
+    let target = world.machine.resolve_against_home(Path::new(&held));
+    world.machine.add_link(link_path, target);
+}
+
+#[given(expr = "links refuse to be removed on Alice's machine")]
+fn links_refuse_to_be_removed(world: &mut MachineWorld) {
+    world.machine.refuse_to_remove_links();
+}
+
 #[given(expr = "winget is absent from Alice's machine")]
 fn winget_is_absent(world: &mut MachineWorld) {
     world.machine.remove_tool(Tool::Winget);
@@ -3057,6 +3085,28 @@ fn link_resolves_into_the_checkout(world: &mut MachineWorld, link_path: String, 
         .map(|target| link_directory.join(target));
 
     assert_eq!(resolved, Some(checkout.join(held)));
+}
+
+#[then(expr = "nothing is linked at {string}")]
+fn nothing_is_linked_at(world: &mut MachineWorld, link_path: String) {
+    let resolved = world.machine.resolve_against_home(Path::new(&link_path));
+    assert_eq!(world.machine.link_at(&resolved), None);
+}
+
+#[then(expr = "{string} still links to {string} in the dotfiles repository")]
+fn still_links_into_the_repository(world: &mut MachineWorld, link_path: String, held: String) {
+    let resolved = world.machine.resolve_against_home(Path::new(&link_path));
+    assert_eq!(
+        world.machine.link_at(&resolved),
+        Some(dotfiles_repository_path().join(held))
+    );
+}
+
+#[then(expr = "{string} still links to {string} in Alice's home")]
+fn still_links_into_the_home(world: &mut MachineWorld, link_path: String, held: String) {
+    let resolved = world.machine.resolve_against_home(Path::new(&link_path));
+    let target = world.machine.resolve_against_home(Path::new(&held));
+    assert_eq!(world.machine.link_at(&resolved), Some(target));
 }
 
 #[then(expr = "the link {string} is planned as converged")]

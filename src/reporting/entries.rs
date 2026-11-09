@@ -76,12 +76,11 @@ impl Entry {
         }
     }
 
-    // ADR 0041
-    pub fn removal(binary: impl Display) -> Self {
+    pub fn removal(lane: Lane, removed: impl Display) -> Self {
         Self {
-            lane: Lane::Cargo,
+            lane,
             subject: Subject::Removal,
-            name: binary.to_string(),
+            name: removed.to_string(),
         }
     }
 

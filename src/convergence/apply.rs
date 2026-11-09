@@ -511,19 +511,35 @@ async fn attempt(
         work_in(Lane::Instant),
     );
 
-    let withdrawals: Vec<&Withdrawal> = change_set
-        .withdrawals
-        .iter()
-        .filter(|withdrawal| !attempted_withdrawals.contains(withdrawal))
-        .collect();
+    let withdrawals_in = |lane: Lane| -> Vec<&Withdrawal> {
+        change_set
+            .withdrawals
+            .iter()
+            .filter(|withdrawal| withdrawal.lane() == lane)
+            .filter(|withdrawal| !attempted_withdrawals.contains(withdrawal))
+            .collect()
+    };
 
-    let ((cargo, withdrawn), install, uv, dart, instant) = tokio::join!(
-        cargo_lane(cargo, withdrawals, readings, machine, report),
+    let ((cargo, uninstalled), install, uv, dart, (instant, unlinked)) = tokio::join!(
+        cargo_lane(
+            cargo,
+            withdrawals_in(Lane::Cargo),
+            readings,
+            machine,
+            report
+        ),
         install_lane(install, readings, machine, report),
         in_order(uv, readings, machine, report),
         in_order(dart, readings, machine, report),
-        in_order(instant, readings, machine, report),
+        instant_lane(
+            instant,
+            withdrawals_in(Lane::Instant),
+            readings,
+            machine,
+            report
+        ),
     );
+    let withdrawn = uninstalled.and(unlinked);
     settled.extend(
         cargo
             .into_iter()
@@ -690,6 +706,18 @@ async fn cargo_lane<'change>(
     )
     .await;
 
+    let settled = in_order(work, readings, machine, report).await;
+    (settled, withdraw(withdrawals, machine, report).await)
+}
+
+// ADR 0005
+async fn instant_lane<'change>(
+    work: Vec<Work<'change>>,
+    withdrawals: Vec<&Withdrawal>,
+    readings: &SourceReadings,
+    machine: &impl WriteMachine,
+    report: &RunReport,
+) -> (Vec<Settled<'change, Reached>>, Withdrawn) {
     let settled = in_order(work, readings, machine, report).await;
     (settled, withdraw(withdrawals, machine, report).await)
 }

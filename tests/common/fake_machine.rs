@@ -50,6 +50,8 @@ pub struct FakeMachine {
 struct MachineState {
     paths: BTreeSet<PathBuf>,
     links: BTreeMap<PathBuf, PathBuf>,
+    unreadable_directories: BTreeSet<PathBuf>,
+    link_removals_refused: bool,
     text_files: BTreeMap<PathBuf, String>,
     tools: BTreeSet<Tool>,
     installed_applications: BTreeSet<ApplicationName>,
@@ -1132,11 +1134,28 @@ impl FakeMachine {
         self.state.borrow().links.get(link_path).cloned()
     }
 
+    pub fn add_link(&self, link_path: PathBuf, target_path: PathBuf) {
+        self.state.borrow_mut().links.insert(link_path, target_path);
+    }
+
+    pub fn refuse_to_remove_links(&self) {
+        self.state.borrow_mut().link_removals_refused = true;
+    }
+
+    pub fn make_directory_unreadable(&self, directory: PathBuf) {
+        self.state
+            .borrow_mut()
+            .unreadable_directories
+            .insert(directory);
+    }
+
     pub fn fingerprint(&self) -> String {
         let state = self.state.borrow();
         let MachineState {
             paths,
             links,
+            unreadable_directories,
+            link_removals_refused,
             text_files,
             tools,
             installed_applications,
@@ -1199,7 +1218,8 @@ impl FakeMachine {
             elevation_prompts: _,
         } = &*state;
         format!(
-            "{paths:?}|{links:?}|{text_files:?}|{tools:?}|{installed_applications:?}|\
+            "{paths:?}|{links:?}|{unreadable_directories:?}|{link_removals_refused:?}|\
+             {text_files:?}|{tools:?}|{installed_applications:?}|\
              {winget_packages:?}|{winget_packages_matched_only_by_identifier:?}|\
              {winget_versions:?}|{winget_offers:?}|{winget_upgrade_refusals:?}|\
              {dart_readings:?}|{dart_install_refusals:?}|{uv_tools:?}|\
@@ -1422,6 +1442,21 @@ impl ReadMachine for FakeMachine {
 
     fn link_target(&self, path: &Path) -> Option<PathBuf> {
         self.state.borrow().links.get(path).cloned()
+    }
+
+    fn directory_entries(&self, directory: &Path) -> Result<Vec<PathBuf>> {
+        let state = self.state.borrow();
+        if state.unreadable_directories.contains(directory) {
+            bail!("Could not list {}", directory.display());
+        }
+        let entries: BTreeSet<PathBuf> = state
+            .paths
+            .iter()
+            .chain(state.links.keys())
+            .filter(|path| path.parent() == Some(directory))
+            .cloned()
+            .collect();
+        Ok(entries.into_iter().collect())
     }
 
     fn canonical_path(&self, path: &Path) -> Option<PathBuf> {
@@ -1708,6 +1743,18 @@ impl WriteMachine for FakeMachine {
             .links
             .insert(link_path.to_path_buf(), target_path.to_path_buf());
         Ok(Placement::Placed)
+    }
+
+    fn remove_link(&self, link_path: &Path) -> Result<()> {
+        self.worked(format!("unlink {}", link_path.display()));
+        let mut state = self.state.borrow_mut();
+        if state.link_removals_refused {
+            bail!("Could not remove the link at {}", link_path.display());
+        }
+        match state.links.remove(link_path) {
+            Some(_) => Ok(()),
+            None => bail!("{} is not a link", link_path.display()),
+        }
     }
 
     fn write_text_file(&self, path: &Path, contents: &str) -> Result<()> {

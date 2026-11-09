@@ -421,6 +421,68 @@ Feature: Applying a change set
     Then Alice's own file at ".gitconfig" is still there
     And 1 resource is reported as failed
 
+  Scenario: Applying removes a dead link into the dotfiles repository that nothing declares any more
+    Given Alice's configurations come from the dotfiles repository
+    And Alice declares the symlink "claude/agents/reviewer.md" at ".claude/agents/reviewer.md"
+    And the dotfiles repository holds "claude/agents/reviewer.md"
+    And the dotfiles repository has been cloned on Alice's machine
+    And ".claude/agents/retired.md" links to "claude/agents/retired.md", which the dotfiles repository no longer holds
+    When Alice applies
+    Then nothing is linked at ".claude/agents/retired.md"
+    And the link ".claude/agents/reviewer.md" points into the dotfiles repository
+    And the machine is reported as converged
+
+  Scenario: Planning names a dead link it would remove and removes nothing
+    Given Alice's configurations come from the dotfiles repository
+    And Alice declares the symlink "claude/agents/reviewer.md" at ".claude/agents/reviewer.md"
+    And the dotfiles repository holds "claude/agents/reviewer.md"
+    And the dotfiles repository has been cloned on Alice's machine
+    And ".claude/agents/retired.md" links to "claude/agents/retired.md", which the dotfiles repository no longer holds
+    When Alice plans
+    Then the change set mentions ".claude/agents/retired.md"
+    And nothing on Alice's machine has changed
+
+  Scenario: A link nothing declares whose target the dotfiles repository still holds is left alone
+    Given Alice's configurations come from the dotfiles repository
+    And Alice declares the symlink "claude/agents/reviewer.md" at ".claude/agents/reviewer.md"
+    And the dotfiles repository holds "claude/agents/reviewer.md"
+    And the dotfiles repository has been cloned on Alice's machine
+    And ".claude/agents/own.md" links to "claude/agents/own.md", which the dotfiles repository still holds
+    When Alice applies
+    Then ".claude/agents/own.md" still links to "claude/agents/own.md" in the dotfiles repository
+    And the machine is reported as converged
+
+  Scenario: A dead link into somewhere other than a declared repository is left alone
+    Given Alice's configurations come from the dotfiles repository
+    And Alice declares the symlink "claude/agents/reviewer.md" at ".claude/agents/reviewer.md"
+    And the dotfiles repository holds "claude/agents/reviewer.md"
+    And the dotfiles repository has been cloned on Alice's machine
+    And ".claude/agents/borrowed.md" links to "borrowed.md" in Alice's home, which no longer holds it
+    When Alice applies
+    Then ".claude/agents/borrowed.md" still links to "borrowed.md" in Alice's home
+    And the machine is reported as converged
+
+  Scenario: A dead link in a directory holding no declared link is never found
+    Given Alice's configurations come from the dotfiles repository
+    And Alice declares the symlink "claude/agents/reviewer.md" at ".claude/agents/reviewer.md"
+    And the dotfiles repository holds "claude/agents/reviewer.md"
+    And the dotfiles repository has been cloned on Alice's machine
+    And ".config/retired.toml" links to "config/retired.toml", which the dotfiles repository no longer holds
+    When Alice applies
+    Then ".config/retired.toml" still links to "config/retired.toml" in the dotfiles repository
+    And the machine is reported as converged
+
+  Scenario: A dead link that will not be removed leaves the machine unconverged
+    Given Alice's configurations come from the dotfiles repository
+    And Alice declares the symlink "claude/agents/reviewer.md" at ".claude/agents/reviewer.md"
+    And the dotfiles repository holds "claude/agents/reviewer.md"
+    And the dotfiles repository has been cloned on Alice's machine
+    And ".claude/agents/retired.md" links to "claude/agents/retired.md", which the dotfiles repository no longer holds
+    And links refuse to be removed on Alice's machine
+    When Alice applies
+    Then ".claude/agents/retired.md" still links to "claude/agents/retired.md" in the dotfiles repository
+    And the machine is not reported as converged
+
   Scenario: A repository the work configuration declares is cloned as the work account
     Given Alice's employer's configuration declares the repository "Employer/tooling"
     When Alice applies
