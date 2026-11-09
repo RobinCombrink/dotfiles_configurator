@@ -5,7 +5,7 @@ use {
             WingetPackageId,
         },
         convergence::Impediment,
-        machine::{FailedExit, workspace_reading::WorkspaceReadFailure},
+        machine::{FailedExit, ProgramStartFailure, workspace_reading::WorkspaceReadFailure},
     },
     std::{fmt::Display, path::PathBuf},
 };
@@ -14,6 +14,7 @@ use {
 pub enum ReadFailure {
     Chain(String),
     Workspace(WorkspaceReadFailure),
+    ProgramStart(ProgramStartFailure),
 }
 
 impl From<&anyhow::Error> for ReadFailure {
@@ -28,11 +29,18 @@ impl From<WorkspaceReadFailure> for ReadFailure {
     }
 }
 
+impl From<ProgramStartFailure> for ReadFailure {
+    fn from(failure: ProgramStartFailure) -> Self {
+        Self::ProgramStart(failure)
+    }
+}
+
 impl Display for ReadFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ReadFailure::Chain(chain) => formatter.write_str(chain),
             ReadFailure::Workspace(failure) => Display::fmt(failure, formatter),
+            ReadFailure::ProgramStart(failure) => Display::fmt(failure, formatter),
         }
     }
 }
@@ -91,6 +99,12 @@ pub enum UnreadableReason {
 impl From<&anyhow::Error> for UnreadableReason {
     fn from(error: &anyhow::Error) -> Self {
         UnreadableReason::ReadFailed(ReadFailure::from(error))
+    }
+}
+
+impl UnreadableReason {
+    pub fn read_failed(failure: impl Into<ReadFailure>) -> Self {
+        UnreadableReason::ReadFailed(failure.into())
     }
 }
 

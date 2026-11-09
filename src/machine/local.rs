@@ -10,8 +10,9 @@ use {
         machine::{
             CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
             ElevatedWork, Elevation, Exited, HeldReason, OsError, Placement, PrivilegeRefusal,
-            ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool,
-            WorkspaceBuild, WriteInvocation, WriteMachine, crate_index_reading,
+            ProgramStartFailure, ReadInvocation, ReadMachine, Replacement, ReplacingInvocation,
+            SUPERSEDED_SUFFIX, Tool, WorkspaceBuild, WriteInvocation, WriteMachine,
+            crate_index_reading,
             dart_reading::DartReading,
             environment_reading::{MachineSearchPath, SearchPathReading},
             invocation::without_terminal_prompts,
@@ -277,7 +278,11 @@ fn rendered_invocation(program: &Path, arguments: &[String]) -> String {
     }
 }
 
-fn capture(program: &Path, arguments: &[String], report: &RunReport) -> Result<CommandOutput> {
+fn capture(
+    program: &Path,
+    arguments: &[String],
+    report: &RunReport,
+) -> Result<CommandOutput, ProgramStartFailure> {
     capture_with(program, arguments, &[], report)
 }
 
@@ -286,7 +291,7 @@ fn capture_with(
     arguments: &[String],
     environment: &[(String, String)],
     report: &RunReport,
-) -> Result<CommandOutput> {
+) -> Result<CommandOutput, ProgramStartFailure> {
     report.note(&rendered_invocation(program, arguments));
 
     let output = ProcessCommand::new(launchable(program, environment))
@@ -294,7 +299,7 @@ fn capture_with(
         .envs(environment.iter().map(|(name, value)| (name, value)))
         .stdin(Stdio::null())
         .output()
-        .with_context(|| format!("Could not run {}", program.display()))?;
+        .map_err(|error| ProgramStartFailure::of(program, error))?;
 
     let standard_output = decode_output(&output.stdout);
     let standard_error = decode_output(&output.stderr);
@@ -673,7 +678,7 @@ impl ReadMachine for LocalMachine<'_, '_> {
         self.elevated
     }
 
-    fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput> {
+    fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput, ProgramStartFailure> {
         capture(
             Path::new(invocation.tool().program()),
             &invocation.arguments(),
@@ -700,7 +705,7 @@ impl ReadMachine for LocalMachine<'_, '_> {
         self.cargo_binaries_directory.clone()
     }
 
-    fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>> {
+    fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>, ProgramStartFailure> {
         match check {
             PresenceCheck::PathExists { paths } => Ok(paths
                 .first_found(|candidate| self.path_exists(&self.resolve_against_home(candidate)))),
@@ -800,7 +805,11 @@ impl ReadMachine for LocalMachine<'_, '_> {
             .map_err(|reason| anyhow!(reason))
     }
 
-    fn report_version(&self, binary_path: &Path, arguments: &[String]) -> Result<CommandOutput> {
+    fn report_version(
+        &self,
+        binary_path: &Path,
+        arguments: &[String],
+    ) -> Result<CommandOutput, ProgramStartFailure> {
         capture(binary_path, arguments, self.report)
     }
 
@@ -822,12 +831,12 @@ impl ReadMachine for LocalMachine<'_, '_> {
                 .into_iter()
                 .chain(arguments.iter().map(|argument| (*argument).to_owned()))
                 .collect();
-            capture_with(
+            Ok(capture_with(
                 Path::new(Tool::Git.program()),
                 &arguments,
                 &without_terminal_prompts(),
                 self.report,
-            )
+            )?)
         })
     }
 }

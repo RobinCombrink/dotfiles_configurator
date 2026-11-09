@@ -17,8 +17,9 @@ use {
         machine::{
             Batched, CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
             ElevatedOutcome, ElevatedWork, Elevation, Exited, HeldReason, OsError, Placement,
-            PrivilegeRefusal, ReadInvocation, ReadMachine, Replacement, ReplacingInvocation,
-            ResolvedCargoSource, WorkspaceBuild, WriteInvocation, WriteMachine,
+            PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine, Replacement,
+            ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
+            WriteMachine,
             dart_reading::{DartDrift, DartReading},
             environment_reading::{MachineSearchPath, SearchPathPlace, SearchPathReading},
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -1243,6 +1244,19 @@ impl FakeMachine {
     }
 }
 
+fn program_running(check: &PresenceCheck) -> PathBuf {
+    match check {
+        PresenceCheck::CommandOutputContains { shell, .. } => PathBuf::from(match shell {
+            Shell::Bash => "bash",
+            Shell::CommandPrompt => "cmd",
+            Shell::PowerShell => "pwsh",
+            Shell::Wsl => "wsl",
+        }),
+        PresenceCheck::CommandOnPath { command } => PathBuf::from(command),
+        PresenceCheck::PathExists { .. } => panic!("a path check runs no program"),
+    }
+}
+
 fn fronted(machine_search_path: &mut Vec<PathBuf>, directory: &Path) {
     let reading = MachineSearchPath::of(machine_search_path.iter().cloned());
     if reading.place_of(directory) != SearchPathPlace::First {
@@ -1477,7 +1491,7 @@ impl ReadMachine for FakeMachine {
         self.state.borrow().tools.contains(&tool)
     }
 
-    fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput> {
+    fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput, ProgramStartFailure> {
         self.state.borrow_mut().reads.push(invocation.clone());
 
         let declared = self
@@ -1610,11 +1624,14 @@ impl ReadMachine for FakeMachine {
         self.cargo_binaries_directory.clone()
     }
 
-    fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>> {
+    fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>, ProgramStartFailure> {
         let declared = {
             let state = self.state.borrow();
             if state.unreadable_presence_checks.contains(check) {
-                bail!("the check could not be run on this machine");
+                return Err(ProgramStartFailure::of(
+                    &program_running(check),
+                    std::io::Error::from(std::io::ErrorKind::NotFound),
+                ));
             }
             state
                 .presence_check_answers
@@ -1637,7 +1654,7 @@ impl ReadMachine for FakeMachine {
                 .any(|installed| installed.to_string() == *command)
                 .then_some(Answer::TheCheckItself)),
             PresenceCheck::CommandOutputContains { .. } => {
-                bail!("no scenario declared what {check} answers on this machine")
+                panic!("no scenario declared what {check} answers on this machine")
             }
         }
     }
@@ -1715,10 +1732,17 @@ impl ReadMachine for FakeMachine {
         Ok(self.state.borrow().environment_variables.get(name).cloned())
     }
 
-    fn report_version(&self, binary_path: &Path, _arguments: &[String]) -> Result<CommandOutput> {
+    fn report_version(
+        &self,
+        binary_path: &Path,
+        _arguments: &[String],
+    ) -> Result<CommandOutput, ProgramStartFailure> {
         let state = self.state.borrow();
         let Some(printed) = state.version_output_by_binary_path.get(binary_path) else {
-            bail!("{} is not a program on this machine", binary_path.display());
+            return Err(ProgramStartFailure::of(
+                binary_path,
+                std::io::Error::from(std::io::ErrorKind::InvalidInput),
+            ));
         };
 
         Ok(CommandOutput {

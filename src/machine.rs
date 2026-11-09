@@ -14,9 +14,12 @@ use {
     anyhow::Result,
     std::{
         collections::{BTreeMap, BTreeSet},
+        error::Error,
         fmt::Display,
+        io,
         path::{Path, PathBuf},
         process::ExitStatus,
+        sync::Arc,
     },
 };
 
@@ -101,6 +104,38 @@ impl From<&CommandOutput> for FailedExit {
 impl Display for FailedExit {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{}: {}", self.exited, self.standard_error.trim())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProgramStartFailure {
+    pub program: PathBuf,
+    pub error: Arc<io::Error>,
+}
+
+impl ProgramStartFailure {
+    pub fn of(program: &Path, error: io::Error) -> Self {
+        Self {
+            program: program.to_path_buf(),
+            error: Arc::new(error),
+        }
+    }
+}
+
+impl Display for ProgramStartFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} could not be run: {}",
+            self.program.display(),
+            self.error
+        )
+    }
+}
+
+impl Error for ProgramStartFailure {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.error.as_ref())
     }
 }
 
@@ -217,7 +252,7 @@ pub trait ReadMachine {
     /// ```
     fn text_file_at(&self, path: &Path) -> Result<Option<String>>;
 
-    fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput>;
+    fn read(&self, invocation: &ReadInvocation) -> Result<CommandOutput, ProgramStartFailure>;
 
     fn read_cargo_workspace(
         &self,
@@ -233,7 +268,7 @@ pub trait ReadMachine {
 
     fn cargo_binaries_directory(&self) -> PathBuf;
 
-    fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>>;
+    fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>, ProgramStartFailure>;
 
     fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool>;
 
@@ -266,7 +301,11 @@ pub trait ReadMachine {
     ) -> impl std::future::Future<Output = Result<CrateVersion>>;
 
     // ADR 0016
-    fn report_version(&self, binary_path: &Path, arguments: &[String]) -> Result<CommandOutput>;
+    fn report_version(
+        &self,
+        binary_path: &Path,
+        arguments: &[String],
+    ) -> Result<CommandOutput, ProgramStartFailure>;
 
     // ADR 0017
     fn read_search_path(&self) -> Result<SearchPathReading>;

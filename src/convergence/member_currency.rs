@@ -1,9 +1,9 @@
 use {
     crate::{
         configuration::{BinaryName, CrateName, path_folding},
-        convergence::{Assessment, DriftReason, Finding, source_reading::ReadFailure},
+        convergence::{Assessment, DriftReason, Finding},
         machine::{
-            CommandOutput, FailedExit, ReadMachine,
+            CommandOutput, FailedExit, ProgramStartFailure, ReadMachine,
             environment_reading::SearchPathReading,
             workspace_reading::{
                 Fingerprint, FingerprintDifference, Revision, WorkspaceReadFailure,
@@ -75,7 +75,7 @@ impl Display for Staleness {
 pub enum UnreadableStamp {
     RequestFailed(FailedExit),
     NamesNoCommit { printed: String },
-    RunFailed(ReadFailure),
+    RunFailed(ProgramStartFailure),
 }
 
 impl Display for UnreadableStamp {
@@ -88,9 +88,7 @@ impl Display for UnreadableStamp {
                 formatter,
                 "it reports \"{printed}\" rather than its name and the commit it was built from"
             ),
-            UnreadableStamp::RunFailed(failure) => {
-                write!(formatter, "it could not be run: {failure}")
-            }
+            UnreadableStamp::RunFailed(failure) => Display::fmt(failure, formatter),
         }
     }
 }
@@ -140,7 +138,7 @@ fn stamp_of(binary: &BinaryName, machine: &impl ReadMachine) -> Option<Stamp> {
     Some(
         match machine.report_version(&own_copy, &[VERSION_ARGUMENT.to_owned()]) {
             Ok(output) => stamp_reported(binary, &output),
-            Err(error) => Stamp::Unreadable(UnreadableStamp::RunFailed(ReadFailure::from(&error))),
+            Err(failure) => Stamp::Unreadable(UnreadableStamp::RunFailed(failure)),
         },
     )
 }

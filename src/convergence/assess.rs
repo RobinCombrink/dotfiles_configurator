@@ -14,9 +14,7 @@ use {
             Assessment, DriftReason, Finding, Impediment, ReadSource, SourceReading,
             UnreadableReason,
             member_currency::{OwnCopies, OwnCopy, judged, own_copies_of, resolution_of},
-            search_path_directory,
-            source_reading::ReadFailure,
-            symlink_location,
+            search_path_directory, symlink_location,
             withdrawal::{InstallRecord, install_records},
         },
         desired_state::{ChangeSetResource, DesiredState, ResolvedResource, WorkspaceMember},
@@ -127,9 +125,7 @@ impl SourceReadings {
             let repository_path = workspace.clone_directory(&workspace.declared().repository);
             let reading = match machine.read_cargo_workspace(&repository_path) {
                 Ok(reading) => SourceReading::Read(reading),
-                Err(failure) => SourceReading::Unreadable(UnreadableReason::ReadFailed(
-                    ReadFailure::from(failure),
-                )),
+                Err(failure) => SourceReading::Unreadable(UnreadableReason::read_failed(failure)),
             };
             if let SourceReading::Read(Some(reading)) = &reading {
                 own_copies.insert(
@@ -371,7 +367,7 @@ fn read_listing(
             tool,
             failure: FailedExit::from(&output),
         }),
-        Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
+        Err(failure) => SourceReading::Unreadable(UnreadableReason::read_failed(failure)),
     }
 }
 
@@ -531,8 +527,8 @@ fn assess_installer(installer: &Installer, machine: &impl ReadMachine) -> Assess
         Ok(None) => Assessment::Drifted(DriftReason::NotInstalled {
             presence_check: installer.presence_check.clone(),
         }),
-        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            UnreadableReason::from(&error),
+        Err(failure) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            UnreadableReason::read_failed(failure),
         )),
     }
 }
@@ -581,7 +577,7 @@ fn installed_version(
 ) -> Result<Version, UnreadableReason> {
     let output = machine
         .report_version(installed_path, &binary.version_arguments)
-        .map_err(|error| UnreadableReason::from(&error))?;
+        .map_err(UnreadableReason::read_failed)?;
 
     if !output.exited.succeeded() {
         return Err(UnreadableReason::VersionRequestFailed {
@@ -662,9 +658,9 @@ fn winget_package_by_identifier(
     let invocation = ReadInvocation::WingetPackage {
         id: package.id.clone(),
     };
-    let output = machine
-        .read(&invocation)
-        .map_err(|error| Impediment::ActualStateUnreadable(UnreadableReason::from(&error)))?;
+    let output = machine.read(&invocation).map_err(|failure| {
+        Impediment::ActualStateUnreadable(UnreadableReason::read_failed(failure))
+    })?;
 
     if !output.exited.succeeded() {
         return match output.standard_output.trim() == WINGET_FINDS_NO_PACKAGE {
@@ -712,7 +708,7 @@ fn read_winget_upgrades(
             failure: FailedExit::from(&output),
             standard_output: output.standard_output,
         }),
-        Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
+        Err(failure) => SourceReading::Unreadable(UnreadableReason::read_failed(failure)),
     }
 }
 
@@ -1125,9 +1121,9 @@ fn assess_claude_mcp_server(server: &ClaudeMcpServer, machine: &impl ReadMachine
     };
     let output = match machine.read(&invocation) {
         Ok(output) => output,
-        Err(error) => {
+        Err(failure) => {
             return Assessment::Unassessable(Impediment::ActualStateUnreadable(
-                UnreadableReason::from(&error),
+                UnreadableReason::read_failed(failure),
             ));
         }
     };
@@ -1235,8 +1231,8 @@ fn assess_command(command: &Command, machine: &impl ReadMachine) -> Assessment {
         Ok(None) => Assessment::Drifted(DriftReason::NotYetDone {
             presence_check: check.clone(),
         }),
-        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            UnreadableReason::from(&error),
+        Err(failure) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            UnreadableReason::read_failed(failure),
         )),
     }
 }
