@@ -148,7 +148,9 @@ impl Display for DeclaredNotice {
 ///
 /// ```
 /// # use dotfiles_configurator::configuration::Notice;
-/// assert!(Notice::EnvironmentChanged.to_string().contains("open a new one"));
+/// let notice = Notice::EnvironmentChanged.to_string();
+/// assert!(notice.contains("open a new one"));
+/// assert!(notice.contains("restart session-daemon"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Notice {
@@ -182,7 +184,9 @@ impl Display for Notice {
             ),
             Notice::EnvironmentChanged => formatter.write_str(
                 "The environment changed. The shell this run was started from reads its \
-                 environment once, at launch, so it will not see the change — open a new one.",
+                 environment once, at launch, so it will not see the change — open a new one. A \
+                 session the session daemon places inherits the daemon's environment, so it sees \
+                 the change only once you restart session-daemon.",
             ),
             Notice::SourceCannotBeRewritten { source, from } => write!(
                 formatter,

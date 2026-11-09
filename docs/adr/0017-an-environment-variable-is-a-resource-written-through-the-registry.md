@@ -44,7 +44,12 @@ reason **Actual state** is defined as read from the machine rather than from a r
 - **A variable this tool sets is never unset.** Convergence is additive, so withdrawing a
   declaration ends the tool's interest in a variable rather than removing it from the machine.
 - **The change is invisible to every process already running**, including the shell that launched
-  the tool, which is what broadcasting the change can and cannot do.
+  the tool, which is what broadcasting the change can and cannot do. A process one of them starts
+  later inherits its snapshot rather than the registry: on the personal machine on 2026-11-09, a
+  user variable written to the environment key and broadcast reached a process Explorer started
+  and not a process the session daemon's server started, so a session the daemon places after an
+  apply, like one it warmed before, sees the change only once the daemon restarts. The closing
+  notice names that restart.
 - **Only the user's environment is written.** A directory present on the machine-wide path is
   still absent from the user's, so deciding whether that is drift requires reading both keys, and
   appending without reading both produces a duplicate that works and should not exist.
