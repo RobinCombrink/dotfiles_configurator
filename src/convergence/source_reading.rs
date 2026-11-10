@@ -17,7 +17,6 @@ use {
 
 #[derive(Debug, Clone)]
 pub enum ReadFailure {
-    Chain(String),
     Workspace(WorkspaceReadFailure),
     Dart(DartReadFailure),
     Registry(RegistryReadFailure),
@@ -26,12 +25,6 @@ pub enum ReadFailure {
     Clone(CloneReadFailure),
     ProgramStart(ProgramStartFailure),
     FileRead(FileReadFailure),
-}
-
-impl From<&anyhow::Error> for ReadFailure {
-    fn from(error: &anyhow::Error) -> Self {
-        Self::Chain(format!("{error:#}"))
-    }
 }
 
 impl From<WorkspaceReadFailure> for ReadFailure {
@@ -85,7 +78,6 @@ impl From<FileReadFailure> for ReadFailure {
 impl Display for ReadFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReadFailure::Chain(chain) => formatter.write_str(chain),
             ReadFailure::Workspace(failure) => Display::fmt(failure, formatter),
             ReadFailure::Dart(failure) => Display::fmt(failure, formatter),
             ReadFailure::Registry(failure) => Display::fmt(failure, formatter),
@@ -147,12 +139,6 @@ pub enum UnreadableReason {
     CargoListsAnUnreadableVersion {
         listed: String,
     },
-}
-
-impl From<&anyhow::Error> for UnreadableReason {
-    fn from(error: &anyhow::Error) -> Self {
-        UnreadableReason::ReadFailed(ReadFailure::from(error))
-    }
 }
 
 impl UnreadableReason {
