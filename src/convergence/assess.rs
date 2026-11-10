@@ -884,10 +884,6 @@ fn assess_workspace_member(
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Assessment {
-    if let Err(impediment) = readings.install_records() {
-        return Assessment::Unassessable(impediment);
-    }
-
     let (own_copies, search_path) = match (
         readings.own_copies(&member.clone_directory(), member.crate_name()),
         readings.search_path(),

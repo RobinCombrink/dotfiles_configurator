@@ -343,14 +343,15 @@ async fn a_member_installs_for_an_absent_or_stale_copy_of_its_own_and_a_shadow_i
 }
 
 #[tokio::test]
-async fn a_member_is_blocked_while_cargo_cannot_list_what_it_has_installed() {
+async fn a_member_is_judged_by_its_binaries_while_cargo_cannot_list_what_it_has_installed() {
     let machine = FakeMachine::default();
     machine.clone_dotfiles_repository();
     machine.hold_cargo_workspace(
         machine.dotfiles_repository_path().to_path_buf(),
-        workspace_holding(&["stop-gate"]),
+        workspace_holding(&["stop-gate", "sweep"]),
     );
     machine.hold_cargo_binary("stop-gate", format!("stop-gate {WORKSPACE_REVISION}\n"));
+    machine.hold_cargo_binary("sweep", format!("sweep {UNKNOWN_REVISION}\n"));
     machine.make_reading_fail(
         ReadInvocation::CargoInstalledCrates,
         "error: failed to parse the install record",
@@ -374,8 +375,16 @@ async fn a_member_is_blocked_while_cargo_cannot_list_what_it_has_installed() {
     .unwrap();
 
     assert_eq!(
-        crate_names_of(change_set.blocked.iter().map(|blocked| &blocked.resource)),
-        vec!["stop-gate"]
+        (
+            crate_names_of(change_set.converged.iter()),
+            crate_names_of(change_set.changes.iter().map(|change| &change.resource)),
+            crate_names_of(change_set.blocked.iter().map(|blocked| &blocked.resource)),
+        ),
+        (
+            vec!["stop-gate".to_owned()],
+            vec!["sweep".to_owned()],
+            Vec::new()
+        )
     );
 }
 
