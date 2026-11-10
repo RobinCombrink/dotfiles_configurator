@@ -1,6 +1,10 @@
 use {
-    crate::{configuration::AssetPattern, version::Version},
-    std::fmt::Display,
+    crate::{
+        configuration::{AssetPattern, GitHubRepository},
+        configuration_source::EnvironmentFailure,
+        version::Version,
+    },
+    std::{fmt::Display, sync::Arc},
     url::Url,
 };
 
@@ -58,6 +62,46 @@ impl Display for NamedAssets<'_> {
                 let names: Vec<&str> = self.0.iter().map(|asset| asset.name.as_str()).collect();
                 write!(formatter, "{}", names.join(", "))
             }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ReleaseReadFailure {
+    AccountUnavailable(Arc<EnvironmentFailure>),
+    Unasked {
+        repository: GitHubRepository,
+        error: Arc<octocrab::Error>,
+    },
+    TaggedAnUnreadableVersion {
+        repository: GitHubRepository,
+        tag: String,
+    },
+}
+
+impl Display for ReleaseReadFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReleaseReadFailure::AccountUnavailable(failure) => Display::fmt(failure, formatter),
+            ReleaseReadFailure::Unasked { repository, error } => write!(
+                formatter,
+                "Could not read the latest release of {repository}: {error}"
+            ),
+            ReleaseReadFailure::TaggedAnUnreadableVersion { repository, tag } => write!(
+                formatter,
+                "the latest release of {repository} is tagged {tag:?}, which is not a version; a \
+                 version starts with a digit"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ReleaseReadFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ReleaseReadFailure::AccountUnavailable(failure) => Some(failure.as_ref()),
+            ReleaseReadFailure::Unasked { error, .. } => Some(error.as_ref()),
+            ReleaseReadFailure::TaggedAnUnreadableVersion { .. } => None,
         }
     }
 }

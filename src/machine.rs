@@ -7,7 +7,7 @@ use {
         machine::{
             dart_reading::{DartLocations, DartReadFailure, DartReading},
             environment_reading::{MachineSearchPath, RegistryReadFailure, SearchPathReading},
-            release_reading::ReleaseReading,
+            release_reading::{ReleaseReadFailure, ReleaseReading},
             workspace_reading::{Fingerprint, Revision, WorkspaceReadFailure, WorkspaceReading},
         },
     },
@@ -325,7 +325,7 @@ pub trait ReadMachine {
         &self,
         repository: &GitHubRepository,
         account: &GitHubAccount,
-    ) -> impl std::future::Future<Output = Result<Option<ReleaseReading>>>;
+    ) -> impl std::future::Future<Output = Result<Option<ReleaseReading>, ReleaseReadFailure>>;
 
     fn newest_published_crate(
         &self,

@@ -12,7 +12,7 @@ use {
             PythonInterpreter, ReleasedBinary, RepositoryClone, Shell, Tool, UvToolName,
             UvToolVersion, VariableName, VariableValue, WingetPackageId, WingetVersion,
         },
-        configuration_source::WriteSource,
+        configuration_source::{EnvironmentFailure, WriteSource},
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             Batched, CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
@@ -24,13 +24,14 @@ use {
             environment_reading::{
                 MachineSearchPath, RegistryReadFailure, SearchPathPlace, SearchPathReading,
             },
-            release_reading::{ReleaseAsset, ReleaseReading},
+            release_reading::{ReleaseAsset, ReleaseReadFailure, ReleaseReading},
             superseded_name,
             workspace_reading::{Fingerprint, Revision, WorkspaceReadFailure, WorkspaceReading},
         },
         tool_directory_within,
         version::Version,
     },
+    github_authentication::cli,
     std::{
         cell::RefCell,
         collections::{BTreeMap, BTreeSet},
@@ -1694,14 +1695,18 @@ impl ReadMachine for FakeMachine {
         &self,
         repository: &GitHubRepository,
         account: &GitHubAccount,
-    ) -> Result<Option<ReleaseReading>> {
+    ) -> Result<Option<ReleaseReading>, ReleaseReadFailure> {
         let mut state = self.state.borrow_mut();
         state
             .release_reads
             .push((repository.clone(), account.clone()));
 
         if state.unreadable_releases.contains(repository) {
-            bail!("{repository} could not be asked for its latest release");
+            return Err(ReleaseReadFailure::AccountUnavailable(Arc::new(
+                EnvironmentFailure::GitHubCli(cli::Refusal::AccountUnheld {
+                    account: account.to_string(),
+                }),
+            )));
         }
 
         Ok(state.releases.get(repository).cloned())

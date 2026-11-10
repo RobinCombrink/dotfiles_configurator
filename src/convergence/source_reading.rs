@@ -7,7 +7,8 @@ use {
         convergence::Impediment,
         machine::{
             FailedExit, FileReadFailure, ProgramStartFailure, dart_reading::DartReadFailure,
-            environment_reading::RegistryReadFailure, workspace_reading::WorkspaceReadFailure,
+            environment_reading::RegistryReadFailure, release_reading::ReleaseReadFailure,
+            workspace_reading::WorkspaceReadFailure,
         },
     },
     std::{fmt::Display, path::PathBuf},
@@ -19,6 +20,7 @@ pub enum ReadFailure {
     Workspace(WorkspaceReadFailure),
     Dart(DartReadFailure),
     Registry(RegistryReadFailure),
+    Release(ReleaseReadFailure),
     ProgramStart(ProgramStartFailure),
     FileRead(FileReadFailure),
 }
@@ -47,6 +49,12 @@ impl From<RegistryReadFailure> for ReadFailure {
     }
 }
 
+impl From<ReleaseReadFailure> for ReadFailure {
+    fn from(failure: ReleaseReadFailure) -> Self {
+        Self::Release(failure)
+    }
+}
+
 impl From<ProgramStartFailure> for ReadFailure {
     fn from(failure: ProgramStartFailure) -> Self {
         Self::ProgramStart(failure)
@@ -66,6 +74,7 @@ impl Display for ReadFailure {
             ReadFailure::Workspace(failure) => Display::fmt(failure, formatter),
             ReadFailure::Dart(failure) => Display::fmt(failure, formatter),
             ReadFailure::Registry(failure) => Display::fmt(failure, formatter),
+            ReadFailure::Release(failure) => Display::fmt(failure, formatter),
             ReadFailure::ProgramStart(failure) => Display::fmt(failure, formatter),
             ReadFailure::FileRead(failure) => Display::fmt(failure, formatter),
         }

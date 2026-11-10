@@ -105,7 +105,7 @@ impl SourceReadings {
         for (repository, account) in released_from {
             let reading = match machine.latest_release(&repository, &account).await {
                 Ok(release) => SourceReading::Read(release),
-                Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
+                Err(failure) => SourceReading::Unreadable(UnreadableReason::read_failed(failure)),
             };
             releases.insert(repository, reading);
         }

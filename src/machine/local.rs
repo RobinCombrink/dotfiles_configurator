@@ -17,7 +17,7 @@ use {
             environment_reading::{MachineSearchPath, RegistryReadFailure, SearchPathReading},
             invocation::without_terminal_prompts,
             partial_download_path,
-            release_reading::{ReleaseAsset, ReleaseReading},
+            release_reading::{ReleaseAsset, ReleaseReadFailure, ReleaseReading},
             superseded_name,
             workspace_reading::{Fingerprint, Revision, WorkspaceReadFailure, WorkspaceReading},
         },
@@ -37,6 +37,7 @@ use {
         io::Read,
         path::{Path, PathBuf},
         process::{Command as ProcessCommand, Stdio},
+        sync::Arc,
     },
     tokio::io::{AsyncBufReadExt, AsyncRead},
     url::Url,
@@ -738,12 +739,13 @@ impl ReadMachine for LocalMachine<'_, '_> {
         &self,
         repository: &GitHubRepository,
         account: &GitHubAccount,
-    ) -> Result<Option<ReleaseReading>> {
+    ) -> Result<Option<ReleaseReading>, ReleaseReadFailure> {
         let owner = repository.owner.as_ref();
         let name = repository.repository.as_ref();
         let asked = self
             .github
-            .account(account)?
+            .account(account)
+            .map_err(|failure| ReleaseReadFailure::AccountUnavailable(Arc::new(failure)))?
             .client()
             .repos(owner, name)
             .releases()
@@ -758,13 +760,19 @@ impl ReadMachine for LocalMachine<'_, '_> {
                 return Ok(None);
             }
             Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("Could not read the latest release of {repository}"));
+                return Err(ReleaseReadFailure::Unasked {
+                    repository: repository.clone(),
+                    error: Arc::new(error),
+                });
             }
         };
 
-        let version = Version::try_from(release.tag_name.as_str())
-            .map_err(|fault| anyhow!("the latest release of {repository} is tagged {fault}"))?;
+        let Ok(version) = Version::try_from(release.tag_name.as_str()) else {
+            return Err(ReleaseReadFailure::TaggedAnUnreadableVersion {
+                repository: repository.clone(),
+                tag: release.tag_name,
+            });
+        };
 
         Ok(Some(ReleaseReading {
             version,
