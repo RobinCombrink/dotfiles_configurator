@@ -33,6 +33,14 @@ Why a resource could not be assessed: something it requires is absent, or its ac
 be read. A resource with one is blocked rather than drifted, and the impediment carries facts as a
 drift reason does. Defined by `Impediment`.
 
+**Read failure**:
+A reading of the machine that could not be completed, carrying the facts the reader that failed
+held: the clone, file, program, registry key, repository or crate it was reading, and what a
+foreign library or program reported. The cause an impediment carries when a resource's actual
+state could not be read. Distinct from **Unreadable**, which is a configuration's own fault.
+_Avoid_: unreadable
+Defined by `ReadFailure`.
+
 **Finding**:
 Something an assessment noticed about a converged resource that a person should see, such as which
 candidate answered a path check or which other file shadows an installed binary. Not drift, so
