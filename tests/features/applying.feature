@@ -344,6 +344,49 @@ Feature: Applying a change set
     And the run reports a notice mentioning "session-census 0123456789abcdef0123456789abcdef01234567"
     And the machine is reported as converged
 
+  Scenario: Applying hands a member cargo recorded over to the commit its binary reports
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And cargo records "stop-gate" as installed from the dotfiles repository
+    When Alice applies
+    Then cargo no longer records "stop-gate" on Alice's machine
+    And the binary "stop-gate" is still where cargo installs on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A record cargo holds whose binary is already gone is still handed over
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And cargo records "session-census" as installed from the dotfiles repository
+    When Alice applies
+    Then cargo no longer records "session-census" on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A record of a repository no workspace declares is left with cargo
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And cargo records "session-census" as installed from Bob's tools repository
+    When Alice applies
+    Then cargo still records "session-census" on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A record cargo refuses to give up leaves the machine unconverged
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And cargo records "stop-gate" as installed from the dotfiles repository
+    And cargo refuses to uninstall anything on Alice's machine
+    When Alice applies
+    Then cargo still records "stop-gate" on Alice's machine
+    And the binary "stop-gate" is still where cargo installs on Alice's machine
+    And the machine is not reported as converged
+
   Scenario: A binary that will not be moved aside is reported as held rather than as failed
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine

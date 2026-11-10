@@ -551,6 +551,22 @@ fn the_tools_uv_reports_as_behind_are_asked_for_even_where_uv_is_set_to_work_off
     );
 }
 
+#[test]
+fn a_record_is_untracked_whole_by_the_specification_that_tells_it_apart() {
+    let untracking = RecordUntracking {
+        specification: "git+https://Alice@github.com/Alice/dotfiles?rev=0c532c68bd883d1e6b002ad5bb1f40aa2ed70f66#session-mining@0.1.0".to_owned(),
+        binary_files: vec!["session-census.exe".to_owned()],
+    };
+
+    assert_eq!(
+        untracking.arguments(),
+        vec![
+            "uninstall",
+            "git+https://Alice@github.com/Alice/dotfiles?rev=0c532c68bd883d1e6b002ad5bb1f40aa2ed70f66#session-mining@0.1.0",
+        ]
+    );
+}
+
 fn shfmt() -> WingetPackageId {
     WingetPackageId::from("mvdan.shfmt")
 }

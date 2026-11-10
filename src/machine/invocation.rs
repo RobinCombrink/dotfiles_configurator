@@ -244,6 +244,22 @@ impl MemberInstall {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordUntracking {
+    pub specification: String,
+    pub binary_files: Vec<String>,
+}
+
+impl RecordUntracking {
+    pub fn arguments(&self) -> Vec<String> {
+        vec!["uninstall".to_owned(), self.specification.clone()]
+    }
+
+    pub fn environment(&self) -> Vec<(String, String)> {
+        cargo_environment(None)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceBuild<'reading> {
     clone_directory: PathBuf,
     reading: &'reading WorkspaceReading,

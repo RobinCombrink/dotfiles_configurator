@@ -465,10 +465,20 @@ fn planned_withdrawals(
         }
     }
 
-    decided(
+    let repositories: Vec<GitHubRepository> = desired_state
+        .workspaces
+        .iter()
+        .map(|workspace| workspace.declared().repository.clone())
+        .collect();
+    let mut decided = decided(
         unclaimed_binaries(listing, &clones, &declared, machine),
         &declared,
-    )
+    );
+    decided.withdrawals.extend(withdrawal::untracked(
+        withdrawal::install_records(listing),
+        &repositories,
+    ));
+    decided
 }
 
 // ADR 0005

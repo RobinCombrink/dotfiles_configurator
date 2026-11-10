@@ -2,7 +2,7 @@ use {
     crate::{
         configuration::{BinaryName, CrateName, GitHubRepository, path_folding},
         convergence::Lane,
-        machine::{ReadMachine, WriteMachine, workspace_reading::Revision},
+        machine::{ReadMachine, RecordUntracking, WriteMachine, workspace_reading::Revision},
         reporting::{Entry, EntryOutcome, RunReport},
     },
     anyhow::Result,
@@ -77,6 +77,22 @@ fn git_record_line(line: &str) -> Option<InstallRecord> {
     })
 }
 
+pub fn untracked(
+    records: Vec<InstallRecord>,
+    repositories: &[GitHubRepository],
+) -> Vec<Withdrawal> {
+    records
+        .into_iter()
+        .filter_map(|record| {
+            let workspace = repositories
+                .iter()
+                .find(|repository| record.was_installed_from(repository))?
+                .clone();
+            Some(Withdrawal::Untrack { record, workspace })
+        })
+        .collect()
+}
+
 pub fn claimed_binary_files(listing: &str) -> BTreeSet<String> {
     listing
         .lines()
@@ -93,6 +109,10 @@ pub enum Withdrawal {
         workspace: GitHubRepository,
         commit: Revision,
     },
+    Untrack {
+        record: InstallRecord,
+        workspace: GitHubRepository,
+    },
     // ADR 0005
     Unlink {
         link_path: PathBuf,
@@ -104,7 +124,7 @@ pub enum Withdrawal {
 impl Withdrawal {
     pub fn lane(&self) -> Lane {
         match self {
-            Withdrawal::Remove { .. } => Lane::Cargo,
+            Withdrawal::Remove { .. } | Withdrawal::Untrack { .. } => Lane::Cargo,
             Withdrawal::Unlink { .. } => Lane::Instant,
         }
     }
@@ -112,6 +132,10 @@ impl Withdrawal {
     fn entry(&self) -> Entry {
         match self {
             Withdrawal::Remove { binary, .. } => Entry::removal(self.lane(), binary),
+            Withdrawal::Untrack { record, .. } => Entry::removal(
+                self.lane(),
+                format!("cargo's record of {}", record.crate_name),
+            ),
             Withdrawal::Unlink { link_path, .. } => {
                 Entry::removal(self.lane(), link_path.display())
             }
@@ -130,6 +154,12 @@ impl Display for Withdrawal {
                 formatter,
                 "{binary}, built from {commit} of {workspace}, which no member of a declared \
                  workspace declares"
+            ),
+            Withdrawal::Untrack { record, workspace } => write!(
+                formatter,
+                "cargo's record of {} {} from {workspace}, keeping its binaries, which answer \
+                 for themselves by the commit they report",
+                record.crate_name, record.version
             ),
             Withdrawal::Unlink {
                 link_path,
@@ -234,6 +264,14 @@ async fn remove(withdrawal: &Withdrawal, machine: &impl WriteMachine) -> Result<
     match withdrawal {
         Withdrawal::Remove { binary, .. } => {
             machine.remove_binary(&machine.cargo_binaries_directory().join(binary.file_name()))
+        }
+        Withdrawal::Untrack { record, .. } => {
+            machine
+                .untrack_cargo_record(&RecordUntracking {
+                    specification: record.specification(),
+                    binary_files: record.binary_files.clone(),
+                })
+                .await
         }
         Withdrawal::Unlink { link_path, .. } => machine.remove_link(link_path),
     }

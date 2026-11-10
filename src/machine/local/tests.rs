@@ -355,6 +355,56 @@ fn a_binary_already_gone_is_removed_without_complaint() {
 }
 
 #[test]
+fn a_binary_kept_aside_through_an_uninstall_is_back_under_its_name_with_its_bytes() {
+    let directory = tempfile::tempdir().unwrap();
+    let binary = a_binary_at(directory.path(), "stop-gate.exe", "the built image");
+    let kept = kept_aside(std::slice::from_ref(&binary)).unwrap();
+
+    fs::remove_file(&binary).unwrap();
+    kept.put_back().unwrap();
+
+    assert_eq!(
+        (
+            fs::read_to_string(&binary).unwrap(),
+            incoming_name(&binary).exists()
+        ),
+        ("the built image".to_owned(), false)
+    );
+}
+
+#[test]
+fn a_recorded_binary_already_gone_is_stood_in_for_by_an_empty_file_the_uninstall_takes() {
+    let directory = tempfile::tempdir().unwrap();
+    let absent = directory.path().join("session-census.exe");
+    let kept = kept_aside(std::slice::from_ref(&absent)).unwrap();
+    let stood_in = fs::read(&absent).unwrap();
+
+    fs::remove_file(&absent).unwrap();
+    kept.put_back().unwrap();
+
+    assert_eq!((stood_in, absent.exists()), (Vec::new(), false));
+}
+
+#[test]
+fn an_uninstall_that_failed_leaves_the_binaries_and_nothing_it_wrote_beside_them() {
+    let directory = tempfile::tempdir().unwrap();
+    let binary = a_binary_at(directory.path(), "stop-gate.exe", "the built image");
+    let absent = directory.path().join("session-census.exe");
+    let kept = kept_aside(&[binary.clone(), absent.clone()]).unwrap();
+
+    kept.discard();
+
+    assert_eq!(
+        (
+            fs::read_to_string(&binary).unwrap(),
+            incoming_name(&binary).exists(),
+            absent.exists()
+        ),
+        ("the built image".to_owned(), false, false)
+    );
+}
+
+#[test]
 fn restoring_puts_the_moved_image_back_under_the_name_it_had() {
     let directory = tempfile::tempdir().unwrap();
     let destination = a_binary_at(directory.path(), "claude-session.exe", "the old image");

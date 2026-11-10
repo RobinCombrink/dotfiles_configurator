@@ -42,8 +42,9 @@ pub use {
         PrivilegeRefusal,
     },
     invocation::{
-        DisplacingInvocation, MemberInstall, ReadInvocation, RefusedCopy, ReplacementCommands,
-        ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
+        DisplacingInvocation, MemberInstall, ReadInvocation, RecordUntracking, RefusedCopy,
+        ReplacementCommands, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild,
+        WriteInvocation,
     },
 };
 
@@ -520,6 +521,11 @@ pub trait WriteMachine: ReadMachine {
         &self,
         install: &MemberInstall,
     ) -> impl std::future::Future<Output = Result<Placement>>;
+
+    fn untrack_cargo_record(
+        &self,
+        untracking: &RecordUntracking,
+    ) -> impl std::future::Future<Output = Result<()>>;
 
     fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>);
 

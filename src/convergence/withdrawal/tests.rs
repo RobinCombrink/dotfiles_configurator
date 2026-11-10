@@ -1,4 +1,7 @@
-use super::*;
+use {
+    super::*,
+    crate::configuration::{RepositoryName, RepositoryOwner},
+};
 
 const EARLIER: &str = "0c532c68bd883d1e6b002ad5bb1f40aa2ed70f66";
 const LATER: &str = "e54928664eb4222b2ea79c7ef56126c5c58c7e01";
@@ -70,6 +73,65 @@ fn a_record_is_specified_by_its_whole_source_so_that_two_of_one_package_are_told
     assert_eq!(
         records[0].specification(),
         format!("git+https://Alice@github.com/Alice/dotfiles?rev={EARLIER}#session-mining@0.1.0")
+    );
+}
+
+fn repository(owner: &str, name: &str) -> GitHubRepository {
+    GitHubRepository {
+        owner: RepositoryOwner::from(owner),
+        repository: RepositoryName::from(name),
+    }
+}
+
+fn untracked_crates(listing: &str, repositories: &[GitHubRepository]) -> Vec<String> {
+    untracked(install_records(listing), repositories)
+        .iter()
+        .map(|withdrawal| match withdrawal {
+            Withdrawal::Untrack { record, workspace } => {
+                format!("{} from {workspace}", record.crate_name)
+            }
+            other => panic!("expected only untracking, got {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn every_git_record_of_a_declared_workspace_repository_is_untracked() {
+    assert_eq!(
+        untracked_crates(
+            &listing_of_two_disjoint_records_of_one_member(),
+            &[repository("Alice", "dotfiles")]
+        ),
+        vec![
+            "session-mining from Alice/dotfiles".to_owned(),
+            "session-mining from Alice/dotfiles".to_owned()
+        ]
+    );
+}
+
+#[test]
+fn a_record_fetched_through_another_account_is_still_untracked() {
+    let listing = listed(
+        &format!(
+            "stop-gate v0.1.0 (https://Bob@github.com/Alice/dotfiles.git?rev={LATER}#e5492866):"
+        ),
+        &["stop-gate"],
+    );
+
+    assert_eq!(
+        untracked_crates(&listing, &[repository("Alice", "dotfiles")]),
+        vec!["stop-gate from Alice/dotfiles".to_owned()]
+    );
+}
+
+#[test]
+fn a_record_of_a_repository_no_workspace_declares_is_left_with_cargo() {
+    assert_eq!(
+        untracked_crates(
+            &listing_of_two_disjoint_records_of_one_member(),
+            &[repository("Bob", "tools")]
+        ),
+        Vec::<String>::new()
     );
 }
 

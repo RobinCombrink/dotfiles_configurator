@@ -1990,6 +1990,51 @@ fn cargo_installed_a_registry_crate_reporting_a_commit(
     an_earlier_build_left_a_binary(world, crate_name);
 }
 
+#[given(expr = "cargo records {string} as installed from the dotfiles repository")]
+fn cargo_records_a_member(world: &mut MachineWorld, crate_name: String) {
+    world.machine.hold_install_record(
+        &CrateName::from(crate_name.as_str()),
+        &dotfiles_repository(),
+        &Revision::from(WORKSPACE_REVISION),
+        &[BinaryName::from(crate_name.as_str())],
+    );
+}
+
+#[given(expr = "cargo records {string} as installed from Bob's tools repository")]
+fn cargo_records_a_crate_from_bobs_tools(world: &mut MachineWorld, crate_name: String) {
+    world.machine.hold_install_record(
+        &CrateName::from(crate_name.as_str()),
+        &named_repository("Bob/tools"),
+        &Revision::from(EARLIER_WORKSPACE_REVISION),
+        &[BinaryName::from(crate_name.as_str())],
+    );
+}
+
+#[given(expr = "cargo refuses to uninstall anything on Alice's machine")]
+fn cargo_refuses_to_uninstall(world: &mut MachineWorld) {
+    world.machine.refuse_every_uninstall();
+}
+
+#[then(expr = "cargo no longer records {string} on Alice's machine")]
+fn cargo_no_longer_records(world: &mut MachineWorld, crate_name: String) {
+    assert!(
+        !world
+            .machine
+            .cargo_records_the_crate(&CrateName::from(crate_name.as_str())),
+        "cargo still records {crate_name}"
+    );
+}
+
+#[then(expr = "cargo still records {string} on Alice's machine")]
+fn cargo_still_records(world: &mut MachineWorld, crate_name: String) {
+    assert!(
+        world
+            .machine
+            .cargo_records_the_crate(&CrateName::from(crate_name.as_str())),
+        "cargo no longer records {crate_name}"
+    );
+}
+
 #[then(expr = "the change set reports {int} binary/binaries to remove")]
 fn change_set_reports_removals(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.change_set().withdrawals.len(), expected);

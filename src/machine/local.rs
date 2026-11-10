@@ -11,8 +11,9 @@ use {
             CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
             ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason, MemberInstall, OsError,
             Placement, PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine,
-            Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, VERSION_REPORT_DEADLINE,
-            VersionReportFailure, WorkspaceBuild, WriteInvocation, WriteMachine,
+            RecordUntracking, Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool,
+            VERSION_REPORT_DEADLINE, VersionReportFailure, WorkspaceBuild, WriteInvocation,
+            WriteMachine,
             clone_reading::CloneReadFailure,
             crate_index_reading::{self, CrateIndexReadFailure},
             dart_reading::{DartReadFailure, DartReading},
@@ -538,6 +539,66 @@ fn removed_or_displaced(path: &Path) -> Result<Option<PathBuf>> {
     displace(path)
         .map(Some)
         .with_context(|| format!("Could not remove {}: {refused}", path.display()))
+}
+
+#[derive(Debug, Default)]
+struct KeptAside {
+    copies: Vec<(PathBuf, PathBuf)>,
+    placeholders: Vec<PathBuf>,
+}
+
+impl KeptAside {
+    fn put_back(self) -> Result<()> {
+        for placeholder in &self.placeholders {
+            let _ = fs::remove_file(placeholder);
+        }
+        for (copy, file) in &self.copies {
+            fs::rename(copy, file).with_context(|| {
+                format!(
+                    "Could not move {} back onto {}",
+                    copy.display(),
+                    file.display()
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    fn discard(self) {
+        for path in self
+            .placeholders
+            .iter()
+            .chain(self.copies.iter().map(|(copy, _)| copy))
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+// 2026-10-05: `cargo uninstall` refuses a record naming a binary whose file is gone with
+// "error: corrupt metadata, `<path>` does not exist when it should" on its standard error,
+// exiting 101, and removes nothing; an empty file written at that path lets it through. cargo
+// 1.99.0 on Windows 11.
+fn kept_aside(files: &[PathBuf]) -> Result<KeptAside> {
+    let mut kept = KeptAside::default();
+    for file in files {
+        let held = match file.symlink_metadata() {
+            Ok(_) => {
+                let copy = incoming_name(file);
+                fs::copy(file, &copy)
+                    .map(|_| kept.copies.push((copy, file.clone())))
+                    .with_context(|| format!("Could not copy {} aside", file.display()))
+            }
+            Err(_) => fs::write(file, [])
+                .map(|()| kept.placeholders.push(file.clone()))
+                .with_context(|| format!("Could not write a placeholder at {}", file.display())),
+        };
+        if let Err(failure) = held {
+            kept.discard();
+            return Err(failure);
+        }
+    }
+    Ok(kept)
 }
 
 fn placed_from(staged: &Path, destination_directory: &Path) -> Result<Placement> {
@@ -1341,6 +1402,31 @@ impl WriteMachine for LocalMachine<'_, '_> {
             });
         let _ = fs::remove_dir_all(&staging);
         built
+    }
+
+    async fn untrack_cargo_record(&self, untracking: &RecordUntracking) -> Result<()> {
+        let files: Vec<PathBuf> = untracking
+            .binary_files
+            .iter()
+            .map(|file| self.cargo_binaries_directory.join(file))
+            .collect();
+        let kept = kept_aside(&files)?;
+
+        let arguments = untracking.arguments();
+        match self
+            .run(Tool::Cargo, &arguments, &untracking.environment())
+            .await
+        {
+            Ok(output) if output.exited.succeeded() => kept.put_back(),
+            Ok(output) => {
+                kept.discard();
+                Err(refused(Tool::Cargo, &arguments, &output))
+            }
+            Err(failure) => {
+                kept.discard();
+                Err(failure)
+            }
+        }
     }
 
     fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>) {

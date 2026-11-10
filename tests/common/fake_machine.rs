@@ -18,8 +18,9 @@ use {
             Batched, CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
             ElevatedOutcome, ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason,
             MemberInstall, OsError, Placement, PrivilegeRefusal, ProgramStartFailure,
-            ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, ResolvedCargoSource,
-            VersionReportFailure, WorkspaceBuild, WriteInvocation, WriteMachine,
+            ReadInvocation, ReadMachine, RecordUntracking, Replacement, ReplacingInvocation,
+            ResolvedCargoSource, VersionReportFailure, WorkspaceBuild, WriteInvocation,
+            WriteMachine,
             clone_reading::CloneReadFailure,
             crate_index_reading::CrateIndexReadFailure,
             dart_reading::{DartDrift, DartReadFailure, DartReading},
@@ -93,6 +94,7 @@ struct MachineState {
     cargo_workspaces: BTreeMap<PathBuf, WorkspaceReading>,
     earlier_cargo_workspaces: BTreeMap<(PathBuf, Revision), BTreeMap<CrateName, Fingerprint>>,
     install_records: Vec<InstallRecord>,
+    uninstalls_refused: bool,
     commits_in_clones: BTreeSet<(PathBuf, Revision)>,
     unopenable_clones: BTreeSet<PathBuf>,
     versions_asked: Vec<PathBuf>,
@@ -152,6 +154,12 @@ struct InstallRecord {
     source: String,
     commit: Revision,
     binaries: Vec<BinaryName>,
+}
+
+impl InstallRecord {
+    fn specification(&self) -> String {
+        format!("git+{}#{}@0.1.0", self.source, self.crate_name)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -298,6 +306,18 @@ impl FakeMachine {
             commit: commit.clone(),
             binaries: binaries.to_vec(),
         });
+    }
+
+    pub fn refuse_every_uninstall(&self) {
+        self.state.borrow_mut().uninstalls_refused = true;
+    }
+
+    pub fn cargo_records_the_crate(&self, crate_name: &CrateName) -> bool {
+        self.state
+            .borrow()
+            .install_records
+            .iter()
+            .any(|record| record.crate_name == *crate_name)
     }
 
     pub fn hold_commit_in_clone(&self, clone_directory: PathBuf, commit: Revision) {
@@ -1207,6 +1227,7 @@ impl FakeMachine {
             cargo_workspaces,
             earlier_cargo_workspaces,
             install_records,
+            uninstalls_refused,
             commits_in_clones,
             unopenable_clones,
             versions_asked: _,
@@ -1253,7 +1274,7 @@ impl FakeMachine {
              {silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
-             {earlier_cargo_workspaces:?}|{install_records:?}|{commits_in_clones:?}|{unopenable_clones:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|{displacing_installs:?}|\
+             {earlier_cargo_workspaces:?}|{install_records:?}|{uninstalls_refused:?}|{commits_in_clones:?}|{unopenable_clones:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|{displacing_installs:?}|\
              {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|\
              {published_crates:?}|{crates_io_refusals:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
@@ -2156,6 +2177,31 @@ impl WriteMachine for FakeMachine {
                 self.installing_member(install)
             })
             .await)
+    }
+
+    async fn untrack_cargo_record(&self, untracking: &RecordUntracking) -> Result<()> {
+        self.working(
+            format!("cargo uninstall {}", untracking.specification),
+            || {
+                let mut state = self.state.borrow_mut();
+                if state.uninstalls_refused {
+                    bail!("cargo refused to uninstall {}", untracking.specification);
+                }
+                let Some(position) = state
+                    .install_records
+                    .iter()
+                    .position(|record| record.specification() == untracking.specification)
+                else {
+                    bail!(
+                        "package ID specification `{}` did not match any packages",
+                        untracking.specification
+                    );
+                };
+                state.install_records.remove(position);
+                Ok(())
+            },
+        )
+        .await
     }
 
     fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>) {

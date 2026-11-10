@@ -526,6 +526,18 @@ Feature: Planning what a machine needs
     Then the change set reports 0 binaries to remove
     And the change set does not mention "reach 0123456789abcdef0123456789abcdef01234567"
 
+  Scenario: A member cargo recorded is planned to be handed over from cargo's record
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And cargo records "stop-gate" as installed from the dotfiles repository
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 binary to remove
+    And the change set mentions "cargo's record of stop-gate 0.1.0 from Alice/dotfiles, keeping its binaries"
+    And the change set does not report the machine as converged
+
   Scenario: A binary cargo records is never asked for its version, and never removed
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
