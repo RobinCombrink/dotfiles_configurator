@@ -9,8 +9,8 @@ use {
         convergence::{Change, SourceReadings, search_path_directory, symlink_location},
         desired_state::{ChangeSetResource, ResolvedResource, WorkspaceMember},
         machine::{
-            DisplacingInvocation, Downloaded, Placement, Replacement, ReplacingInvocation,
-            ResolvedCargoSource, WriteInvocation, WriteMachine,
+            DisplacingInvocation, Downloaded, MemberInstall, Placement, Replacement,
+            ReplacingInvocation, ResolvedCargoSource, WriteInvocation, WriteMachine,
             release_reading::{ReleaseAsset, ReleaseReading},
         },
     },
@@ -415,13 +415,11 @@ async fn converge_workspace_member(
     };
 
     machine
-        .write_displacing(&DisplacingInvocation::InstallCargoCrate {
+        .install_workspace_member(&MemberInstall {
             crate_name: member.crate_name().clone(),
-            source: ResolvedCargoSource::Repository {
-                repository: repository.clone(),
-                account: member.account().clone(),
-                revision,
-            },
+            repository: repository.clone(),
+            account: member.account().clone(),
+            revision,
         })
         .await
 }

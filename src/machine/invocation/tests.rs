@@ -73,18 +73,16 @@ fn build_cache() -> PathBuf {
     PathBuf::from("C:\\Users\\Alice\\.dotfiles_configurator\\build-cache")
 }
 
-fn installing_from_revision(revision: &str) -> DisplacingInvocation {
-    installing(
-        "stop-gate",
-        ResolvedCargoSource::Repository {
-            repository: GitHubRepository {
-                owner: RepositoryOwner::from("Alice"),
-                repository: RepositoryName::from("dotfiles"),
-            },
-            account: GitHubAccount::from("Alice"),
-            revision: Revision::from(revision),
+fn installing_from_revision(revision: &str) -> MemberInstall {
+    MemberInstall {
+        crate_name: CrateName::from("stop-gate"),
+        repository: GitHubRepository {
+            owner: RepositoryOwner::from("Alice"),
+            repository: RepositoryName::from("dotfiles"),
         },
-    )
+        account: GitHubAccount::from("Alice"),
+        revision: Revision::from(revision),
+    }
 }
 
 fn value_of<'environment>(
@@ -101,7 +99,7 @@ fn value_of<'environment>(
 fn installing_a_crate_has_cargo_fetch_git_repositories_through_the_git_command_line() {
     assert_eq!(
         value_of(
-            &installing_a_crate().environment(&build_cache()),
+            &installing_a_crate().environment(),
             "CARGO_NET_GIT_FETCH_WITH_CLI"
         ),
         Some("true")
@@ -109,24 +107,28 @@ fn installing_a_crate_has_cargo_fetch_git_repositories_through_the_git_command_l
 }
 
 #[test]
-fn every_crate_of_one_revision_builds_in_the_directory_that_revision_names() {
-    let directory = installing_from_revision("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c")
-        .build_directory(&build_cache());
-
+fn a_workspace_member_has_cargo_fetch_git_repositories_through_the_git_command_line() {
     assert_eq!(
-        directory,
-        Some(build_cache().join("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c"))
+        value_of(
+            &installing_from_revision("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c")
+                .environment(&build_cache()),
+            "CARGO_NET_GIT_FETCH_WITH_CLI"
+        ),
+        Some("true")
     );
 }
 
 #[test]
 fn two_revisions_of_one_repository_never_build_in_the_same_directory() {
     let earlier = installing_from_revision("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c")
-        .build_directory(&build_cache());
+        .environment(&build_cache());
     let later = installing_from_revision("f9a32f6c605fc1ed4584037a770376d084f74a8d")
-        .build_directory(&build_cache());
+        .environment(&build_cache());
 
-    assert_ne!(earlier, later);
+    assert_ne!(
+        value_of(&earlier, "CARGO_TARGET_DIR"),
+        value_of(&later, "CARGO_TARGET_DIR")
+    );
 }
 
 #[test]
@@ -150,9 +152,8 @@ fn a_crate_from_a_repository_has_cargo_build_it_in_the_directory_its_revision_na
 fn a_crate_from_the_registry_is_left_to_build_where_cargo_would_put_it() {
     let invocation = installing("ripgrep", ResolvedCargoSource::Registry { version: None });
 
-    assert_eq!(invocation.build_directory(&build_cache()), None);
     assert_eq!(
-        value_of(&invocation.environment(&build_cache()), "CARGO_TARGET_DIR"),
+        value_of(&invocation.environment(), "CARGO_TARGET_DIR"),
         None
     );
 }
@@ -166,7 +167,10 @@ fn a_crate_from_a_path_is_left_to_build_where_cargo_would_put_it() {
         },
     );
 
-    assert_eq!(invocation.build_directory(&build_cache()), None);
+    assert_eq!(
+        value_of(&invocation.environment(), "CARGO_TARGET_DIR"),
+        None
+    );
 }
 
 #[test]
@@ -223,32 +227,48 @@ fn a_crate_from_a_directory_is_installed_by_that_directory_rather_than_by_name()
 }
 
 #[test]
-fn a_crate_from_a_repository_is_installed_at_the_revision_read_from_the_clone() {
-    let arguments = installing(
-        "stop-gate",
-        ResolvedCargoSource::Repository {
-            repository: GitHubRepository {
-                owner: RepositoryOwner::from("Alice"),
-                repository: RepositoryName::from("dotfiles"),
-            },
-            account: GitHubAccount::from("Alice"),
-            revision: Revision::from("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c"),
-        },
-    )
-    .arguments();
+fn a_workspace_member_is_built_untracked_into_its_staging_directory_at_the_revision_read() {
+    let install = installing_from_revision("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c");
 
     assert_eq!(
-        arguments,
+        install.arguments(&build_cache()),
         vec![
-            "install",
-            "--locked",
-            "--force",
-            "--git",
-            "https://Alice@github.com/Alice/dotfiles",
-            "--rev",
-            "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c",
-            "stop-gate",
+            "install".to_owned(),
+            "--locked".to_owned(),
+            "--no-track".to_owned(),
+            "--root".to_owned(),
+            install
+                .staging_directory(&build_cache())
+                .display()
+                .to_string(),
+            "--git".to_owned(),
+            "https://Alice@github.com/Alice/dotfiles".to_owned(),
+            "--rev".to_owned(),
+            "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c".to_owned(),
+            "stop-gate".to_owned(),
         ]
+    );
+}
+
+#[test]
+fn a_workspace_member_stages_inside_the_build_cache_rather_than_where_cargo_installs() {
+    let staging = installing_from_revision("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c")
+        .staging_directory(&build_cache());
+
+    assert!(staging.starts_with(build_cache()), "{}", staging.display());
+}
+
+#[test]
+fn two_members_at_one_revision_never_stage_in_the_same_directory() {
+    let stop_gate = installing_from_revision("2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c");
+    let sweep = MemberInstall {
+        crate_name: CrateName::from("sweep"),
+        ..stop_gate.clone()
+    };
+
+    assert_ne!(
+        stop_gate.staging_directory(&build_cache()),
+        sweep.staging_directory(&build_cache())
     );
 }
 

@@ -42,7 +42,7 @@ pub use {
         PrivilegeRefusal,
     },
     invocation::{
-        DisplacingInvocation, ReadInvocation, RefusedCopy, ReplacementCommands,
+        DisplacingInvocation, MemberInstall, ReadInvocation, RefusedCopy, ReplacementCommands,
         ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
     },
 };
@@ -506,6 +506,11 @@ pub trait WriteMachine: ReadMachine {
     fn write_displacing(
         &self,
         invocation: &DisplacingInvocation,
+    ) -> impl std::future::Future<Output = Result<Placement>>;
+
+    fn install_workspace_member(
+        &self,
+        install: &MemberInstall,
     ) -> impl std::future::Future<Output = Result<Placement>>;
 
     fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>);

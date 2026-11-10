@@ -9,9 +9,9 @@ use {
         github::GitHubAccess,
         machine::{
             CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
-            ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason, OsError, Placement,
-            PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine, Replacement,
-            ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, VERSION_REPORT_DEADLINE,
+            ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason, MemberInstall, OsError,
+            Placement, PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine,
+            Replacement, ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, VERSION_REPORT_DEADLINE,
             VersionReportFailure, WorkspaceBuild, WriteInvocation, WriteMachine,
             clone_reading::CloneReadFailure,
             crate_index_reading::{self, CrateIndexReadFailure},
@@ -500,6 +500,21 @@ fn swapped_in(
         let _ = fs::remove_file(&incoming);
         return Err(unwritten);
     }
+    let moved_onto_the_name = || {
+        format!(
+            "Could not move {} onto {}",
+            incoming.display(),
+            destination.display()
+        )
+    };
+    if destination.symlink_metadata().is_err() {
+        return fs::rename(&incoming, destination)
+            .map(|()| Placement::Placed)
+            .with_context(moved_onto_the_name)
+            .inspect_err(|_| {
+                let _ = fs::remove_file(&incoming);
+            });
+    }
 
     let Ok(superseded) = displace(destination) else {
         let _ = fs::remove_file(&incoming);
@@ -509,14 +524,41 @@ fn swapped_in(
     };
     fs::rename(&incoming, destination)
         .map(|()| Placement::Placed)
-        .with_context(|| {
-            format!(
-                "Could not move {} onto {}",
-                incoming.display(),
-                destination.display()
-            )
-        })
+        .with_context(moved_onto_the_name)
         .map_err(|failure| restoring(&superseded, destination, failure))
+}
+
+fn placed_from(staged: &Path, destination_directory: &Path) -> Result<Placement> {
+    let mut built: Vec<PathBuf> = fs::read_dir(staged)
+        .and_then(|entries| {
+            entries
+                .map(|entry| entry.map(|entry| entry.path()))
+                .collect()
+        })
+        .with_context(|| format!("Could not read what cargo built into {}", staged.display()))?;
+    built.sort();
+    if built.is_empty() {
+        bail!("cargo built no binary into {}", staged.display());
+    }
+    fs::create_dir_all(destination_directory)
+        .with_context(|| format!("Could not create {}", destination_directory.display()))?;
+
+    let mut placement = Placement::Placed;
+    for binary in built {
+        let destination = destination_directory.join(binary.file_name().unwrap_or_default());
+        let swapped = swapped_in(&destination, |incoming| {
+            fs::copy(&binary, incoming)
+                .map(|_| ())
+                .with_context(|| format!("Could not copy {}", binary.display()))
+        })?;
+        match swapped {
+            Placement::Placed => {
+                let _ = fs::remove_file(superseded_name(&destination));
+            }
+            held => placement = held,
+        }
+    }
+    Ok(placement)
 }
 
 fn holds_the_same_bytes(source: &Path, destination: &Path) -> Result<bool> {
@@ -1215,7 +1257,7 @@ impl WriteMachine for LocalMachine<'_, '_> {
     async fn write_displacing(&self, invocation: &DisplacingInvocation) -> Result<Placement> {
         let tool = invocation.tool();
         let arguments = invocation.arguments();
-        let environment = invocation.environment(&self.build_cache_directory());
+        let environment = invocation.environment();
 
         let output = self.run(tool, &arguments, &environment).await?;
         if output.exited.succeeded() {
@@ -1241,6 +1283,32 @@ impl WriteMachine for LocalMachine<'_, '_> {
             )),
             Err(error) => Err(restoring(&superseded, &destination, error)),
         }
+    }
+
+    async fn install_workspace_member(&self, install: &MemberInstall) -> Result<Placement> {
+        let build_cache = self.build_cache_directory();
+        let staging = install.staging_directory(&build_cache);
+        // 2026-11-10: `cargo install --no-track --root <staging>` writes only the built binaries,
+        // into `<staging>\bin`, and records nothing; run again over them it refuses with "binary
+        // `<name>.exe` already exists in destination" and exits 101. cargo 1.99.1 on Windows 11.
+        if staging.exists() {
+            fs::remove_dir_all(&staging)
+                .with_context(|| format!("Could not clear {}", staging.display()))?;
+        }
+
+        let arguments = install.arguments(&build_cache);
+        let built = self
+            .run(Tool::Cargo, &arguments, &install.environment(&build_cache))
+            .await
+            .and_then(|output| match output.exited.succeeded() {
+                true => placed_from(
+                    &install.staged_binaries_directory(&build_cache),
+                    &self.cargo_binaries_directory,
+                ),
+                false => Err(refused(Tool::Cargo, &arguments, &output)),
+            });
+        let _ = fs::remove_dir_all(&staging);
+        built
     }
 
     fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>) {

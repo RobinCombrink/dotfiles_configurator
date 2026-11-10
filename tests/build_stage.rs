@@ -15,13 +15,17 @@ use {
         confirmation::Operator,
         convergence::{ApplyOutcome, Enactment, apply::apply},
         currency::SelfReplacement,
+        machine::ReadMachine,
         machine::workspace_reading::{
             Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
         },
         reporting::RunKind,
     },
     fake_machine::{CargoCommand, FakeMachine, dotfiles_repository_path},
-    std::collections::{BTreeMap, BTreeSet},
+    std::{
+        collections::{BTreeMap, BTreeSet},
+        path::{Path, PathBuf},
+    },
 };
 
 const REVISION: &str = "2ae2ffffb580fd56b040fe7df2f2e6ad1e44c41c";
@@ -197,7 +201,7 @@ async fn a_crate_from_outside_any_workspace_installs_with_no_build_or_reaping_be
 #[tokio::test]
 async fn a_member_a_pass_already_attempted_is_not_built_again_on_a_later_pass() {
     let machine = machine_holding_the_workspace(&[("session-mining", never_installed())]);
-    machine.execute_binary_that_cannot_be_displaced("tool-use-statistics");
+    machine.execute_binary_that_cannot_be_displaced("session-mining");
     let powershell = Resource::Package(Package::Winget(WingetPackage {
         id: "Microsoft.PowerShell".into(),
         version: PackageCurrency::Latest,
@@ -209,6 +213,64 @@ async fn a_member_a_pass_already_attempted_is_not_built_again_on_a_later_pass() 
     assert_eq!(
         builds_and_installs(&machine),
         vec![built(&["session-mining"]), installed("session-mining")]
+    );
+}
+
+fn root_named_by(arguments: &[String]) -> Option<PathBuf> {
+    arguments
+        .iter()
+        .position(|argument| argument == "--root")
+        .and_then(|position| arguments.get(position + 1))
+        .map(PathBuf::from)
+}
+
+#[tokio::test]
+async fn a_member_install_runs_cargo_untracked_into_staging_and_never_where_cargo_installs() {
+    let machine = machine_holding_the_workspace(&[
+        ("claude-session", never_installed()),
+        ("session-mining", never_installed()),
+    ]);
+
+    applying(Vec::new(), &machine).await;
+
+    let installs = machine.member_install_arguments();
+    let cargo_home = machine
+        .cargo_binaries_directory()
+        .parent()
+        .map(Path::to_path_buf);
+    assert_eq!(installs.len(), 2, "{installs:?}");
+    for arguments in &installs {
+        let root = root_named_by(arguments);
+        assert!(
+            arguments.contains(&"--no-track".to_owned())
+                && root.as_ref().is_some_and(|root| {
+                    root.starts_with(machine.build_cache_directory())
+                        && Some(root) != cargo_home.as_ref()
+                }),
+            "{arguments:?}"
+        );
+    }
+    assert_eq!(machine.displacing_installs(), 0);
+}
+
+#[tokio::test]
+async fn a_crate_from_the_registry_still_installs_where_cargo_installs() {
+    let machine = machine_holding_the_workspace(&[]);
+    let ripgrep = Resource::Package(Package::Cargo(CargoPackage {
+        crate_name: CrateName::from("ripgrep"),
+        source: CargoSource::Registry {
+            version: PackageCurrency::Latest,
+        },
+    }));
+
+    applying(vec![ripgrep], &machine).await;
+
+    assert_eq!(
+        (
+            machine.displacing_installs(),
+            machine.member_install_arguments().len()
+        ),
+        (1, 0)
     );
 }
 

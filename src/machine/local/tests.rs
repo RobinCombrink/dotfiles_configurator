@@ -250,6 +250,85 @@ fn a_replacement_that_cannot_be_written_leaves_the_running_image_under_its_name(
 }
 
 #[test]
+fn a_replacement_for_a_name_nothing_holds_yet_is_moved_straight_onto_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("stop-gate.exe");
+
+    let placed = swapped_in(&destination, |incoming| {
+        fs::write(incoming, "the first image")?;
+        Ok(())
+    })
+    .unwrap();
+
+    assert_eq!(
+        (
+            placed,
+            fs::read_to_string(&destination).unwrap(),
+            superseded_name(&destination).exists(),
+            incoming_name(&destination).exists(),
+        ),
+        (
+            Placement::Placed,
+            "the first image".to_owned(),
+            false,
+            false
+        )
+    );
+}
+
+#[test]
+fn every_binary_a_member_built_into_staging_takes_its_name_where_cargo_installs() {
+    let staging = tempfile::tempdir().unwrap();
+    let installed = tempfile::tempdir().unwrap();
+    a_binary_at(staging.path(), "session-census.exe", "the new census");
+    a_binary_at(
+        staging.path(),
+        "tool-use-statistics.exe",
+        "the new statistics",
+    );
+    a_binary_at(installed.path(), "session-census.exe", "the old census");
+
+    let placed = placed_from(staging.path(), installed.path()).unwrap();
+
+    assert_eq!(
+        (
+            placed,
+            fs::read_to_string(installed.path().join("session-census.exe")).unwrap(),
+            fs::read_to_string(installed.path().join("tool-use-statistics.exe")).unwrap(),
+        ),
+        (
+            Placement::Placed,
+            "the new census".to_owned(),
+            "the new statistics".to_owned()
+        )
+    );
+}
+
+#[test]
+fn a_binary_nothing_runs_leaves_no_image_behind_once_it_is_replaced() {
+    let staging = tempfile::tempdir().unwrap();
+    let installed = tempfile::tempdir().unwrap();
+    a_binary_at(staging.path(), "session-census.exe", "the new census");
+    let destination = a_binary_at(installed.path(), "session-census.exe", "the old census");
+
+    placed_from(staging.path(), installed.path()).unwrap();
+
+    assert!(!superseded_name(&destination).exists());
+}
+
+#[test]
+fn a_member_whose_build_left_nothing_in_staging_is_refused_rather_than_called_installed() {
+    let staging = tempfile::tempdir().unwrap();
+    let installed = tempfile::tempdir().unwrap();
+
+    let refusal = placed_from(staging.path(), installed.path())
+        .unwrap_err()
+        .to_string();
+
+    assert!(refusal.contains("built no binary"), "{refusal}");
+}
+
+#[test]
 fn restoring_puts_the_moved_image_back_under_the_name_it_had() {
     let directory = tempfile::tempdir().unwrap();
     let destination = a_binary_at(directory.path(), "claude-session.exe", "the old image");

@@ -141,17 +141,8 @@ pub fn without_terminal_prompts() -> Vec<(String, String)> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedCargoSource {
-    Registry {
-        version: Option<CrateVersion>,
-    },
-    Path {
-        path: PathBuf,
-    },
-    Repository {
-        repository: GitHubRepository,
-        account: GitHubAccount,
-        revision: Revision,
-    },
+    Registry { version: Option<CrateVersion> },
+    Path { path: PathBuf },
 }
 
 // ADR 0022
@@ -197,42 +188,12 @@ impl DisplacingInvocation {
                 "--path".to_owned(),
                 path.display().to_string(),
             ],
-            DisplacingInvocation::InstallCargoCrate {
-                crate_name,
-                source:
-                    ResolvedCargoSource::Repository {
-                        repository,
-                        account,
-                        revision,
-                    },
-            } => vec![
-                "install".to_owned(),
-                "--locked".to_owned(),
-                "--force".to_owned(),
-                "--git".to_owned(),
-                repository.fetch_url_as(account),
-                "--rev".to_owned(),
-                revision.to_string(),
-                crate_name.to_string(),
-            ],
         }
     }
 
-    pub fn build_directory(&self, build_cache: &Path) -> Option<PathBuf> {
+    pub fn environment(&self) -> Vec<(String, String)> {
         match self {
-            DisplacingInvocation::InstallCargoCrate {
-                source: ResolvedCargoSource::Repository { revision, .. },
-                ..
-            } => Some(revision.build_directory_in(build_cache)),
-            DisplacingInvocation::InstallCargoCrate { .. } => None,
-        }
-    }
-
-    pub fn environment(&self, build_cache: &Path) -> Vec<(String, String)> {
-        match self {
-            DisplacingInvocation::InstallCargoCrate { .. } => {
-                cargo_environment(self.build_directory(build_cache).as_deref())
-            }
+            DisplacingInvocation::InstallCargoCrate { .. } => cargo_environment(None),
         }
     }
 
@@ -247,6 +208,43 @@ impl DisplacingInvocation {
                     .find_map(|text| destination_moved_to(text))
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberInstall {
+    pub crate_name: CrateName,
+    pub repository: GitHubRepository,
+    pub account: GitHubAccount,
+    pub revision: Revision,
+}
+
+impl MemberInstall {
+    pub fn staging_directory(&self, build_cache: &Path) -> PathBuf {
+        build_cache.join(format!("{}-staging-{}", self.revision, self.crate_name))
+    }
+
+    pub fn staged_binaries_directory(&self, build_cache: &Path) -> PathBuf {
+        self.staging_directory(build_cache).join("bin")
+    }
+
+    pub fn arguments(&self, build_cache: &Path) -> Vec<String> {
+        vec![
+            "install".to_owned(),
+            "--locked".to_owned(),
+            "--no-track".to_owned(),
+            "--root".to_owned(),
+            self.staging_directory(build_cache).display().to_string(),
+            "--git".to_owned(),
+            self.repository.fetch_url_as(&self.account),
+            "--rev".to_owned(),
+            self.revision.to_string(),
+            self.crate_name.to_string(),
+        ]
+    }
+
+    pub fn environment(&self, build_cache: &Path) -> Vec<(String, String)> {
+        cargo_environment(Some(&self.revision.build_directory_in(build_cache)))
     }
 }
 

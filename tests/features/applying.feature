@@ -345,7 +345,7 @@ Feature: Applying a change set
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
     And the workspace holds the crate "session-mining"
-    And Alice's machine is executing the binary "tool-use-statistics" and will not release it
+    And Alice's machine is executing the binary "session-mining" and will not release it
     When Alice applies
     Then 1 resource is reported as held
     And 0 resources are reported as failed
@@ -355,7 +355,7 @@ Feature: Applying a change set
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
     And the workspace holds the crate "session-mining"
-    And Alice's machine is executing the binary "tool-use-statistics" and will not release it
+    And Alice's machine is executing the binary "session-mining" and will not release it
     And Alice declares the application "Neovim"
     And Neovim is not installed on Alice's machine
     When Alice applies

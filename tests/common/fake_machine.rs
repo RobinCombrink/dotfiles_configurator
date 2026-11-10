@@ -16,10 +16,10 @@ use {
         currency::{own_currency, own_release_asset_name, own_release_repository},
         machine::{
             Batched, CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
-            ElevatedOutcome, ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason, OsError,
-            Placement, PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine,
-            Replacement, ReplacingInvocation, ResolvedCargoSource, VersionReportFailure,
-            WorkspaceBuild, WriteInvocation, WriteMachine,
+            ElevatedOutcome, ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason,
+            MemberInstall, OsError, Placement, PrivilegeRefusal, ProgramStartFailure,
+            ReadInvocation, ReadMachine, Replacement, ReplacingInvocation, ResolvedCargoSource,
+            VersionReportFailure, WorkspaceBuild, WriteInvocation, WriteMachine,
             clone_reading::CloneReadFailure,
             crate_index_reading::CrateIndexReadFailure,
             dart_reading::{DartDrift, DartReadFailure, DartReading},
@@ -98,6 +98,8 @@ struct MachineState {
     executing_binaries: BTreeMap<PathBuf, Displacement>,
     superseded_images: BTreeSet<PathBuf>,
     cargo_installs: usize,
+    displacing_installs: usize,
+    member_install_arguments: Vec<Vec<String>>,
     cargo_commands: Vec<CargoCommand>,
     workspace_builds_fail: bool,
     registry_crates: BTreeMap<CrateName, CrateVersion>,
@@ -399,23 +401,36 @@ impl FakeMachine {
         &self.dotfiles_repository_path
     }
 
+    fn cargo_binary_path(&self, name: &str) -> PathBuf {
+        self.cargo_binaries_directory
+            .join(BinaryName::from(name).file_name())
+    }
+
     pub fn execute_binary(&self, name: &str) {
-        self.state.borrow_mut().executing_binaries.insert(
-            self.cargo_binaries_directory.join(name),
-            Displacement::Succeeds,
-        );
+        self.state
+            .borrow_mut()
+            .executing_binaries
+            .insert(self.cargo_binary_path(name), Displacement::Succeeds);
     }
 
     pub fn execute_binary_that_cannot_be_displaced(&self, name: &str) {
-        self.state.borrow_mut().executing_binaries.insert(
-            self.cargo_binaries_directory.join(name),
-            Displacement::Refused,
-        );
+        self.state
+            .borrow_mut()
+            .executing_binaries
+            .insert(self.cargo_binary_path(name), Displacement::Refused);
     }
 
     pub fn leave_superseded_image(&self, name: &str) {
-        let displaced = superseded_name(&self.cargo_binaries_directory.join(name));
+        let displaced = superseded_name(&self.cargo_binary_path(name));
         self.state.borrow_mut().superseded_images.insert(displaced);
+    }
+
+    pub fn member_install_arguments(&self) -> Vec<Vec<String>> {
+        self.state.borrow().member_install_arguments.clone()
+    }
+
+    pub fn displacing_installs(&self) -> usize {
+        self.state.borrow().displacing_installs
     }
 
     pub fn leave_a_superseded_image_of_the_configurator(&self) {
@@ -695,9 +710,55 @@ impl FakeMachine {
         })
     }
 
+    fn installing_member(&self, install: &MemberInstall) -> Placement {
+        let mut state = self.state.borrow_mut();
+        state.cargo_installs += 1;
+        state
+            .cargo_commands
+            .push(CargoCommand::Installed(install.crate_name.clone()));
+        state
+            .member_install_arguments
+            .push(install.arguments(&self.build_cache_directory()));
+
+        let built: Vec<(PathBuf, String)> = state
+            .cargo_workspaces
+            .values()
+            .filter_map(|reading| reading.members.get(&install.crate_name))
+            .flat_map(|member| {
+                member.binaries.iter().map(|binary| {
+                    (
+                        self.cargo_binaries_directory.join(binary.file_name()),
+                        format!("{binary} {}\n", install.revision),
+                    )
+                })
+            })
+            .collect();
+
+        let mut placement = Placement::Placed;
+        for (path, version_output) in built {
+            match state.executing_binaries.get(&path) {
+                Some(Displacement::Refused) => {
+                    placement = Placement::Held(HeldReason::BeingExecuted(path));
+                    continue;
+                }
+                Some(Displacement::Succeeds) => {
+                    state.executing_binaries.remove(&path);
+                    state.superseded_images.insert(superseded_name(&path));
+                }
+                None => {}
+            }
+            state.paths.insert(path.clone());
+            state
+                .version_output_by_binary_path
+                .insert(path, version_output);
+        }
+        placement
+    }
+
     fn run_cargo(&self, invocation: &DisplacingInvocation) -> CommandOutput {
         let mut state = self.state.borrow_mut();
         state.cargo_installs += 1;
+        state.displacing_installs += 1;
 
         let DisplacingInvocation::InstallCargoCrate { crate_name, source } = invocation;
         state
@@ -1205,6 +1266,8 @@ impl FakeMachine {
             executing_binaries,
             superseded_images,
             cargo_installs,
+            displacing_installs,
+            member_install_arguments: _,
             cargo_commands,
             workspace_builds_fail,
             registry_crates,
@@ -1242,7 +1305,7 @@ impl FakeMachine {
              {silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
-             {earlier_cargo_workspaces:?}|{install_records:?}|{uninstalls_refused:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
+             {earlier_cargo_workspaces:?}|{install_records:?}|{uninstalls_refused:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|{displacing_installs:?}|\
              {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|\
              {published_crates:?}|{crates_io_refusals:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
@@ -2082,6 +2145,14 @@ impl WriteMachine for FakeMachine {
             self.writing_displacing(invocation)
         })
         .await
+    }
+
+    async fn install_workspace_member(&self, install: &MemberInstall) -> Result<Placement> {
+        Ok(self
+            .working(format!("cargo install {}", install.crate_name), || {
+                self.installing_member(install)
+            })
+            .await)
     }
 
     fn reap_builds_of_other_revisions(&self, building: &BTreeSet<Revision>) {
