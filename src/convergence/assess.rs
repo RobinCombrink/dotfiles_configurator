@@ -514,8 +514,8 @@ fn assess_repository(
         Ok(true) => Assessment::Drifted(DriftReason::ShallowClone {
             clone_directory: clone_directory.to_path_buf(),
         }),
-        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            UnreadableReason::from(&error),
+        Err(failure) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            UnreadableReason::read_failed(failure),
         )),
     }
 }

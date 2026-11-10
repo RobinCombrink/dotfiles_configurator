@@ -5,6 +5,7 @@ use {
             McpServerName, PresenceCheck, Shell, Tool, VariableName, VariableValue, path_folding,
         },
         machine::{
+            clone_reading::CloneReadFailure,
             crate_index_reading::CrateIndexReadFailure,
             dart_reading::{DartLocations, DartReadFailure, DartReading},
             environment_reading::{MachineSearchPath, RegistryReadFailure, SearchPathReading},
@@ -24,6 +25,7 @@ use {
     },
 };
 
+pub mod clone_reading;
 pub mod crate_index_reading;
 pub mod dart_reading;
 pub mod elevation;
@@ -303,7 +305,7 @@ pub trait ReadMachine {
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>, ProgramStartFailure>;
 
-    fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool>;
+    fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool, CloneReadFailure>;
 
     /// The latest release a repository has published, or `None` where it has published none at
     /// all. A repository that could not be asked is an error rather than an empty answer.

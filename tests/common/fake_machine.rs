@@ -20,6 +20,7 @@ use {
             Placement, PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine,
             Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
             WriteMachine,
+            clone_reading::CloneReadFailure,
             crate_index_reading::CrateIndexReadFailure,
             dart_reading::{DartDrift, DartReadFailure, DartReading},
             environment_reading::{
@@ -1688,7 +1689,7 @@ impl ReadMachine for FakeMachine {
         }
     }
 
-    fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool> {
+    fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool, CloneReadFailure> {
         Ok(self
             .state
             .borrow()

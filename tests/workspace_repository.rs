@@ -4,7 +4,8 @@ use {
     dotfiles_configurator::{
         configuration::{BinaryName, CrateName},
         machine::{
-            local::workspace,
+            clone_reading::CloneReadFailure,
+            local::{clone, workspace},
             workspace_reading::{Revision, WorkspaceReadFailure},
         },
     },
@@ -565,6 +566,23 @@ fn a_clone_checked_out_at_a_commit_rather_than_a_branch_is_refused_naming_the_cl
         panic!("{failure:?}");
     };
     assert_eq!(clone, repository.path());
+}
+
+#[test]
+fn a_clone_holding_its_whole_history_is_not_shallow() {
+    let repository = workspace_holding_a_binary_and_a_library();
+
+    assert!(!clone::is_shallow(repository.path()).unwrap());
+}
+
+#[test]
+fn a_directory_holding_no_clone_is_refused_naming_it_rather_than_read_as_whole() {
+    let not_a_clone = tempfile::tempdir().unwrap();
+
+    let failure = clone::is_shallow(not_a_clone.path()).unwrap_err();
+
+    let CloneReadFailure::Unopened { clone, .. } = failure;
+    assert_eq!(clone, not_a_clone.path());
 }
 
 #[test]

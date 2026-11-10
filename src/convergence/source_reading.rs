@@ -6,7 +6,7 @@ use {
         },
         convergence::Impediment,
         machine::{
-            FailedExit, FileReadFailure, ProgramStartFailure,
+            FailedExit, FileReadFailure, ProgramStartFailure, clone_reading::CloneReadFailure,
             crate_index_reading::CrateIndexReadFailure, dart_reading::DartReadFailure,
             environment_reading::RegistryReadFailure, release_reading::ReleaseReadFailure,
             workspace_reading::WorkspaceReadFailure,
@@ -23,6 +23,7 @@ pub enum ReadFailure {
     Registry(RegistryReadFailure),
     Release(ReleaseReadFailure),
     CrateIndex(CrateIndexReadFailure),
+    Clone(CloneReadFailure),
     ProgramStart(ProgramStartFailure),
     FileRead(FileReadFailure),
 }
@@ -63,6 +64,12 @@ impl From<CrateIndexReadFailure> for ReadFailure {
     }
 }
 
+impl From<CloneReadFailure> for ReadFailure {
+    fn from(failure: CloneReadFailure) -> Self {
+        Self::Clone(failure)
+    }
+}
+
 impl From<ProgramStartFailure> for ReadFailure {
     fn from(failure: ProgramStartFailure) -> Self {
         Self::ProgramStart(failure)
@@ -84,6 +91,7 @@ impl Display for ReadFailure {
             ReadFailure::Registry(failure) => Display::fmt(failure, formatter),
             ReadFailure::Release(failure) => Display::fmt(failure, formatter),
             ReadFailure::CrateIndex(failure) => Display::fmt(failure, formatter),
+            ReadFailure::Clone(failure) => Display::fmt(failure, formatter),
             ReadFailure::ProgramStart(failure) => Display::fmt(failure, formatter),
             ReadFailure::FileRead(failure) => Display::fmt(failure, formatter),
         }

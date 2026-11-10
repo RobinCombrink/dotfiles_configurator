@@ -13,6 +13,7 @@ use {
             PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine, Replacement,
             ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild, WriteInvocation,
             WriteMachine,
+            clone_reading::CloneReadFailure,
             crate_index_reading::{self, CrateIndexReadFailure},
             dart_reading::{DartReadFailure, DartReading},
             environment_reading::{MachineSearchPath, RegistryReadFailure, SearchPathReading},
@@ -44,6 +45,7 @@ use {
     url::Url,
 };
 
+pub mod clone;
 pub mod dart;
 pub mod elevation;
 pub mod environment;
@@ -729,11 +731,8 @@ impl ReadMachine for LocalMachine<'_, '_> {
         }
     }
 
-    fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool> {
-        let clone = git2::Repository::open(clone_directory).with_context(|| {
-            format!("Could not open the clone at {}", clone_directory.display())
-        })?;
-        Ok(clone.is_shallow())
+    fn clone_is_shallow(&self, clone_directory: &Path) -> Result<bool, CloneReadFailure> {
+        clone::is_shallow(clone_directory)
     }
 
     async fn latest_release(
