@@ -94,7 +94,7 @@ impl Display for UnreadableStamp {
 }
 
 #[derive(Debug, Clone)]
-enum Stamp {
+pub(crate) enum Stamp {
     Commit(Revision),
     Unrecorded,
     Unreadable(UnreadableStamp),
@@ -135,12 +135,14 @@ fn stamp_of(binary: &BinaryName, machine: &impl ReadMachine) -> Option<Stamp> {
         return None;
     }
 
-    Some(
-        match machine.report_version(&own_copy, &[VERSION_ARGUMENT.to_owned()]) {
-            Ok(output) => stamp_reported(binary, &output),
-            Err(failure) => Stamp::Unreadable(UnreadableStamp::RunFailed(failure)),
-        },
-    )
+    Some(stamp_at(binary, &own_copy, machine))
+}
+
+pub(crate) fn stamp_at(binary: &BinaryName, path: &Path, machine: &impl ReadMachine) -> Stamp {
+    match machine.report_version(path, &[VERSION_ARGUMENT.to_owned()]) {
+        Ok(output) => stamp_reported(binary, &output),
+        Err(failure) => Stamp::Unreadable(UnreadableStamp::RunFailed(failure)),
+    }
 }
 
 pub type OwnCopies = BTreeMap<CrateName, Vec<(BinaryName, OwnCopy)>>;

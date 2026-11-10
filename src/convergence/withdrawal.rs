@@ -2,12 +2,10 @@ use {
     crate::{
         configuration::{BinaryName, CrateName, GitHubRepository, path_folding},
         convergence::Lane,
-        machine::{
-            ReadMachine, WriteInvocation, WriteMachine, workspace_reading::WorkspaceReading,
-        },
+        machine::{ReadMachine, WriteMachine, workspace_reading::Revision},
         reporting::{Entry, EntryOutcome, RunReport},
     },
-    anyhow::{Result, bail},
+    anyhow::Result,
     std::{
         collections::BTreeSet,
         fmt::Display,
@@ -32,7 +30,7 @@ impl InstallRecord {
         format!("git+{}#{}@{}", self.source, self.crate_name, self.version)
     }
 
-    fn was_installed_from(&self, repository: &GitHubRepository) -> bool {
+    pub fn was_installed_from(&self, repository: &GitHubRepository) -> bool {
         let Ok(url) = Url::parse(&self.source) else {
             return false;
         };
@@ -41,13 +39,6 @@ impl InstallRecord {
 
         url.host_str() == Some("github.com")
             && path.eq_ignore_ascii_case(&format!("{}/{}", repository.owner, repository.repository))
-    }
-
-    fn binary_named(&self, file: &str) -> BinaryName {
-        BinaryName::from(
-            file.strip_suffix(std::env::consts::EXE_SUFFIX)
-                .unwrap_or(file),
-        )
     }
 }
 
@@ -86,19 +77,21 @@ fn git_record_line(line: &str) -> Option<InstallRecord> {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum RemovalReason {
-    BinaryDropped,
-    MemberGone,
+pub fn claimed_binary_files(listing: &str) -> BTreeSet<String> {
+    listing
+        .lines()
+        .filter(|line| line.starts_with(char::is_whitespace))
+        .map(|line| line.trim().to_owned())
+        .filter(|file| !file.is_empty())
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Withdrawal {
-    // ADR 0041
     Remove {
-        record: InstallRecord,
         binary: BinaryName,
-        reason: RemovalReason,
+        workspace: GitHubRepository,
+        commit: Revision,
     },
     // ADR 0005
     Unlink {
@@ -130,23 +123,13 @@ impl Display for Withdrawal {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Withdrawal::Remove {
-                record,
                 binary,
-                reason: RemovalReason::BinaryDropped,
+                workspace,
+                commit,
             } => write!(
                 formatter,
-                "{binary}, which {} no longer declares (installed from {})",
-                record.crate_name, record.source
-            ),
-            Withdrawal::Remove {
-                record,
-                binary,
-                reason: RemovalReason::MemberGone,
-            } => write!(
-                formatter,
-                "{binary}, whose crate {} is no longer a member of the workspace (installed from \
-                 {})",
-                record.crate_name, record.source
+                "{binary}, built from {commit} of {workspace}, which no member of a declared \
+                 workspace declares"
             ),
             Withdrawal::Unlink {
                 link_path,
@@ -204,47 +187,6 @@ pub fn dangling_links<'link>(
     withdrawals
 }
 
-pub fn withdrawals<'reading>(
-    workspaces: impl IntoIterator<Item = (&'reading GitHubRepository, &'reading WorkspaceReading)>,
-    records: &[InstallRecord],
-) -> Vec<Withdrawal> {
-    let workspaces: Vec<_> = workspaces.into_iter().collect();
-    let declared: BTreeSet<&BinaryName> = workspaces
-        .iter()
-        .flat_map(|(_, reading)| reading.members.values())
-        .flat_map(|member| &member.binaries)
-        .collect();
-
-    let mut withdrawals = Vec::new();
-    for (repository, reading) in &workspaces {
-        for record in records {
-            if !record.was_installed_from(repository) {
-                continue;
-            }
-            let reason = match reading.members.contains_key(&record.crate_name) {
-                true => RemovalReason::BinaryDropped,
-                false => RemovalReason::MemberGone,
-            };
-
-            withdrawals.extend(
-                record
-                    .binary_files
-                    .iter()
-                    .map(|file| record.binary_named(file))
-                    .filter(|binary| !declared.contains(&binary))
-                    .map(|binary| Withdrawal::Remove {
-                        record: record.clone(),
-                        binary,
-                        reason,
-                    }),
-            );
-        }
-    }
-    withdrawals.sort();
-    withdrawals.dedup();
-    withdrawals
-}
-
 #[derive(Debug, Default)]
 pub struct Withdrawn {
     pub removed: Vec<Withdrawal>,
@@ -290,50 +232,10 @@ pub async fn withdraw(
 
 async fn remove(withdrawal: &Withdrawal, machine: &impl WriteMachine) -> Result<()> {
     match withdrawal {
-        Withdrawal::Remove { record, binary, .. } => uninstall(record, binary, machine).await,
-        Withdrawal::Unlink { link_path, .. } => machine.remove_link(link_path),
-    }
-}
-
-async fn uninstall(
-    record: &InstallRecord,
-    binary: &BinaryName,
-    machine: &impl WriteMachine,
-) -> Result<()> {
-    let invocation = WriteInvocation::UninstallCargoBinary {
-        specification: record.specification(),
-        binary: binary.clone(),
-    };
-
-    let output = machine.attempt_write(&invocation).await?;
-    if output.exited.succeeded() {
-        return Ok(());
-    }
-    if !invocation.refused_as_corrupt(&output) {
-        bail!(
-            "cargo would not remove {binary}, {}: {}",
-            output.exited,
-            output.standard_error.trim()
-        );
-    }
-
-    let binaries_directory = machine.cargo_binaries_directory();
-    for file in &record.binary_files {
-        let path = binaries_directory.join(file);
-        if !machine.path_exists(&path) {
-            machine.write_text_file(&path, "")?;
+        Withdrawal::Remove { binary, .. } => {
+            machine.remove_binary(&machine.cargo_binaries_directory().join(binary.file_name()))
         }
-    }
-
-    let retried = machine.attempt_write(&invocation).await?;
-    match retried.exited.succeeded() {
-        true => Ok(()),
-        false => bail!(
-            "cargo would not remove {binary} even with every file its record names in place, {}: \
-             {}",
-            retried.exited,
-            retried.standard_error.trim()
-        ),
+        Withdrawal::Unlink { link_path, .. } => machine.remove_link(link_path),
     }
 }
 

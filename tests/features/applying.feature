@@ -300,46 +300,49 @@ Feature: Applying a change set
     Then the machine is reported as converged
     And 1 binary is superseded on Alice's machine
 
-  Scenario: Applying removes a binary an earlier install of a workspace crate left behind
-    Given Alice declares the cargo workspace in the dotfiles repository
-    And the dotfiles repository has been cloned on Alice's machine
-    And the workspace holds the crate "session-mining"
-    And cargo installed "session-mining" from the content the workspace holds now
-    And an earlier install of "session-mining" left the binary "session-census" behind
-    When Alice applies
-    Then cargo no longer holds the binary "session-census" on Alice's machine
-    And the machine is reported as converged
-
-  Scenario: Applying removes the binary of a crate no longer a member of the workspace
+  Scenario: Applying removes a binary an earlier build of the workspace left behind
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
     And the workspace holds the crate "stop-gate"
     And cargo installed "stop-gate" from the content the workspace holds now
-    And cargo holds the binary "session-census" of "session-mining" installed from the dotfiles repository
+    And an earlier build of the dotfiles workspace left the binary "session-census" behind
     When Alice applies
-    Then cargo no longer holds the binary "session-census" on Alice's machine
+    Then the binary "session-census" is gone from where cargo installs on Alice's machine
     And the machine is reported as converged
 
-  Scenario: A binary left behind whose file is already gone is still removed from what cargo records
+  Scenario: A binary left behind that is being executed is removed by moving it aside
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
-    And the workspace holds the crate "session-mining"
-    And cargo installed "session-mining" from the content the workspace holds now
-    And an earlier install of "session-mining" left the binary "session-census" behind
-    And the file of the binary "session-census" is gone from where cargo installs it
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And an earlier build of the dotfiles workspace left the binary "session-census" behind
+    And Alice's machine is executing the binary "session-census"
     When Alice applies
-    Then cargo no longer holds the binary "session-census" on Alice's machine
+    Then the binary "session-census" is gone from where cargo installs on Alice's machine
+    And 1 binary is superseded on Alice's machine
     And the machine is reported as converged
 
-  Scenario: A binary cargo refuses to remove leaves the machine unconverged
+  Scenario: A binary left behind that cannot be moved aside leaves the machine unconverged
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
-    And the workspace holds the crate "session-mining"
-    And cargo installed "session-mining" from the content the workspace holds now
-    And an earlier install of "session-mining" left the binary "session-census" behind
-    And cargo refuses to uninstall anything on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And an earlier build of the dotfiles workspace left the binary "session-census" behind
+    And Alice's machine is executing the binary "session-census" and will not release it
     When Alice applies
-    Then the machine is not reported as converged
+    Then the binary "session-census" is still where cargo installs on Alice's machine
+    And the machine is not reported as converged
+
+  Scenario: Applying keeps a binary built from a commit no declared clone holds and names it
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And a build from a commit no declared clone holds left the binary "session-census" where cargo installs
+    When Alice applies
+    Then the binary "session-census" is still where cargo installs on Alice's machine
+    And the run reports a notice mentioning "session-census 0123456789abcdef0123456789abcdef01234567"
+    And the machine is reported as converged
 
   Scenario: A binary that will not be moved aside is reported as held rather than as failed
     Given Alice declares the cargo workspace in the dotfiles repository

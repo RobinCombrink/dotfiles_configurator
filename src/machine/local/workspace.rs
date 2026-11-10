@@ -6,7 +6,7 @@ use {
             ObjectHash, Revision, WorkspaceReadFailure, WorkspaceReading, read_member_manifest,
         },
     },
-    git2::{BranchType, ObjectType, Oid, Repository, Tree},
+    git2::{BranchType, Commit, ObjectType, Oid, Repository, Tree},
     std::{
         collections::{BTreeMap, BTreeSet},
         path::{Path, PathBuf},
@@ -106,17 +106,31 @@ fn tracked_remote_revision(
     Ok(Revision::from(commit.id().to_string()))
 }
 
-fn members_at(
-    repository: &Repository,
+pub fn resolve_commit(
+    repository_path: &Path,
     revision: &Revision,
-) -> Result<BTreeMap<CrateName, MemberAtRevision>, WorkspaceReadFailure> {
-    let commit = repository
+) -> Result<(), WorkspaceReadFailure> {
+    commit_at(&open(repository_path)?, revision).map(|_| ())
+}
+
+fn commit_at<'repository>(
+    repository: &'repository Repository,
+    revision: &Revision,
+) -> Result<Commit<'repository>, WorkspaceReadFailure> {
+    repository
         .revparse_single(revision.as_ref())
         .and_then(|object| object.peel_to_commit())
         .map_err(|error| WorkspaceReadFailure::RevisionNotInClone {
             revision: revision.clone(),
             error: Arc::new(error),
-        })?;
+        })
+}
+
+fn members_at(
+    repository: &Repository,
+    revision: &Revision,
+) -> Result<BTreeMap<CrateName, MemberAtRevision>, WorkspaceReadFailure> {
+    let commit = commit_at(repository, revision)?;
     let tree = commit
         .tree()
         .map_err(|error| WorkspaceReadFailure::TreeUnreadable {

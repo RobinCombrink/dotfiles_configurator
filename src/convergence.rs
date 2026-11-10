@@ -12,12 +12,14 @@ use {
         version::Version,
     },
     assess::{InstalledFrom, ServerDifference, WantedVersion},
+    attribution::{Decided, DeclaredClone, decided, unclaimed_binaries},
     member_currency::{BinaryDrift, SearchPathFinding},
     std::{collections::BTreeSet, fmt::Display, path::PathBuf},
 };
 
 pub mod apply;
 pub mod assess;
+pub mod attribution;
 mod build_stage;
 pub mod converge;
 pub mod lane;
@@ -33,7 +35,7 @@ pub use {
     lane::Lane,
     resolve::{Resolution, resolve},
     source_reading::{ReadSource, SourceReading, UnreadableReason},
-    withdrawal::{Withdrawal, dangling_links, withdrawals},
+    withdrawal::{Withdrawal, dangling_links},
 };
 
 #[derive(Debug, Clone)]
@@ -411,15 +413,16 @@ pub async fn plan(
             .into_iter()
             .map(Notice::SupersededImage),
     );
+    let Decided {
+        withdrawals,
+        notices: unattributed,
+    } = planned_withdrawals(desired_state, &readings, machine);
+    notices.extend(unattributed);
 
     Ok((
         ChangeSet {
             changes,
-            withdrawals: [
-                planned_withdrawals(desired_state, &readings),
-                planned_unlinks(desired_state, machine),
-            ]
-            .concat(),
+            withdrawals: [withdrawals, planned_unlinks(desired_state, machine)].concat(),
             blocked,
             uncloned,
             converged,
@@ -431,20 +434,41 @@ pub async fn plan(
     ))
 }
 
-// ADR 0041
-fn planned_withdrawals(desired_state: &DesiredState, readings: &SourceReadings) -> Vec<Withdrawal> {
-    let Ok(records) = readings.install_records() else {
-        return Vec::new();
+fn planned_withdrawals(
+    desired_state: &DesiredState,
+    readings: &SourceReadings,
+    machine: &impl crate::machine::ReadMachine,
+) -> Decided {
+    let Ok(listing) = readings.cargo_listing() else {
+        return Decided::default();
     };
-    let workspaces = desired_state.workspaces.iter().filter_map(|workspace| {
+    let mut clones = Vec::new();
+    let mut declared = BTreeSet::new();
+    for workspace in &desired_state.workspaces {
         let repository = &workspace.declared().repository;
-        let reading = readings
-            .workspace(&workspace.clone_directory(repository))
-            .ok()??;
-        Some((repository, reading))
-    });
+        let clone_directory = workspace.clone_directory(repository);
+        match readings.workspace(&clone_directory) {
+            Ok(Some(reading)) => {
+                declared.extend(
+                    reading
+                        .members
+                        .values()
+                        .flat_map(|member| member.binaries.iter().cloned()),
+                );
+                clones.push(DeclaredClone::Read {
+                    workspace: repository.clone(),
+                    clone_directory,
+                });
+            }
+            Ok(None) => {}
+            Err(_) => clones.push(DeclaredClone::Unread),
+        }
+    }
 
-    withdrawals(workspaces, &records)
+    decided(
+        unclaimed_binaries(listing, &clones, &declared, machine),
+        &declared,
+    )
 }
 
 // ADR 0005

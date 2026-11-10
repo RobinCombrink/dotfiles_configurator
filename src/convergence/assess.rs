@@ -15,7 +15,6 @@ use {
             UnreadableReason,
             member_currency::{OwnCopies, OwnCopy, judged, own_copies_of, resolution_of},
             search_path_directory, symlink_location,
-            withdrawal::{InstallRecord, install_records},
         },
         desired_state::{ChangeSetResource, DesiredState, ResolvedResource, WorkspaceMember},
         machine::{
@@ -332,11 +331,8 @@ impl SourceReadings {
         }
     }
 
-    // ADR 0041
-    pub fn install_records(&self) -> Result<Vec<InstallRecord>, Impediment> {
-        self.cargo_crates
-            .read()
-            .map(|listing| install_records(listing))
+    pub fn cargo_listing(&self) -> Result<&str, Impediment> {
+        self.cargo_crates.read().map(String::as_str)
     }
 
     // ADR 0040

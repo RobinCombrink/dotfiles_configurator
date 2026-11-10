@@ -93,7 +93,9 @@ struct MachineState {
     cargo_workspaces: BTreeMap<PathBuf, WorkspaceReading>,
     earlier_cargo_workspaces: BTreeMap<(PathBuf, Revision), BTreeMap<CrateName, Fingerprint>>,
     install_records: Vec<InstallRecord>,
-    uninstalls_refused: bool,
+    commits_in_clones: BTreeSet<(PathBuf, Revision)>,
+    unopenable_clones: BTreeSet<PathBuf>,
+    versions_asked: Vec<PathBuf>,
     workspace_reads: Vec<PathBuf>,
     executing_binaries: BTreeMap<PathBuf, Displacement>,
     superseded_images: BTreeSet<PathBuf>,
@@ -150,12 +152,6 @@ struct InstallRecord {
     source: String,
     commit: Revision,
     binaries: Vec<BinaryName>,
-}
-
-impl InstallRecord {
-    fn specification(&self) -> String {
-        format!("git+{}#{}@0.1.0", self.source, self.crate_name)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,72 +300,29 @@ impl FakeMachine {
         });
     }
 
-    pub fn refuse_every_uninstall(&self) {
-        self.state.borrow_mut().uninstalls_refused = true;
+    pub fn hold_commit_in_clone(&self, clone_directory: PathBuf, commit: Revision) {
+        self.state
+            .borrow_mut()
+            .commits_in_clones
+            .insert((clone_directory, commit));
     }
 
-    pub fn cargo_records_the_binary(&self, binary: &BinaryName) -> bool {
+    pub fn make_clone_unopenable(&self, clone_directory: PathBuf) {
+        self.state
+            .borrow_mut()
+            .unopenable_clones
+            .insert(clone_directory);
+    }
+
+    pub fn versions_asked(&self) -> Vec<PathBuf> {
+        self.state.borrow().versions_asked.clone()
+    }
+
+    pub fn holds_cargo_binary(&self, name: &str) -> bool {
         self.state
             .borrow()
-            .install_records
-            .iter()
-            .any(|record| record.binaries.contains(binary))
-    }
-
-    fn uninstall_cargo_binary(&self, specification: &str, binary: &BinaryName) -> CommandOutput {
-        let mut state = self.state.borrow_mut();
-        let refused = |standard_error: String| CommandOutput {
-            exited: Exited::Code(101),
-            standard_output: String::new(),
-            standard_error,
-        };
-        if state.uninstalls_refused {
-            return refused("error: Access is denied. (os error 5)".to_owned());
-        }
-
-        let Some(position) = state
-            .install_records
-            .iter()
-            .position(|record| record.specification() == specification)
-        else {
-            return refused(format!(
-                "error: package ID specification `{specification}` did not match any packages"
-            ));
-        };
-        let files: Vec<PathBuf> = state.install_records[position]
-            .binaries
-            .iter()
-            .map(|recorded| self.cargo_binaries_directory.join(recorded.file_name()))
-            .collect();
-        if let Some(absent) = files.iter().find(|file| !state.paths.contains(*file)) {
-            return refused(format!(
-                "error: corrupt metadata, `{}` does not exist when it should",
-                absent.display()
-            ));
-        }
-        if !state.install_records[position].binaries.contains(binary) {
-            return refused(format!(
-                "error: binary `{}` not installed as part of `{specification}`",
-                binary.file_name()
-            ));
-        }
-
-        let file = self.cargo_binaries_directory.join(binary.file_name());
-        state.paths.remove(&file);
-        state.text_files.remove(&file);
-        state.version_output_by_binary_path.remove(&file);
-        state.install_records[position]
-            .binaries
-            .retain(|recorded| recorded != binary);
-        if state.install_records[position].binaries.is_empty() {
-            state.install_records.remove(position);
-        }
-
-        CommandOutput {
-            exited: Exited::Code(0),
-            standard_output: String::new(),
-            standard_error: String::new(),
-        }
+            .paths
+            .contains(&self.cargo_binary_path(name))
     }
 
     pub fn hold_cargo_binary(&self, name: &str, version_output: String) {
@@ -593,13 +546,6 @@ impl FakeMachine {
                 if state.winget_sources_fail_to_update {
                     standard_error = "Failed to update source: winget".to_owned();
                 }
-            }
-            WriteInvocation::UninstallCargoBinary {
-                specification,
-                binary,
-            } => {
-                drop(state);
-                return Ok(self.uninstall_cargo_binary(specification, binary));
             }
             WriteInvocation::InstallWingetPackage { id, version } => {
                 state.winget_packages.insert(id.clone());
@@ -1261,7 +1207,9 @@ impl FakeMachine {
             cargo_workspaces,
             earlier_cargo_workspaces,
             install_records,
-            uninstalls_refused,
+            commits_in_clones,
+            unopenable_clones,
+            versions_asked: _,
             workspace_reads: _,
             executing_binaries,
             superseded_images,
@@ -1305,7 +1253,7 @@ impl FakeMachine {
              {silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
-             {earlier_cargo_workspaces:?}|{install_records:?}|{uninstalls_refused:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|{displacing_installs:?}|\
+             {earlier_cargo_workspaces:?}|{install_records:?}|{commits_in_clones:?}|{unopenable_clones:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|{displacing_installs:?}|\
              {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|\
              {published_crates:?}|{crates_io_refusals:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
@@ -1385,7 +1333,10 @@ fn claude_mcp_get_output(server: &ClaudeMcpServer) -> String {
 
 fn cargo_crate_listing(state: &MachineState) -> String {
     let registry = state.registry_crates.iter().map(|(crate_name, installed)| {
-        format!("{crate_name} v{installed}:\n    {crate_name}.exe\n")
+        format!(
+            "{crate_name} v{installed}:\n    {}\n",
+            BinaryName::from(crate_name.as_ref()).file_name()
+        )
     });
     let from_git = state.install_records.iter().map(|record| {
         let mut listed = format!(
@@ -1717,6 +1668,36 @@ impl ReadMachine for FakeMachine {
         self.cargo_binaries_directory.clone()
     }
 
+    fn resolve_commit(
+        &self,
+        repository_path: &Path,
+        revision: &Revision,
+    ) -> Result<(), WorkspaceReadFailure> {
+        let state = self.state.borrow();
+        if state.unopenable_clones.contains(repository_path) {
+            return Err(WorkspaceReadFailure::CloneUnopened {
+                clone: repository_path.to_path_buf(),
+                error: Arc::new(git2::Error::from_str("could not find repository")),
+            });
+        }
+        let at_its_head = state
+            .cargo_workspaces
+            .get(repository_path)
+            .is_some_and(|reading| reading.revision == *revision);
+        let held = (repository_path.to_path_buf(), revision.clone());
+        if at_its_head
+            || state.earlier_cargo_workspaces.contains_key(&held)
+            || state.commits_in_clones.contains(&held)
+        {
+            return Ok(());
+        }
+
+        Err(WorkspaceReadFailure::RevisionNotInClone {
+            revision: revision.clone(),
+            error: Arc::new(git2::Error::from_str("revspec not found")),
+        })
+    }
+
     fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>, ProgramStartFailure> {
         let declared = {
             let state = self.state.borrow();
@@ -1844,7 +1825,8 @@ impl ReadMachine for FakeMachine {
         binary_path: &Path,
         _arguments: &[String],
     ) -> Result<CommandOutput, VersionReportFailure> {
-        let state = self.state.borrow();
+        let mut state = self.state.borrow_mut();
+        state.versions_asked.push(binary_path.to_path_buf());
         let Some(printed) = state.version_output_by_binary_path.get(binary_path) else {
             return Err(VersionReportFailure::NotStarted(ProgramStartFailure::of(
                 binary_path,
@@ -1885,6 +1867,27 @@ impl WriteMachine for FakeMachine {
             .links
             .insert(link_path.to_path_buf(), target_path.to_path_buf());
         Ok(Placement::Placed)
+    }
+
+    fn remove_binary(&self, path: &Path) -> Result<()> {
+        self.worked(format!("remove {}", path.display()));
+        let mut state = self.state.borrow_mut();
+        match state.executing_binaries.get(path) {
+            Some(Displacement::Refused) => {
+                bail!(
+                    "Could not remove {}: it is being executed and cannot be moved aside",
+                    path.display()
+                );
+            }
+            Some(Displacement::Succeeds) => {
+                state.executing_binaries.remove(path);
+                state.superseded_images.insert(superseded_name(path));
+            }
+            None => {}
+        }
+        state.paths.remove(path);
+        state.version_output_by_binary_path.remove(path);
+        Ok(())
     }
 
     fn remove_link(&self, link_path: &Path) -> Result<()> {
@@ -2213,7 +2216,6 @@ fn work_of(invocation: &WriteInvocation) -> String {
         | WriteInvocation::UpgradeUvTool { name }
         | WriteInvocation::ReinstallUvToolAtLatest { name, .. } => format!("uv {name}"),
         WriteInvocation::InstallDartPackage { package } => format!("dart install {}", package.name),
-        WriteInvocation::UninstallCargoBinary { binary, .. } => format!("cargo uninstall {binary}"),
     }
 }
 

@@ -528,6 +528,18 @@ fn swapped_in(
         .map_err(|failure| restoring(&superseded, destination, failure))
 }
 
+fn removed_or_displaced(path: &Path) -> Result<Option<PathBuf>> {
+    let refused = match fs::remove_file(path) {
+        Ok(()) => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(refused) => refused,
+    };
+
+    displace(path)
+        .map(Some)
+        .with_context(|| format!("Could not remove {}: {refused}", path.display()))
+}
+
 fn placed_from(staged: &Path, destination_directory: &Path) -> Result<Placement> {
     let mut built: Vec<PathBuf> = fs::read_dir(staged)
         .and_then(|entries| {
@@ -842,6 +854,14 @@ impl ReadMachine for LocalMachine<'_, '_> {
         workspace::read_at(repository_path, revision)
     }
 
+    fn resolve_commit(
+        &self,
+        repository_path: &Path,
+        revision: &Revision,
+    ) -> Result<(), WorkspaceReadFailure> {
+        workspace::resolve_commit(repository_path, revision)
+    }
+
     fn cargo_binaries_directory(&self) -> PathBuf {
         self.cargo_binaries_directory.clone()
     }
@@ -1024,6 +1044,18 @@ impl WriteMachine for LocalMachine<'_, '_> {
 
     fn remove_link(&self, link_path: &Path) -> Result<()> {
         replace_existing_link(link_path)
+    }
+
+    fn remove_binary(&self, path: &Path) -> Result<()> {
+        removed_or_displaced(path).map(|displaced| {
+            if let Some(superseded) = displaced {
+                self.report.note(&format!(
+                    "displaced {} to {}",
+                    path.display(),
+                    superseded.display()
+                ));
+            }
+        })
     }
 
     fn write_text_file(&self, path: &Path, contents: &str) -> Result<()> {

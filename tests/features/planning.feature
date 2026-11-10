@@ -461,47 +461,80 @@ Feature: Planning what a machine needs
     Then the change set reports 1 change to the workspace's crates
     And the change set reports the binary "stop-gate" of "stop-gate" as shadowed
 
-  Scenario: A binary an earlier install of a workspace crate left behind is planned for removal
-    Given Alice declares the cargo workspace in the dotfiles repository
-    And the dotfiles repository has been cloned on Alice's machine
-    And the workspace holds the crate "session-mining"
-    And cargo installed "session-mining" from the content the workspace holds now
-    And an earlier install of "session-mining" left the binary "session-census" behind
-    When Alice plans
-    Then the change set reports 0 changes
-    And the change set reports 1 binary to remove
-    And the change set mentions "session-census"
-    And the change set does not report the machine as converged
-
-  Scenario: A binary installed from another repository under a workspace crate's name is not planned for removal
-    Given Alice declares the cargo workspace in the dotfiles repository
-    And the dotfiles repository has been cloned on Alice's machine
-    And the workspace holds the crate "session-mining"
-    And cargo installed "session-mining" from the content the workspace holds now
-    And cargo holds the binary "session-census" of "session-mining" installed from another repository
-    When Alice plans
-    Then the change set reports 0 binaries to remove
-    And the change set reports the machine as converged
-
-  Scenario: Every binary of a crate no longer a member of the workspace is planned for removal
+  Scenario: A binary an earlier build of the workspace left behind is planned for removal
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
     And the workspace holds the crate "stop-gate"
     And cargo installed "stop-gate" from the content the workspace holds now
-    And cargo holds the binaries "sweep" and "reach" of "session-mining" installed from the dotfiles repository
+    And an earlier build of the dotfiles workspace left the binary "session-census" behind
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 binary to remove
+    And the change set mentions "session-census, built from 1b9e0c1d2f3a4b5c6d7e8f90a1b2c3d4e5f60718 of Alice/dotfiles, which no member of a declared workspace declares"
+    And the change set does not report the machine as converged
+
+  Scenario: Every binary an earlier build left behind that no member declares is planned for removal
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And an earlier build of the dotfiles workspace left the binaries "sweep" and "reach" behind
     When Alice plans
     Then the change set reports 2 binaries to remove
-    And the change set mentions "reach, whose crate session-mining is no longer a member of the workspace"
 
-  Scenario: A binary of a crate gone from the workspace that a member now declares is not planned for removal
+  Scenario: A binary an earlier build left behind that a member now declares is not planned for removal
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine
     And the workspace holds the crate "session-tools"
     And the crate "session-tools" declares the binary "sweep"
-    And cargo holds the binary "sweep" of "session-mining" installed from the dotfiles repository
+    And an earlier build of the dotfiles workspace left the binary "sweep" behind
     And cargo installed "session-tools" from the content the workspace holds now
     When Alice plans
     Then the change set reports 0 binaries to remove
+
+  Scenario: A binary built from a commit no declared clone holds is kept and named with how to remove it
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And a build from a commit no declared clone holds left the binary "session-census" where cargo installs
+    When Alice plans
+    Then the change set reports 0 binaries to remove
+    And the change set mentions "session-census 0123456789abcdef0123456789abcdef01234567"
+    And the change set mentions "remove it with: rm"
+    And the change set reports the machine as converged
+
+  Scenario: A binary that names no commit is left alone
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And a binary "committed" that names no commit sits where cargo installs
+    When Alice plans
+    Then the change set reports 0 binaries to remove
+    And the change set reports the machine as converged
+
+  Scenario: A clone that cannot be opened to look up a commit leaves every binary undecided
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And an earlier build of the dotfiles workspace left the binary "session-census" behind
+    And a build from a commit no declared clone holds left the binary "reach" where cargo installs
+    And the clone of the dotfiles repository cannot be opened to look up a commit
+    When Alice plans
+    Then the change set reports 0 binaries to remove
+    And the change set does not mention "reach 0123456789abcdef0123456789abcdef01234567"
+
+  Scenario: A binary cargo records is never asked for its version, and never removed
+    Given Alice declares the cargo workspace in the dotfiles repository
+    And the dotfiles repository has been cloned on Alice's machine
+    And the workspace holds the crate "stop-gate"
+    And cargo installed "stop-gate" from the content the workspace holds now
+    And cargo installed "ripgrep" from crates.io, with a binary that reports a commit of the dotfiles workspace
+    When Alice plans
+    Then the change set reports 0 binaries to remove
+    And the binary "ripgrep" was never asked for its version
 
   Scenario: A workspace crate is blocked while cargo's bin directory is not on the search path
     Given Alice declares the cargo workspace in the dotfiles repository

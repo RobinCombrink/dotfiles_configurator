@@ -1929,81 +1929,65 @@ fn shadowing_copy_of(binary_name: &str) -> PathBuf {
         .join(BinaryName::from(binary_name).file_name())
 }
 
-#[given(expr = "an earlier install of {string} left the binary {string} behind")]
-fn an_earlier_install_left_a_binary(world: &mut MachineWorld, crate_name: String, binary: String) {
-    cargo_holds_binaries_from_the_dotfiles_repository(world, &crate_name, &[&binary]);
-}
-
-#[given(expr = "cargo holds the binary {string} of {string} installed from another repository")]
-fn cargo_holds_a_binary_from_elsewhere(
-    world: &mut MachineWorld,
-    binary: String,
-    crate_name: String,
-) {
-    world.machine.hold_install_record(
-        &CrateName::from(crate_name.as_str()),
-        &named_repository("Bob/tools"),
-        &Revision::from(EARLIER_WORKSPACE_REVISION),
-        &[BinaryName::from(binary.as_str())],
-    );
+fn left_behind_from(world: &mut MachineWorld, binary: &str, revision: &str) {
     world
         .machine
-        .hold_cargo_binary(&binary, format!("{binary} {EARLIER_WORKSPACE_REVISION}\n"));
+        .hold_cargo_binary(binary, format!("{binary} {revision}\n"));
 }
 
-fn cargo_holds_binaries_from_the_dotfiles_repository(
-    world: &mut MachineWorld,
-    crate_name: &str,
-    binaries: &[&str],
-) {
-    world.machine.hold_install_record(
-        &CrateName::from(crate_name),
-        &dotfiles_repository(),
-        &Revision::from(EARLIER_WORKSPACE_REVISION),
-        &binaries
-            .iter()
-            .map(|binary| BinaryName::from(*binary))
-            .collect::<Vec<_>>(),
+#[given(expr = "an earlier build of the dotfiles workspace left the binary {string} behind")]
+fn an_earlier_build_left_a_binary(world: &mut MachineWorld, binary: String) {
+    world.machine.hold_commit_in_clone(
+        dotfiles_repository_path(),
+        Revision::from(EARLIER_WORKSPACE_REVISION),
     );
-    for binary in binaries {
-        world
-            .machine
-            .hold_cargo_binary(binary, format!("{binary} {EARLIER_WORKSPACE_REVISION}\n"));
-    }
+    left_behind_from(world, &binary, EARLIER_WORKSPACE_REVISION);
 }
 
 #[given(
-    expr = "cargo holds the binary {string} of {string} installed from the dotfiles repository"
+    expr = "an earlier build of the dotfiles workspace left the binaries {string} and {string} \
+            behind"
 )]
-fn cargo_holds_a_binary_from_the_dotfiles_repository(
-    world: &mut MachineWorld,
-    binary: String,
-    crate_name: String,
-) {
-    cargo_holds_binaries_from_the_dotfiles_repository(world, &crate_name, &[&binary]);
+fn an_earlier_build_left_two_binaries(world: &mut MachineWorld, first: String, second: String) {
+    an_earlier_build_left_a_binary(world, first);
+    an_earlier_build_left_a_binary(world, second);
 }
 
 #[given(
-    expr = "cargo holds the binaries {string} and {string} of {string} installed from the \
-            dotfiles repository"
+    expr = "a build from a commit no declared clone holds left the binary {string} where cargo \
+            installs"
 )]
-fn cargo_holds_two_binaries_from_the_dotfiles_repository(
+fn a_build_no_clone_accounts_for_left_a_binary(world: &mut MachineWorld, binary: String) {
+    left_behind_from(world, &binary, UNKNOWN_REVISION);
+}
+
+#[given(expr = "a binary {string} that names no commit sits where cargo installs")]
+fn an_unstamped_binary_sits_where_cargo_installs(world: &mut MachineWorld, binary: String) {
+    world
+        .machine
+        .hold_cargo_binary(&binary, format!("{binary} 0.1.0\n"));
+}
+
+#[given(expr = "the clone of the dotfiles repository cannot be opened to look up a commit")]
+fn the_clone_cannot_be_opened(world: &mut MachineWorld) {
+    world
+        .machine
+        .make_clone_unopenable(dotfiles_repository_path());
+}
+
+#[given(
+    expr = "cargo installed {string} from crates.io, with a binary that reports a commit of the \
+            dotfiles workspace"
+)]
+fn cargo_installed_a_registry_crate_reporting_a_commit(
     world: &mut MachineWorld,
-    first: String,
-    second: String,
     crate_name: String,
 ) {
-    cargo_holds_binaries_from_the_dotfiles_repository(world, &crate_name, &[&first, &second]);
-}
-
-#[given(expr = "cargo refuses to uninstall anything on Alice's machine")]
-fn cargo_refuses_to_uninstall(world: &mut MachineWorld) {
-    world.machine.refuse_every_uninstall();
-}
-
-#[given(expr = "the file of the binary {string} is gone from where cargo installs it")]
-fn the_file_of_a_binary_is_gone(world: &mut MachineWorld, binary: String) {
-    world.machine.remove_cargo_binary(&binary);
+    world.machine.install_registry_crate(
+        &CrateName::from(crate_name.as_str()),
+        &CrateVersion::try_from("1.0.0").expect("a version"),
+    );
+    an_earlier_build_left_a_binary(world, crate_name);
 }
 
 #[then(expr = "the change set reports {int} binary/binaries to remove")]
@@ -2011,22 +1995,33 @@ fn change_set_reports_removals(world: &mut MachineWorld, expected: usize) {
     assert_eq!(world.change_set().withdrawals.len(), expected);
 }
 
-#[then(expr = "cargo no longer holds the binary {string} on Alice's machine")]
-fn cargo_no_longer_holds(world: &mut MachineWorld, binary: String) {
-    let binary = BinaryName::from(binary.as_str());
-    let file = world
+#[then(expr = "the binary {string} is gone from where cargo installs on Alice's machine")]
+fn the_binary_is_gone(world: &mut MachineWorld, binary: String) {
+    assert!(
+        !world.machine.holds_cargo_binary(&binary),
+        "{binary} is still there"
+    );
+}
+
+#[then(expr = "the binary {string} is still where cargo installs on Alice's machine")]
+fn the_binary_is_still_there(world: &mut MachineWorld, binary: String) {
+    assert!(
+        world.machine.holds_cargo_binary(&binary),
+        "{binary} is gone"
+    );
+}
+
+#[then(expr = "the binary {string} was never asked for its version")]
+fn the_binary_was_never_asked_its_version(world: &mut MachineWorld, binary: String) {
+    let path = world
         .machine
         .cargo_binaries_directory()
-        .join(binary.file_name());
+        .join(BinaryName::from(binary.as_str()).file_name());
 
     assert!(
-        !world.machine.path_exists(&file),
-        "{} is still there",
-        file.display()
-    );
-    assert!(
-        !world.machine.cargo_records_the_binary(&binary),
-        "cargo still records {binary}"
+        !world.machine.versions_asked().contains(&path),
+        "{} was asked for its version",
+        path.display()
     );
 }
 
@@ -2942,6 +2937,15 @@ fn change_set_mentions(world: &mut MachineWorld, text: String) {
     assert!(
         rendered.contains(&text),
         "expected the change set to mention {text:?}, got:\n{rendered}"
+    );
+}
+
+#[then(expr = "the change set does not mention {string}")]
+fn change_set_does_not_mention(world: &mut MachineWorld, text: String) {
+    let rendered = world.change_set().to_string();
+    assert!(
+        !rendered.contains(&text),
+        "expected the change set not to mention {text:?}, got:\n{rendered}"
     );
 }
 

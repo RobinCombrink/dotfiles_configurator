@@ -329,6 +329,32 @@ fn a_member_whose_build_left_nothing_in_staging_is_refused_rather_than_called_in
 }
 
 #[test]
+fn a_binary_nothing_runs_is_removed_outright_rather_than_moved_aside() {
+    let directory = tempfile::tempdir().unwrap();
+    let binary = a_binary_at(directory.path(), "session-census.exe", "an image");
+
+    let displaced = removed_or_displaced(&binary).unwrap();
+
+    assert_eq!(
+        (
+            displaced,
+            binary.exists(),
+            superseded_name(&binary).exists()
+        ),
+        (None, false, false)
+    );
+}
+
+#[test]
+fn a_binary_already_gone_is_removed_without_complaint() {
+    let directory = tempfile::tempdir().unwrap();
+
+    let displaced = removed_or_displaced(&directory.path().join("session-census.exe")).unwrap();
+
+    assert_eq!(displaced, None);
+}
+
+#[test]
 fn restoring_puts_the_moved_image_back_under_the_name_it_had() {
     let directory = tempfile::tempdir().unwrap();
     let destination = a_binary_at(directory.path(), "claude-session.exe", "the old image");

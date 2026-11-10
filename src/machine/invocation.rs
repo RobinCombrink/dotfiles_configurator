@@ -1,9 +1,9 @@
 use {
     crate::{
         configuration::{
-            BinaryName, ClaudeMcpServer, CrateName, CrateVersion, DartPackage, DartSource,
-            GitHubAccount, GitHubRepository, McpServerName, PythonInterpreter, Tool, UvToolName,
-            UvToolVersion, WingetPackageId, WingetVersion,
+            ClaudeMcpServer, CrateName, CrateVersion, DartPackage, DartSource, GitHubAccount,
+            GitHubRepository, McpServerName, PythonInterpreter, Tool, UvToolName, UvToolVersion,
+            WingetPackageId, WingetVersion,
         },
         machine::{
             CommandOutput, Exited, HeldReason, Replacement,
@@ -127,11 +127,6 @@ pub enum WriteInvocation {
     },
     InstallDartPackage {
         package: Box<DartPackage>,
-    },
-    // ADR 0041
-    UninstallCargoBinary {
-        specification: String,
-        binary: BinaryName,
     },
 }
 
@@ -351,7 +346,6 @@ impl WriteInvocation {
             | WriteInvocation::UpgradeUvTool { .. }
             | WriteInvocation::ReinstallUvToolAtLatest { .. } => Tool::Uv,
             WriteInvocation::InstallDartPackage { .. } => Tool::Dart,
-            WriteInvocation::UninstallCargoBinary { .. } => Tool::Cargo,
         }
     }
 
@@ -363,8 +357,7 @@ impl WriteInvocation {
             | WriteInvocation::UpgradeWingetPackage { .. }
             | WriteInvocation::InstallUvTool { .. }
             | WriteInvocation::UpgradeUvTool { .. }
-            | WriteInvocation::ReinstallUvToolAtLatest { .. }
-            | WriteInvocation::UninstallCargoBinary { .. } => Vec::new(),
+            | WriteInvocation::ReinstallUvToolAtLatest { .. } => Vec::new(),
         }
     }
 
@@ -448,37 +441,6 @@ impl WriteInvocation {
                     "--overwrite".to_owned(),
                 ]
             }
-            WriteInvocation::UninstallCargoBinary {
-                specification,
-                binary,
-            } => vec![
-                "uninstall".to_owned(),
-                "--bin".to_owned(),
-                binary.to_string(),
-                specification.clone(),
-            ],
-        }
-    }
-
-    // 2026-10-05: `cargo uninstall` refuses a record naming a binary whose file is gone with
-    // "error: corrupt metadata, `<path>` does not exist when it should" on its standard error,
-    // exiting 101, and removes nothing. cargo 1.99.0 on Windows 11.
-    pub fn refused_as_corrupt(&self, output: &CommandOutput) -> bool {
-        match self {
-            WriteInvocation::UninstallCargoBinary { .. } => {
-                !output.exited.succeeded()
-                    && output.standard_error.contains("corrupt metadata")
-                    && output
-                        .standard_error
-                        .contains("does not exist when it should")
-            }
-            WriteInvocation::UpdateWingetSources
-            | WriteInvocation::InstallWingetPackage { .. }
-            | WriteInvocation::UpgradeWingetPackage { .. }
-            | WriteInvocation::InstallUvTool { .. }
-            | WriteInvocation::UpgradeUvTool { .. }
-            | WriteInvocation::ReinstallUvToolAtLatest { .. }
-            | WriteInvocation::InstallDartPackage { .. } => false,
         }
     }
 
@@ -491,8 +453,7 @@ impl WriteInvocation {
             WriteInvocation::UpdateWingetSources
             | WriteInvocation::InstallWingetPackage { .. }
             | WriteInvocation::UpgradeWingetPackage { .. }
-            | WriteInvocation::InstallDartPackage { .. }
-            | WriteInvocation::UninstallCargoBinary { .. } => None,
+            | WriteInvocation::InstallDartPackage { .. } => None,
             WriteInvocation::InstallUvTool { .. }
             | WriteInvocation::UpgradeUvTool { .. }
             | WriteInvocation::ReinstallUvToolAtLatest { .. } => output
@@ -520,8 +481,7 @@ impl WriteInvocation {
                 .map(|line| HeldReason::ReportedInUse(line.trim().to_owned())),
             WriteInvocation::UpdateWingetSources
             | WriteInvocation::InstallUvTool { .. }
-            | WriteInvocation::UpgradeUvTool { .. }
-            | WriteInvocation::UninstallCargoBinary { .. } => None,
+            | WriteInvocation::UpgradeUvTool { .. } => None,
         }
     }
 }

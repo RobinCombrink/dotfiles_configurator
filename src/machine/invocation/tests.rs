@@ -551,45 +551,6 @@ fn the_tools_uv_reports_as_behind_are_asked_for_even_where_uv_is_set_to_work_off
     );
 }
 
-fn uninstalling_session_census() -> WriteInvocation {
-    WriteInvocation::UninstallCargoBinary {
-        specification: "git+https://Alice@github.com/Alice/dotfiles?rev=0c532c68bd883d1e6b002ad5bb1f40aa2ed70f66#session-mining@0.1.0".to_owned(),
-        binary: BinaryName::from("session-census"),
-    }
-}
-
-#[test]
-fn a_binary_is_uninstalled_out_of_the_one_record_its_specification_names() {
-    assert_eq!(
-        uninstalling_session_census().arguments(),
-        vec![
-            "uninstall",
-            "--bin",
-            "session-census",
-            "git+https://Alice@github.com/Alice/dotfiles?rev=0c532c68bd883d1e6b002ad5bb1f40aa2ed70f66#session-mining@0.1.0",
-        ]
-    );
-}
-
-#[test]
-fn an_uninstall_refused_because_a_recorded_file_is_gone_is_read_as_a_corrupt_record() {
-    let output = cargo_said(
-        "error: corrupt metadata, `C:\\Users\\Alice\\.cargo\\bin\\session-census.exe` does \
-         not exist when it should\n",
-    );
-
-    assert!(uninstalling_session_census().refused_as_corrupt(&output));
-}
-
-#[test]
-fn an_uninstall_refused_for_any_other_reason_is_not_read_as_a_corrupt_record() {
-    let output = cargo_said(
-        "error: package ID specification `session-mining@0.1.0` did not match any packages\n",
-    );
-
-    assert!(!uninstalling_session_census().refused_as_corrupt(&output));
-}
-
 fn shfmt() -> WingetPackageId {
     WingetPackageId::from("mvdan.shfmt")
 }

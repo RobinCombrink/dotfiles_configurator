@@ -706,3 +706,46 @@ fn a_directory_holding_no_clone_yet_reports_no_workspace_rather_than_failing() {
 
     assert_eq!(reading, None);
 }
+
+#[test]
+fn a_commit_the_clone_holds_resolves_even_where_no_branch_was_pushed() {
+    let repository = TemporaryRepository::create();
+    repository.write("README.md", "a commit\n");
+    let commit = repository.commit("a commit");
+
+    assert!(matches!(
+        workspace::resolve_commit(repository.path(), &commit),
+        Ok(())
+    ));
+}
+
+#[test]
+fn a_commit_the_clone_does_not_hold_is_named_as_not_in_this_clone() {
+    let repository = TemporaryRepository::create();
+    repository.write("README.md", "a commit\n");
+    repository.commit("a commit");
+    let elsewhere = Revision::from("0123456789abcdef0123456789abcdef01234567");
+
+    let resolved = workspace::resolve_commit(repository.path(), &elsewhere);
+
+    assert!(
+        matches!(
+            &resolved,
+            Err(WorkspaceReadFailure::RevisionNotInClone { revision, .. }) if *revision == elsewhere
+        ),
+        "{resolved:?}"
+    );
+}
+
+#[test]
+fn a_directory_that_is_not_a_clone_cannot_be_asked_for_a_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let commit = Revision::from("0123456789abcdef0123456789abcdef01234567");
+
+    let resolved = workspace::resolve_commit(directory.path(), &commit);
+
+    assert!(
+        matches!(&resolved, Err(WorkspaceReadFailure::CloneUnopened { .. })),
+        "{resolved:?}"
+    );
+}

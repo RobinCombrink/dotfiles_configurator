@@ -164,6 +164,11 @@ pub enum Notice {
         source: ConfigurationName,
         from: Generation,
     },
+    UnattributedBinary {
+        path: std::path::PathBuf,
+        binary: BinaryName,
+        commit: String,
+    },
 }
 
 impl From<DeclaredNotice> for Notice {
@@ -193,6 +198,18 @@ impl Display for Notice {
                 "{source} states generation {from} of dotfiles_configurator and was read as \
                  generation {BUILD_GENERATION}. This source cannot be written, so rewrite it \
                  there before generation {OLDEST_READABLE_GENERATION} stops being read."
+            ),
+            Notice::UnattributedBinary {
+                path,
+                binary,
+                commit,
+            } => write!(
+                formatter,
+                "{} reports \"{binary} {commit}\", a commit no declared workspace's clone holds, \
+                 so it is kept rather than removed on a guess. If nothing needs it, remove it \
+                 with: rm \"{}\"",
+                path.display(),
+                path.display()
             ),
         }
     }

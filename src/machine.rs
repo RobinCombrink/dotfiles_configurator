@@ -342,6 +342,12 @@ pub trait ReadMachine {
         revision: &Revision,
     ) -> Result<BTreeMap<CrateName, Fingerprint>, WorkspaceReadFailure>;
 
+    fn resolve_commit(
+        &self,
+        repository_path: &Path,
+        revision: &Revision,
+    ) -> Result<(), WorkspaceReadFailure>;
+
     fn cargo_binaries_directory(&self) -> PathBuf;
 
     fn check_presence(&self, check: &PresenceCheck) -> Result<Option<Answer>, ProgramStartFailure>;
@@ -426,6 +432,9 @@ pub trait WriteMachine: ReadMachine {
 
     fn remove_link(&self, link_path: &Path) -> Result<()>;
 
+    // ADR 0022
+    fn remove_binary(&self, path: &Path) -> Result<()>;
+
     fn write_text_file(&self, path: &Path, contents: &str) -> Result<()>;
 
     fn clone_repository(
@@ -497,7 +506,6 @@ pub trait WriteMachine: ReadMachine {
         invocation: &WriteInvocation,
     ) -> impl std::future::Future<Output = Result<CommandOutput>>;
 
-    // ADR 0041
     fn attempt_write(
         &self,
         invocation: &WriteInvocation,
