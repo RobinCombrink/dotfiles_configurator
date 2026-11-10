@@ -434,6 +434,7 @@ pub async fn plan(
     ))
 }
 
+// ADR 0046
 fn planned_withdrawals(
     desired_state: &DesiredState,
     readings: &SourceReadings,

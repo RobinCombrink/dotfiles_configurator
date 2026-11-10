@@ -1,5 +1,5 @@
 ---
-status: accepted, with two readable-ownership exceptions — the binary a workspace member stops declaring, which [ADR 0041](0041-a-binary-a-workspace-member-stops-declaring-is-removed.md) records, and a dangling link beside a declared one, whose target lies beneath an applied configuration's repository and which no entry declares
+status: accepted, with two readable-ownership exceptions — the binary a workspace member stops declaring, which [ADR 0046](0046-each-binary-is-its-own-record-of-the-commit-it-was-built-from.md) records, and a dangling link beside a declared one, whose target lies beneath an applied configuration's repository and which no entry declares
 ---
 
 # Convergence is additive

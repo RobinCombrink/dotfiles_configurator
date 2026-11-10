@@ -104,11 +104,13 @@ pub fn claimed_binary_files(listing: &str) -> BTreeSet<String> {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Withdrawal {
+    // ADR 0046
     Remove {
         binary: BinaryName,
         workspace: GitHubRepository,
         commit: Revision,
     },
+    // ADR 0046
     Untrack {
         record: InstallRecord,
         workspace: GitHubRepository,

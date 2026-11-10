@@ -164,6 +164,7 @@ pub enum Notice {
         source: ConfigurationName,
         from: Generation,
     },
+    // ADR 0046
     UnattributedBinary {
         path: std::path::PathBuf,
         binary: BinaryName,
