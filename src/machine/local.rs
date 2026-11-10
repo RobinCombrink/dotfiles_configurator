@@ -14,7 +14,7 @@ use {
             ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild, WriteInvocation,
             WriteMachine, crate_index_reading,
             dart_reading::{DartReadFailure, DartReading},
-            environment_reading::{MachineSearchPath, SearchPathReading},
+            environment_reading::{MachineSearchPath, RegistryReadFailure, SearchPathReading},
             invocation::without_terminal_prompts,
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReading},
@@ -813,15 +813,18 @@ impl ReadMachine for LocalMachine<'_, '_> {
         capture(binary_path, arguments, self.report)
     }
 
-    fn read_search_path(&self) -> Result<SearchPathReading> {
+    fn read_search_path(&self) -> Result<SearchPathReading, RegistryReadFailure> {
         environment::read_search_path()
     }
 
-    fn read_machine_search_path(&self) -> Result<MachineSearchPath> {
+    fn read_machine_search_path(&self) -> Result<MachineSearchPath, RegistryReadFailure> {
         environment::read_machine_search_path()
     }
 
-    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>> {
+    fn read_environment_variable(
+        &self,
+        name: &VariableName,
+    ) -> Result<Option<VariableValue>, RegistryReadFailure> {
         environment::read_variable(name)
     }
 

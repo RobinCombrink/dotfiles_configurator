@@ -21,7 +21,9 @@ use {
             Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
             WriteMachine,
             dart_reading::{DartDrift, DartReadFailure, DartReading},
-            environment_reading::{MachineSearchPath, SearchPathPlace, SearchPathReading},
+            environment_reading::{
+                MachineSearchPath, RegistryReadFailure, SearchPathPlace, SearchPathReading,
+            },
             release_reading::{ReleaseAsset, ReleaseReading},
             superseded_name,
             workspace_reading::{Fingerprint, Revision, WorkspaceReadFailure, WorkspaceReading},
@@ -37,6 +39,9 @@ use {
     },
     url::Url,
 };
+
+#[cfg(target_family = "windows")]
+use dotfiles_configurator::machine::environment_reading::RegistryKey;
 
 #[derive(Debug)]
 pub struct FakeMachine {
@@ -1257,6 +1262,21 @@ fn program_running(check: &PresenceCheck) -> PathBuf {
     }
 }
 
+#[cfg(target_family = "windows")]
+fn machine_environment_refused() -> RegistryReadFailure {
+    RegistryReadFailure::KeyUnopened {
+        key: RegistryKey::MachineEnvironment,
+        error: Arc::new(windows_result::Error::from_hresult(
+            windows_result::HRESULT::from_win32(ACCESS_DENIED.0.cast_unsigned()),
+        )),
+    }
+}
+
+#[cfg(target_family = "unix")]
+fn machine_environment_refused() -> RegistryReadFailure {
+    RegistryReadFailure::NoRegistry
+}
+
 fn fronted(machine_search_path: &mut Vec<PathBuf>, directory: &Path) {
     let reading = MachineSearchPath::of(machine_search_path.iter().cloned());
     if reading.place_of(directory) != SearchPathPlace::First {
@@ -1707,7 +1727,7 @@ impl ReadMachine for FakeMachine {
             .ok_or_else(|| anyhow!("crates.io holds no crate named {crate_name}"))
     }
 
-    fn read_search_path(&self) -> Result<SearchPathReading> {
+    fn read_search_path(&self) -> Result<SearchPathReading, RegistryReadFailure> {
         let state = self.state.borrow();
 
         Ok(SearchPathReading::of(
@@ -1719,10 +1739,10 @@ impl ReadMachine for FakeMachine {
         ))
     }
 
-    fn read_machine_search_path(&self) -> Result<MachineSearchPath> {
+    fn read_machine_search_path(&self) -> Result<MachineSearchPath, RegistryReadFailure> {
         let state = self.state.borrow();
         if state.machine_search_path_unreadable {
-            bail!("Could not open the Machine environment key to read the search path it stores");
+            return Err(machine_environment_refused());
         }
 
         Ok(MachineSearchPath::of(
@@ -1730,7 +1750,10 @@ impl ReadMachine for FakeMachine {
         ))
     }
 
-    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>> {
+    fn read_environment_variable(
+        &self,
+        name: &VariableName,
+    ) -> Result<Option<VariableValue>, RegistryReadFailure> {
         Ok(self.state.borrow().environment_variables.get(name).cloned())
     }
 

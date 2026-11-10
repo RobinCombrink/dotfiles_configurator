@@ -17,12 +17,13 @@ use {
         confirmation::Operator,
         convergence::{
             ApplyOutcome, Assessment, ChangeSet, Enactment, Impediment, SourceReadings,
-            apply::apply, assess, plan,
+            UnreadableReason, apply::apply, assess, plan, source_reading::ReadFailure,
         },
         currency::SelfReplacement,
         desired_state::{ChangeSetResource, DesiredState},
         machine::{
             HeldReason, ReadMachine,
+            environment_reading::{RegistryKey, RegistryReadFailure},
             workspace_reading::{
                 Fingerprint, MemberReading, ObjectHash, Revision, WorkspaceReading,
             },
@@ -199,9 +200,16 @@ async fn an_unreadable_machine_path_is_blocked_as_unreadable() {
     let machine = FakeMachine::default();
     machine.make_the_machine_search_path_unreadable();
 
-    let Assessment::Unassessable(Impediment::ActualStateUnreadable(_)) = assessed(&machine).await
+    let assessment = assessed(&machine).await;
+
+    let Assessment::Unassessable(Impediment::ActualStateUnreadable(UnreadableReason::ReadFailed(
+        ReadFailure::Registry(RegistryReadFailure::KeyUnopened {
+            key: RegistryKey::MachineEnvironment,
+            ..
+        }),
+    ))) = assessment
     else {
-        panic!("an unreadable Machine PATH was assessed");
+        panic!("{assessment:?}");
     };
 }
 

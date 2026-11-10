@@ -80,6 +80,7 @@ winresource = "0.1.23"
 
 [target.'cfg(target_family = "windows")'.dependencies]
 windows-registry = "0.5.3"
+windows-result = "0.3.4"
 windows-sys = { version = "0.60.2", features = [
     "Win32_Foundation",
     "Win32_Security",

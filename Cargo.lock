@@ -639,6 +639,7 @@ dependencies = [
  "toml 0.8.23",
  "url",
  "windows-registry",
+ "windows-result",
  "windows-sys 0.60.2",
  "winresource",
  "workspace-lock",

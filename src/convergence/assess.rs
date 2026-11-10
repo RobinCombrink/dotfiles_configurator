@@ -159,7 +159,9 @@ impl SourceReadings {
                 false => SourceReading::NotRequested(ReadSource::SearchPath),
                 true => match machine.read_search_path() {
                     Ok(reading) => SourceReading::Read(reading),
-                    Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
+                    Err(failure) => {
+                        SourceReading::Unreadable(UnreadableReason::read_failed(failure))
+                    }
                 },
             },
         }
@@ -393,9 +395,9 @@ fn assess_cargo_binaries_first(machine: &impl ReadMachine) -> Assessment {
     let directory = machine.cargo_binaries_directory();
     let reading = match machine.read_machine_search_path() {
         Ok(reading) => reading,
-        Err(error) => {
+        Err(failure) => {
             return Assessment::Unassessable(Impediment::ActualStateUnreadable(
-                UnreadableReason::from(&error),
+                UnreadableReason::read_failed(failure),
             ));
         }
     };
@@ -1060,8 +1062,8 @@ fn assess_variable(variable: &Variable, machine: &impl ReadMachine) -> Assessmen
         Ok(Some(set)) if set == variable.value => Assessment::Converged,
         Ok(Some(set)) => Assessment::Drifted(DriftReason::VariableSetTo(set)),
         Ok(None) => Assessment::Drifted(DriftReason::VariableUnset),
-        Err(error) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
-            UnreadableReason::from(&error),
+        Err(failure) => Assessment::Unassessable(Impediment::ActualStateUnreadable(
+            UnreadableReason::read_failed(failure),
         )),
     }
 }

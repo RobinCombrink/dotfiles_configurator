@@ -1,9 +1,111 @@
+#[cfg(target_family = "windows")]
+use {crate::configuration::VariableName, std::sync::Arc};
 use {
     crate::configuration::path_folding,
-    std::path::{Path, PathBuf},
+    std::{
+        fmt::Display,
+        path::{Path, PathBuf},
+    },
 };
 
 const SEPARATOR: char = ';';
+
+#[cfg(target_family = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryKey {
+    UserEnvironment,
+    MachineEnvironment,
+}
+
+#[cfg(target_family = "windows")]
+impl Display for RegistryKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            RegistryKey::UserEnvironment => r"HKEY_CURRENT_USER\Environment",
+            RegistryKey::MachineEnvironment => {
+                r"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+            }
+        })
+    }
+}
+
+#[cfg(target_family = "windows")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegistryValueName {
+    SearchPath,
+    Variable(VariableName),
+}
+
+#[cfg(target_family = "windows")]
+impl Display for RegistryValueName {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RegistryValueName::SearchPath => formatter.write_str("Path"),
+            RegistryValueName::Variable(name) => Display::fmt(name, formatter),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum RegistryReadFailure {
+    #[cfg(target_family = "windows")]
+    KeyUnopened {
+        key: RegistryKey,
+        error: Arc<windows_result::Error>,
+    },
+    #[cfg(target_family = "windows")]
+    ValueUnread {
+        key: RegistryKey,
+        value: RegistryValueName,
+        error: Arc<windows_result::Error>,
+    },
+    #[cfg(target_family = "windows")]
+    ValueNotText {
+        key: RegistryKey,
+        value: RegistryValueName,
+        error: Arc<windows_result::Error>,
+    },
+    #[cfg(target_family = "unix")]
+    NoRegistry,
+}
+
+impl Display for RegistryReadFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            #[cfg(target_family = "windows")]
+            RegistryReadFailure::KeyUnopened { key, error } => {
+                write!(formatter, "{key} could not be opened to read: {error}")
+            }
+            #[cfg(target_family = "windows")]
+            RegistryReadFailure::ValueUnread { key, value, error } => {
+                write!(formatter, "{value} could not be read from {key}: {error}")
+            }
+            #[cfg(target_family = "windows")]
+            RegistryReadFailure::ValueNotText { key, value, error } => write!(
+                formatter,
+                "{key} stores {value} as something other than text: {error}"
+            ),
+            #[cfg(target_family = "unix")]
+            RegistryReadFailure::NoRegistry => formatter.write_str(
+                "An environment variable is held in the Windows registry, and this machine has \
+                 none",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RegistryReadFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            #[cfg(target_family = "windows")]
+            RegistryReadFailure::KeyUnopened { error, .. }
+            | RegistryReadFailure::ValueUnread { error, .. }
+            | RegistryReadFailure::ValueNotText { error, .. } => Some(error.as_ref()),
+            #[cfg(target_family = "unix")]
+            RegistryReadFailure::NoRegistry => None,
+        }
+    }
+}
 
 // ADR 0017
 #[derive(Debug, Clone, PartialEq, Eq)]

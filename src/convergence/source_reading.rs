@@ -7,7 +7,7 @@ use {
         convergence::Impediment,
         machine::{
             FailedExit, FileReadFailure, ProgramStartFailure, dart_reading::DartReadFailure,
-            workspace_reading::WorkspaceReadFailure,
+            environment_reading::RegistryReadFailure, workspace_reading::WorkspaceReadFailure,
         },
     },
     std::{fmt::Display, path::PathBuf},
@@ -18,6 +18,7 @@ pub enum ReadFailure {
     Chain(String),
     Workspace(WorkspaceReadFailure),
     Dart(DartReadFailure),
+    Registry(RegistryReadFailure),
     ProgramStart(ProgramStartFailure),
     FileRead(FileReadFailure),
 }
@@ -40,6 +41,12 @@ impl From<DartReadFailure> for ReadFailure {
     }
 }
 
+impl From<RegistryReadFailure> for ReadFailure {
+    fn from(failure: RegistryReadFailure) -> Self {
+        Self::Registry(failure)
+    }
+}
+
 impl From<ProgramStartFailure> for ReadFailure {
     fn from(failure: ProgramStartFailure) -> Self {
         Self::ProgramStart(failure)
@@ -58,6 +65,7 @@ impl Display for ReadFailure {
             ReadFailure::Chain(chain) => formatter.write_str(chain),
             ReadFailure::Workspace(failure) => Display::fmt(failure, formatter),
             ReadFailure::Dart(failure) => Display::fmt(failure, formatter),
+            ReadFailure::Registry(failure) => Display::fmt(failure, formatter),
             ReadFailure::ProgramStart(failure) => Display::fmt(failure, formatter),
             ReadFailure::FileRead(failure) => Display::fmt(failure, formatter),
         }

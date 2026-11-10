@@ -6,7 +6,7 @@ use {
         },
         machine::{
             dart_reading::{DartLocations, DartReadFailure, DartReading},
-            environment_reading::{MachineSearchPath, SearchPathReading},
+            environment_reading::{MachineSearchPath, RegistryReadFailure, SearchPathReading},
             release_reading::ReleaseReading,
             workspace_reading::{Fingerprint, Revision, WorkspaceReadFailure, WorkspaceReading},
         },
@@ -340,12 +340,15 @@ pub trait ReadMachine {
     ) -> Result<CommandOutput, ProgramStartFailure>;
 
     // ADR 0017
-    fn read_search_path(&self) -> Result<SearchPathReading>;
+    fn read_search_path(&self) -> Result<SearchPathReading, RegistryReadFailure>;
 
-    fn read_machine_search_path(&self) -> Result<MachineSearchPath>;
+    fn read_machine_search_path(&self) -> Result<MachineSearchPath, RegistryReadFailure>;
 
     // ADR 0017
-    fn read_environment_variable(&self, name: &VariableName) -> Result<Option<VariableValue>>;
+    fn read_environment_variable(
+        &self,
+        name: &VariableName,
+    ) -> Result<Option<VariableValue>, RegistryReadFailure>;
 
     fn resolve_against_home(&self, path: &Path) -> PathBuf {
         path_folding::home_relative_path(self.home_directory(), path)

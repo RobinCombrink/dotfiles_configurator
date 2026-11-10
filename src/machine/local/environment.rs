@@ -2,10 +2,10 @@
 use {
     crate::machine::{
         ElevatedWork, OsError, Placement, PrivilegeRefusal,
-        environment_reading::{carrying, entries_of, fronting},
+        environment_reading::{RegistryKey, RegistryValueName, carrying, entries_of, fronting},
     },
     anyhow::Context,
-    std::{iter::once, path::PathBuf, ptr},
+    std::{iter::once, path::PathBuf, ptr, sync::Arc},
     windows_registry::{CURRENT_USER, Key, LOCAL_MACHINE, Type, Value},
     windows_sys::Win32::{
         Foundation::ERROR_ACCESS_DENIED,
@@ -18,7 +18,7 @@ use {
 use {
     crate::{
         configuration::{VariableName, VariableValue},
-        machine::environment_reading::{MachineSearchPath, SearchPathReading},
+        machine::environment_reading::{MachineSearchPath, RegistryReadFailure, SearchPathReading},
     },
     anyhow::Result,
     std::path::Path,
@@ -43,8 +43,8 @@ const ACCESS_DENIED: i32 = 0x8007_0005u32 as i32; // HRESULT_FROM_WIN32(ERROR_AC
 const BROADCAST_TIMEOUT: u32 = 5_000; // 5 seconds
 
 #[cfg(target_family = "windows")]
-pub fn read_machine_search_path() -> Result<MachineSearchPath> {
-    let raw = stored_search_path(LOCAL_MACHINE, MACHINE_ENVIRONMENT)?;
+pub fn read_machine_search_path() -> Result<MachineSearchPath, RegistryReadFailure> {
+    let raw = stored_search_path(RegistryKey::MachineEnvironment)?;
 
     Ok(MachineSearchPath::of(
         entries_of(&raw)
@@ -94,26 +94,21 @@ fn fronted_machine_search_path(directory: &Path) -> windows_registry::Result<()>
 }
 
 #[cfg(target_family = "windows")]
-pub fn read_search_path() -> Result<SearchPathReading> {
+pub fn read_search_path() -> Result<SearchPathReading, RegistryReadFailure> {
     let mut entries: Vec<PathBuf> = Vec::new();
-    entries.extend(hive_search_path(LOCAL_MACHINE, MACHINE_ENVIRONMENT)?);
-    entries.extend(hive_search_path(CURRENT_USER, USER_ENVIRONMENT)?);
+    entries.extend(hive_search_path(RegistryKey::MachineEnvironment)?);
+    entries.extend(hive_search_path(RegistryKey::UserEnvironment)?);
 
     Ok(SearchPathReading::of(entries))
 }
 
 #[cfg(target_family = "windows")]
-pub fn read_variable(name: &VariableName) -> Result<Option<VariableValue>> {
-    let key = CURRENT_USER
-        .open(USER_ENVIRONMENT)
-        .context("Could not read the user's environment key")?;
+pub fn read_variable(name: &VariableName) -> Result<Option<VariableValue>, RegistryReadFailure> {
+    let key = opened(RegistryKey::UserEnvironment)?;
+    let value = RegistryValueName::Variable(name.clone());
 
-    match stored(&key, name.as_ref())? {
-        None => Ok(None),
-        Some(value) => String::try_from(value)
-            .map(|text| Some(VariableValue::from(text)))
-            .with_context(|| format!("{name} is stored as something other than text")),
-    }
+    stored_text(&key, RegistryKey::UserEnvironment, value)
+        .map(|stored| stored.map(VariableValue::from))
 }
 
 #[cfg(target_family = "windows")]
@@ -153,20 +148,57 @@ pub fn set_variable(name: &VariableName, value: &VariableValue) -> Result<()> {
 }
 
 #[cfg(target_family = "windows")]
-fn stored_search_path(hive: &Key, path: &str) -> Result<String> {
-    let key = hive
-        .open(path)
-        .with_context(|| format!("Could not open {path} to read the search path it stores"))?;
-    let Some(value) = stored(&key, SEARCH_PATH)? else {
-        return Ok(String::new());
+fn opened(key: RegistryKey) -> Result<Key, RegistryReadFailure> {
+    let (hive, path) = match key {
+        RegistryKey::UserEnvironment => (CURRENT_USER, USER_ENVIRONMENT),
+        RegistryKey::MachineEnvironment => (LOCAL_MACHINE, MACHINE_ENVIRONMENT),
     };
-
-    String::try_from(value).with_context(|| format!("{path} stores a search path that is not text"))
+    hive.open(path)
+        .map_err(|error| RegistryReadFailure::KeyUnopened {
+            key,
+            error: Arc::new(error),
+        })
 }
 
 #[cfg(target_family = "windows")]
-fn hive_search_path(hive: &Key, path: &str) -> Result<Vec<PathBuf>> {
-    let raw = stored_search_path(hive, path)?;
+fn stored_text(
+    key: &Key,
+    opened_at: RegistryKey,
+    value: RegistryValueName,
+) -> Result<Option<String>, RegistryReadFailure> {
+    let stored = match stored(key, &value.to_string()) {
+        Ok(stored) => stored,
+        Err(error) => {
+            return Err(RegistryReadFailure::ValueUnread {
+                key: opened_at,
+                value,
+                error: Arc::new(error),
+            });
+        }
+    };
+    let Some(stored) = stored else {
+        return Ok(None);
+    };
+
+    String::try_from(stored)
+        .map(Some)
+        .map_err(|error| RegistryReadFailure::ValueNotText {
+            key: opened_at,
+            value,
+            error: Arc::new(error),
+        })
+}
+
+#[cfg(target_family = "windows")]
+fn stored_search_path(key: RegistryKey) -> Result<String, RegistryReadFailure> {
+    let opened_key = opened(key)?;
+
+    stored_text(&opened_key, key, RegistryValueName::SearchPath).map(Option::unwrap_or_default)
+}
+
+#[cfg(target_family = "windows")]
+fn hive_search_path(key: RegistryKey) -> Result<Vec<PathBuf>, RegistryReadFailure> {
+    let raw = stored_search_path(key)?;
 
     Ok(entries_of(&raw)
         .into_iter()
@@ -175,11 +207,11 @@ fn hive_search_path(hive: &Key, path: &str) -> Result<Vec<PathBuf>> {
 }
 
 #[cfg(target_family = "windows")]
-fn stored(key: &Key, name: &str) -> Result<Option<Value>> {
+fn stored(key: &Key, name: &str) -> windows_registry::Result<Option<Value>> {
     match key.get_value(name) {
         Ok(value) => Ok(Some(value)),
         Err(error) if error.code().0 == VALUE_NOT_FOUND => Ok(None),
-        Err(error) => Err(error.into()),
+        Err(error) => Err(error),
     }
 }
 
@@ -230,18 +262,18 @@ const REFUSAL: &str =
     "An environment variable is held in the Windows registry, and this machine has none";
 
 #[cfg(target_family = "unix")]
-pub fn read_search_path() -> Result<SearchPathReading> {
-    anyhow::bail!("{REFUSAL}")
+pub fn read_search_path() -> Result<SearchPathReading, RegistryReadFailure> {
+    Err(RegistryReadFailure::NoRegistry)
 }
 
 #[cfg(target_family = "unix")]
-pub fn read_machine_search_path() -> Result<MachineSearchPath> {
-    anyhow::bail!("{REFUSAL}")
+pub fn read_machine_search_path() -> Result<MachineSearchPath, RegistryReadFailure> {
+    Err(RegistryReadFailure::NoRegistry)
 }
 
 #[cfg(target_family = "unix")]
-pub fn read_variable(_name: &VariableName) -> Result<Option<VariableValue>> {
-    anyhow::bail!("{REFUSAL}")
+pub fn read_variable(_name: &VariableName) -> Result<Option<VariableValue>, RegistryReadFailure> {
+    Err(RegistryReadFailure::NoRegistry)
 }
 
 #[cfg(target_family = "unix")]
