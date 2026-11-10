@@ -203,6 +203,53 @@ fn superseded_images_are_found_in_every_directory_the_program_can_displace_into(
 }
 
 #[test]
+fn a_replacement_is_written_whole_before_the_running_image_leaves_its_name() {
+    let directory = tempfile::tempdir().unwrap();
+    let destination = a_binary_at(directory.path(), "rg.exe", "the old image");
+    let mut named_while_writing = false;
+
+    let placed = swapped_in(&destination, |incoming| {
+        named_while_writing = destination.exists();
+        fs::write(incoming, "the new image")?;
+        Ok(())
+    })
+    .unwrap();
+
+    assert_eq!(
+        (
+            placed,
+            named_while_writing,
+            fs::read_to_string(&destination).unwrap(),
+            fs::read_to_string(superseded_name(&destination)).unwrap(),
+            incoming_name(&destination).exists(),
+        ),
+        (
+            Placement::Placed,
+            true,
+            "the new image".to_owned(),
+            "the old image".to_owned(),
+            false,
+        )
+    );
+}
+
+#[test]
+fn a_replacement_that_cannot_be_written_leaves_the_running_image_under_its_name() {
+    let directory = tempfile::tempdir().unwrap();
+    let destination = a_binary_at(directory.path(), "rg.exe", "the old image");
+
+    let swapped = swapped_in(&destination, |incoming| {
+        fs::write(incoming, "half an image")?;
+        Err(anyhow!("the disk filled"))
+    });
+
+    assert_eq!(swapped.unwrap_err().to_string(), "the disk filled");
+    assert_eq!(fs::read_to_string(&destination).unwrap(), "the old image");
+    assert!(!superseded_name(&destination).exists());
+    assert!(!incoming_name(&destination).exists());
+}
+
+#[test]
 fn restoring_puts_the_moved_image_back_under_the_name_it_had() {
     let directory = tempfile::tempdir().unwrap();
     let destination = a_binary_at(directory.path(), "claude-session.exe", "the old image");

@@ -4,9 +4,9 @@ status: accepted
 
 # A binary is displaced, never the process holding it
 
-Where a file cannot be written because the machine is executing it, the running image is moved
-aside and the new file is written over the freed name. The process holding it is never stopped,
-under any flag.
+Where a file cannot be written because the machine is executing it, the new file is written whole
+beside it first, and then two renames run back to back: the running image aside, and the new file
+onto the name. The process holding it is never stopped, under any flag.
 
 Measured 2026-08-09 on Windows 11 Home 10.0.26200, against a copy of `ping.exe` left running from
 a scratch directory: overwriting the file in place was denied; renaming it aside succeeded; writing
@@ -56,6 +56,13 @@ not a call a caller makes, it is what the operation does on its own failure path
 - **Retry the move within the pass without displacing.** Converges wherever the holder exits inside
   the run, which is the case that was observed. Rejected because the case that motivated this is
   the one that does not.
+- **Move the running image aside, then write the new file at the freed name.** One file fewer
+  beside the name. Rejected because the name is absent for as long as the write, or a second
+  install, takes, and a caller resolving it in that window is refused: a Claude Code mod spawning
+  `hook-dispatcher` by name got `ENOENT` during an apply on 2026-10-19, and Claude Code's Windows
+  command resolver keeps that miss for the life of its process, so the spawn kept failing after
+  the new binary landed (2026-10-26). An absolute path skips that cache (Claude Code 2.1.321,
+  2026-11-10), but only the order closes the window for every caller.
 - **Displace every declared binary before invoking the installer.** Removes the collision rather
   than recovering from it. Rejected because it needs the names up front to buy nothing, and leaves
   a moved image behind for files that were never in the way.

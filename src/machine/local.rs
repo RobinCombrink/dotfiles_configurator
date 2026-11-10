@@ -17,6 +17,7 @@ use {
             crate_index_reading::{self, CrateIndexReadFailure},
             dart_reading::{DartReadFailure, DartReading},
             environment_reading::{MachineSearchPath, RegistryReadFailure, SearchPathReading},
+            incoming_name,
             invocation::without_terminal_prompts,
             partial_download_path,
             release_reading::{ReleaseAsset, ReleaseReadFailure, ReleaseReading},
@@ -422,6 +423,34 @@ fn displace(destination: &Path) -> Result<PathBuf> {
     fs::rename(destination, &superseded)?;
 
     Ok(superseded)
+}
+
+fn swapped_in(
+    destination: &Path,
+    write_the_replacement: impl FnOnce(&Path) -> Result<()>,
+) -> Result<Placement> {
+    let incoming = incoming_name(destination);
+    if let Err(unwritten) = write_the_replacement(&incoming) {
+        let _ = fs::remove_file(&incoming);
+        return Err(unwritten);
+    }
+
+    let Ok(superseded) = displace(destination) else {
+        let _ = fs::remove_file(&incoming);
+        return Ok(Placement::Held(HeldReason::BeingExecuted(
+            destination.to_path_buf(),
+        )));
+    };
+    fs::rename(&incoming, destination)
+        .map(|()| Placement::Placed)
+        .with_context(|| {
+            format!(
+                "Could not move {} onto {}",
+                incoming.display(),
+                destination.display()
+            )
+        })
+        .map_err(|failure| restoring(&superseded, destination, failure))
 }
 
 fn holds_the_same_bytes(source: &Path, destination: &Path) -> Result<bool> {
@@ -1046,19 +1075,16 @@ impl WriteMachine for LocalMachine<'_, '_> {
         let Err(refused) = place_executable(&installed_path, &contents) else {
             return Ok(Placement::Placed);
         };
-        let Ok(superseded) = displace(&installed_path) else {
-            return Ok(Placement::Held(HeldReason::BeingExecuted(installed_path)));
-        };
 
-        place_executable(&installed_path, &contents)
-            .map(|()| Placement::Placed)
-            .map_err(|failure| restoring(&superseded, &installed_path, failure))
-            .with_context(|| {
-                format!(
-                    "{} could not be written: {refused:#}",
-                    installed_path.display()
-                )
-            })
+        swapped_in(&installed_path, |incoming| {
+            place_executable(incoming, &contents)
+        })
+        .with_context(|| {
+            format!(
+                "{} could not be written: {refused:#}",
+                installed_path.display()
+            )
+        })
     }
 
     fn put_on_search_path(&self, directory: &Path) -> Result<()> {

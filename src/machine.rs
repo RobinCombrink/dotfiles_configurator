@@ -183,6 +183,15 @@ pub fn superseded_name(destination: &Path) -> PathBuf {
     destination.with_file_name(name)
 }
 
+pub const INCOMING_SUFFIX: &str = ".incoming";
+
+pub fn incoming_name(destination: &Path) -> PathBuf {
+    let mut name = destination.file_name().unwrap_or_default().to_os_string();
+    name.push(INCOMING_SUFFIX);
+
+    destination.with_file_name(name)
+}
+
 pub const PARTIAL_DOWNLOAD_SUFFIX: &str = ".partial";
 
 pub fn partial_download_path(destination: &Path) -> PathBuf {
