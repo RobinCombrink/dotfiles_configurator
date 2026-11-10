@@ -372,6 +372,59 @@ fn a_captured_child_that_fails_has_its_exit_code_written_to_the_log() {
     assert!(written.contains("exited with 3"), "{written}");
 }
 
+fn lingering_for_five_seconds() -> (String, Vec<String>) {
+    let waiting: &[&str] = match A_SHELL_EVERY_MACHINE_HAS {
+        Shell::CommandPrompt => &["ping", "-n", "6", "127.0.0.1"],
+        Shell::Bash | Shell::PowerShell | Shell::Wsl => &["sleep", "5"],
+    };
+    shell_invocation(
+        A_SHELL_EVERY_MACHINE_HAS,
+        &waiting
+            .iter()
+            .map(|word| (*word).to_owned())
+            .collect::<Vec<_>>(),
+    )
+}
+
+#[test]
+fn a_version_report_still_running_at_its_deadline_is_stopped_as_unfinished() {
+    let directory = tempfile::tempdir().unwrap();
+    let report = RunReport::open_in(directory.path(), RunKind::Plan).unwrap();
+    let (program, arguments) = lingering_for_five_seconds();
+
+    let reported = capture_within(
+        Path::new(&program),
+        &arguments,
+        Duration::from_millis(200),
+        &report,
+    );
+
+    assert!(
+        matches!(reported, Err(VersionReportFailure::Unfinished { .. })),
+        "{reported:?}"
+    );
+}
+
+#[test]
+fn a_version_report_finished_before_its_deadline_hands_back_what_it_printed() {
+    let directory = tempfile::tempdir().unwrap();
+    let report = RunReport::open_in(directory.path(), RunKind::Plan).unwrap();
+    let (program, arguments) = echoing_two_lines();
+
+    let output = capture_within(
+        Path::new(&program),
+        &arguments,
+        VERSION_REPORT_DEADLINE,
+        &report,
+    )
+    .unwrap();
+
+    assert!(
+        output.standard_output.contains("first") && output.standard_output.contains("second"),
+        "{output:?}"
+    );
+}
+
 #[test]
 fn a_captured_child_that_succeeds_has_its_exit_code_written_to_the_log() {
     let directory = tempfile::tempdir().unwrap();

@@ -22,6 +22,7 @@ use {
         path::{Path, PathBuf},
         process::ExitStatus,
         sync::Arc,
+        time::Duration,
     },
 };
 
@@ -139,6 +140,37 @@ impl Display for ProgramStartFailure {
 impl Error for ProgramStartFailure {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(self.error.as_ref())
+    }
+}
+
+pub const VERSION_REPORT_DEADLINE: Duration = Duration::from_secs(10);
+
+#[derive(Debug, Clone)]
+pub enum VersionReportFailure {
+    NotStarted(ProgramStartFailure),
+    Unfinished { program: PathBuf, waited: Duration },
+}
+
+impl Display for VersionReportFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VersionReportFailure::NotStarted(failure) => Display::fmt(failure, formatter),
+            VersionReportFailure::Unfinished { program, waited } => write!(
+                formatter,
+                "{} had not finished after {} seconds and was stopped",
+                program.display(),
+                waited.as_secs()
+            ),
+        }
+    }
+}
+
+impl Error for VersionReportFailure {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            VersionReportFailure::NotStarted(failure) => Some(failure),
+            VersionReportFailure::Unfinished { .. } => None,
+        }
     }
 }
 
@@ -349,7 +381,7 @@ pub trait ReadMachine {
         &self,
         binary_path: &Path,
         arguments: &[String],
-    ) -> Result<CommandOutput, ProgramStartFailure>;
+    ) -> Result<CommandOutput, VersionReportFailure>;
 
     // ADR 0017
     fn read_search_path(&self) -> Result<SearchPathReading, RegistryReadFailure>;

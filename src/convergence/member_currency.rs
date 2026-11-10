@@ -3,7 +3,7 @@ use {
         configuration::{BinaryName, CrateName, path_folding},
         convergence::{Assessment, DriftReason, Finding},
         machine::{
-            CommandOutput, FailedExit, ProgramStartFailure, ReadMachine,
+            CommandOutput, FailedExit, ReadMachine, VersionReportFailure,
             environment_reading::SearchPathReading,
             workspace_reading::{
                 Fingerprint, FingerprintDifference, Revision, WorkspaceReadFailure,
@@ -75,7 +75,7 @@ impl Display for Staleness {
 pub enum UnreadableStamp {
     RequestFailed(FailedExit),
     NamesNoCommit { printed: String },
-    RunFailed(ProgramStartFailure),
+    RunFailed(VersionReportFailure),
 }
 
 impl Display for UnreadableStamp {

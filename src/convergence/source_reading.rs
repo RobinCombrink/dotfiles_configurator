@@ -6,10 +6,10 @@ use {
         },
         convergence::Impediment,
         machine::{
-            FailedExit, FileReadFailure, ProgramStartFailure, clone_reading::CloneReadFailure,
-            crate_index_reading::CrateIndexReadFailure, dart_reading::DartReadFailure,
-            environment_reading::RegistryReadFailure, release_reading::ReleaseReadFailure,
-            workspace_reading::WorkspaceReadFailure,
+            FailedExit, FileReadFailure, ProgramStartFailure, VersionReportFailure,
+            clone_reading::CloneReadFailure, crate_index_reading::CrateIndexReadFailure,
+            dart_reading::DartReadFailure, environment_reading::RegistryReadFailure,
+            release_reading::ReleaseReadFailure, workspace_reading::WorkspaceReadFailure,
         },
     },
     std::{fmt::Display, path::PathBuf},
@@ -25,6 +25,7 @@ pub enum ReadFailure {
     Clone(CloneReadFailure),
     ProgramStart(ProgramStartFailure),
     FileRead(FileReadFailure),
+    VersionReport(VersionReportFailure),
 }
 
 impl From<WorkspaceReadFailure> for ReadFailure {
@@ -75,6 +76,12 @@ impl From<FileReadFailure> for ReadFailure {
     }
 }
 
+impl From<VersionReportFailure> for ReadFailure {
+    fn from(failure: VersionReportFailure) -> Self {
+        Self::VersionReport(failure)
+    }
+}
+
 impl Display for ReadFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -86,6 +93,7 @@ impl Display for ReadFailure {
             ReadFailure::Clone(failure) => Display::fmt(failure, formatter),
             ReadFailure::ProgramStart(failure) => Display::fmt(failure, formatter),
             ReadFailure::FileRead(failure) => Display::fmt(failure, formatter),
+            ReadFailure::VersionReport(failure) => Display::fmt(failure, formatter),
         }
     }
 }

@@ -18,8 +18,8 @@ use {
             Batched, CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
             ElevatedOutcome, ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason, OsError,
             Placement, PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine,
-            Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
-            WriteMachine,
+            Replacement, ReplacingInvocation, ResolvedCargoSource, VersionReportFailure,
+            WorkspaceBuild, WriteInvocation, WriteMachine,
             clone_reading::CloneReadFailure,
             crate_index_reading::CrateIndexReadFailure,
             dart_reading::{DartDrift, DartReadFailure, DartReading},
@@ -1780,13 +1780,13 @@ impl ReadMachine for FakeMachine {
         &self,
         binary_path: &Path,
         _arguments: &[String],
-    ) -> Result<CommandOutput, ProgramStartFailure> {
+    ) -> Result<CommandOutput, VersionReportFailure> {
         let state = self.state.borrow();
         let Some(printed) = state.version_output_by_binary_path.get(binary_path) else {
-            return Err(ProgramStartFailure::of(
+            return Err(VersionReportFailure::NotStarted(ProgramStartFailure::of(
                 binary_path,
                 std::io::Error::from(std::io::ErrorKind::InvalidInput),
-            ));
+            )));
         };
 
         Ok(CommandOutput {

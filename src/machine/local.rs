@@ -11,8 +11,8 @@ use {
             CommandOutput, ContentDigest, DisplacingInvocation, Downloaded, ElevatedBatch,
             ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason, OsError, Placement,
             PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine, Replacement,
-            ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild, WriteInvocation,
-            WriteMachine,
+            ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, VERSION_REPORT_DEADLINE,
+            VersionReportFailure, WorkspaceBuild, WriteInvocation, WriteMachine,
             clone_reading::CloneReadFailure,
             crate_index_reading::{self, CrateIndexReadFailure},
             dart_reading::{DartReadFailure, DartReading},
@@ -41,6 +41,7 @@ use {
         path::{Path, PathBuf},
         process::{Command as ProcessCommand, Stdio},
         sync::Arc,
+        time::{Duration, Instant},
     },
     tokio::io::{AsyncBufReadExt, AsyncRead},
     url::Url,
@@ -317,6 +318,71 @@ fn capture_with(
         exited,
         standard_output,
         standard_error,
+    })
+}
+
+const UNTIL_IT_EXITS: Duration = Duration::from_millis(10);
+
+fn capture_within(
+    program: &Path,
+    arguments: &[String],
+    deadline: Duration,
+    report: &RunReport,
+) -> Result<CommandOutput, VersionReportFailure> {
+    report.note(&rendered_invocation(program, arguments));
+    let not_started = |error: std::io::Error| {
+        VersionReportFailure::NotStarted(ProgramStartFailure::of(program, error))
+    };
+
+    let mut child = ProcessCommand::new(launchable(program, &[]))
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(not_started)?;
+    let piped_output = drained_aside(child.stdout.take());
+    let piped_error = drained_aside(child.stderr.take());
+
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(not_started)? {
+            break status;
+        }
+        if started.elapsed() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            let unfinished = VersionReportFailure::Unfinished {
+                program: program.to_path_buf(),
+                waited: deadline,
+            };
+            report.note(&unfinished.to_string());
+            return Err(unfinished);
+        }
+        std::thread::sleep(UNTIL_IT_EXITS);
+    };
+
+    let standard_output = decode_output(&piped_output.join().unwrap_or_default());
+    let standard_error = decode_output(&piped_error.join().unwrap_or_default());
+    report.captured_output(&standard_output);
+    report.captured_output(&standard_error);
+    let exited = Exited::from(status);
+    report.note(&format!("{} {exited}", program.display()));
+
+    Ok(CommandOutput {
+        exited,
+        standard_output,
+        standard_error,
+    })
+}
+
+fn drained_aside(source: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut collected = Vec::new();
+        if let Some(mut source) = source {
+            let _ = source.read_to_end(&mut collected);
+        }
+        collected
     })
 }
 
@@ -862,8 +928,8 @@ impl ReadMachine for LocalMachine<'_, '_> {
         &self,
         binary_path: &Path,
         arguments: &[String],
-    ) -> Result<CommandOutput, ProgramStartFailure> {
-        capture(binary_path, arguments, self.report)
+    ) -> Result<CommandOutput, VersionReportFailure> {
+        capture_within(binary_path, arguments, VERSION_REPORT_DEADLINE, self.report)
     }
 
     fn read_search_path(&self) -> Result<SearchPathReading, RegistryReadFailure> {
