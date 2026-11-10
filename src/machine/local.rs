@@ -12,7 +12,8 @@ use {
             ElevatedWork, Elevation, Exited, FileReadFailure, HeldReason, OsError, Placement,
             PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine, Replacement,
             ReplacingInvocation, SUPERSEDED_SUFFIX, Tool, WorkspaceBuild, WriteInvocation,
-            WriteMachine, crate_index_reading,
+            WriteMachine,
+            crate_index_reading::{self, CrateIndexReadFailure},
             dart_reading::{DartReadFailure, DartReading},
             environment_reading::{MachineSearchPath, RegistryReadFailure, SearchPathReading},
             invocation::without_terminal_prompts,
@@ -787,7 +788,10 @@ impl ReadMachine for LocalMachine<'_, '_> {
         }))
     }
 
-    async fn newest_published_crate(&self, crate_name: &CrateName) -> Result<CrateVersion> {
+    async fn newest_published_crate(
+        &self,
+        crate_name: &CrateName,
+    ) -> Result<CrateVersion, CrateIndexReadFailure> {
         let address = format!(
             "{}/{}",
             crate_index_reading::SPARSE_INDEX,
@@ -798,19 +802,32 @@ impl ReadMachine for LocalMachine<'_, '_> {
             .get(&address)
             .send()
             .await
-            .with_context(|| format!("Could not ask crates.io for {crate_name}"))?;
-        if response.status().as_u16() == NOTHING_PUBLISHED {
-            bail!("crates.io holds no crate named {crate_name}");
+            .map_err(|error| CrateIndexReadFailure::Unasked {
+                crate_name: crate_name.clone(),
+                error: Arc::new(error),
+            })?;
+        let status = response.status();
+        if status.as_u16() == NOTHING_PUBLISHED {
+            return Err(CrateIndexReadFailure::NoCrateNamed {
+                crate_name: crate_name.clone(),
+            });
+        }
+        if !status.is_success() {
+            return Err(CrateIndexReadFailure::Refused {
+                crate_name: crate_name.clone(),
+                status,
+            });
         }
 
-        let index_file = response
-            .error_for_status()
-            .with_context(|| format!("crates.io refused to list {crate_name}"))?
-            .text()
-            .await
-            .with_context(|| format!("Could not read what crates.io lists for {crate_name}"))?;
+        let index_file =
+            response
+                .text()
+                .await
+                .map_err(|error| CrateIndexReadFailure::ListingUnread {
+                    crate_name: crate_name.clone(),
+                    error: Arc::new(error),
+                })?;
         crate_index_reading::newest_listed(crate_name, &index_file)
-            .map_err(|reason| anyhow!(reason))
     }
 
     fn report_version(

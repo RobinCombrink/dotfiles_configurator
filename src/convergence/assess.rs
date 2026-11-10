@@ -114,7 +114,7 @@ impl SourceReadings {
         for crate_name in kept_at_newest {
             let reading = match machine.newest_published_crate(&crate_name).await {
                 Ok(newest) => SourceReading::Read(newest),
-                Err(error) => SourceReading::Unreadable(UnreadableReason::from(&error)),
+                Err(failure) => SourceReading::Unreadable(UnreadableReason::read_failed(failure)),
             };
             newest_crates.insert(crate_name, reading);
         }

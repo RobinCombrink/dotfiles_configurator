@@ -58,6 +58,7 @@ use {
     },
     github_owner::Owner,
     machine_manifest_document::{Document, SlotsPerBank},
+    reqwest::StatusCode,
     std::{
         cell::Cell,
         collections::{BTreeMap, BTreeSet},
@@ -1829,9 +1830,12 @@ fn crates_io_publishes(world: &mut MachineWorld, crate_name: String, version: St
     );
 }
 
-#[given(expr = "crates.io cannot be reached from Alice's machine")]
-fn crates_io_is_unreachable(world: &mut MachineWorld) {
-    world.machine.make_crates_index_unreachable();
+#[given(expr = "crates.io refuses to list {string} to Alice's machine with status {int}")]
+fn crates_io_refuses_to_list(world: &mut MachineWorld, name: String, status: u16) {
+    world.machine.make_crates_io_refuse_to_list(
+        CrateName::from(name.as_str()),
+        StatusCode::from_u16(status).expect("an HTTP status"),
+    );
 }
 
 #[then(expr = "cargo holds {string} at {string} on Alice's machine")]

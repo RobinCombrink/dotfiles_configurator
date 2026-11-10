@@ -5,6 +5,7 @@ use {
             McpServerName, PresenceCheck, Shell, Tool, VariableName, VariableValue, path_folding,
         },
         machine::{
+            crate_index_reading::CrateIndexReadFailure,
             dart_reading::{DartLocations, DartReadFailure, DartReading},
             environment_reading::{MachineSearchPath, RegistryReadFailure, SearchPathReading},
             release_reading::{ReleaseReadFailure, ReleaseReading},
@@ -330,7 +331,7 @@ pub trait ReadMachine {
     fn newest_published_crate(
         &self,
         crate_name: &CrateName,
-    ) -> impl std::future::Future<Output = Result<CrateVersion>>;
+    ) -> impl std::future::Future<Output = Result<CrateVersion, CrateIndexReadFailure>>;
 
     // ADR 0016
     fn report_version(

@@ -150,6 +150,12 @@ impl TryFrom<&str> for CrateVersion {
     }
 }
 
+impl From<semver::Version> for CrateVersion {
+    fn from(version: semver::Version) -> Self {
+        Self(version)
+    }
+}
+
 impl Display for CrateVersion {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.0, formatter)

@@ -20,6 +20,7 @@ use {
             Placement, PrivilegeRefusal, ProgramStartFailure, ReadInvocation, ReadMachine,
             Replacement, ReplacingInvocation, ResolvedCargoSource, WorkspaceBuild, WriteInvocation,
             WriteMachine,
+            crate_index_reading::CrateIndexReadFailure,
             dart_reading::{DartDrift, DartReadFailure, DartReading},
             environment_reading::{
                 MachineSearchPath, RegistryReadFailure, SearchPathPlace, SearchPathReading,
@@ -32,6 +33,7 @@ use {
         version::Version,
     },
     github_authentication::cli,
+    reqwest::StatusCode,
     std::{
         cell::RefCell,
         collections::{BTreeMap, BTreeSet},
@@ -99,7 +101,7 @@ struct MachineState {
     workspace_builds_fail: bool,
     registry_crates: BTreeMap<CrateName, CrateVersion>,
     published_crates: BTreeMap<CrateName, CrateVersion>,
-    crates_index_unreachable: bool,
+    crates_io_refusals: BTreeMap<CrateName, StatusCode>,
     releases: BTreeMap<GitHubRepository, ReleaseReading>,
     release_reads: Vec<(GitHubRepository, GitHubAccount)>,
     clones: Vec<(GitHubRepository, GitHubAccount)>,
@@ -1027,8 +1029,11 @@ impl FakeMachine {
             .insert(crate_name.clone(), version.clone());
     }
 
-    pub fn make_crates_index_unreachable(&self) {
-        self.state.borrow_mut().crates_index_unreachable = true;
+    pub fn make_crates_io_refuse_to_list(&self, crate_name: CrateName, status: StatusCode) {
+        self.state
+            .borrow_mut()
+            .crates_io_refusals
+            .insert(crate_name, status);
     }
 
     pub fn install_uv_tool(&self, name: &UvToolName, version: &UvToolVersion) {
@@ -1203,7 +1208,7 @@ impl FakeMachine {
             workspace_builds_fail,
             registry_crates,
             published_crates,
-            crates_index_unreachable,
+            crates_io_refusals,
             releases,
             release_reads: _,
             clones,
@@ -1238,7 +1243,7 @@ impl FakeMachine {
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
              {earlier_cargo_workspaces:?}|{install_records:?}|{uninstalls_refused:?}|{executing_binaries:?}|{superseded_images:?}|{cargo_installs:?}|\
              {cargo_commands:?}|{workspace_builds_fail:?}|{registry_crates:?}|\
-             {published_crates:?}|{crates_index_unreachable:?}|{releases:?}|\
+             {published_crates:?}|{crates_io_refusals:?}|{releases:?}|\
              {clones:?}|{shallow_clones:?}|{version_output_by_binary_path:?}|{user_search_path:?}|\
              {machine_search_path:?}|{machine_search_path_unreadable:?}|\
              {environment_variables:?}|{claude_mcp_servers:?}|\
@@ -1719,17 +1724,25 @@ impl ReadMachine for FakeMachine {
         }
     }
 
-    async fn newest_published_crate(&self, crate_name: &CrateName) -> Result<CrateVersion> {
+    async fn newest_published_crate(
+        &self,
+        crate_name: &CrateName,
+    ) -> Result<CrateVersion, CrateIndexReadFailure> {
         let state = self.state.borrow();
-        if state.crates_index_unreachable {
-            bail!("Could not ask crates.io for {crate_name}");
+        if let Some(status) = state.crates_io_refusals.get(crate_name) {
+            return Err(CrateIndexReadFailure::Refused {
+                crate_name: crate_name.clone(),
+                status: *status,
+            });
         }
 
         state
             .published_crates
             .get(crate_name)
             .cloned()
-            .ok_or_else(|| anyhow!("crates.io holds no crate named {crate_name}"))
+            .ok_or_else(|| CrateIndexReadFailure::NoCrateNamed {
+                crate_name: crate_name.clone(),
+            })
     }
 
     fn read_search_path(&self) -> Result<SearchPathReading, RegistryReadFailure> {

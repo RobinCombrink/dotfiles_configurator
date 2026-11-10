@@ -580,7 +580,7 @@ Feature: Planning what a machine needs
   Scenario: A cargo package declaring no version is blocked rather than converged when crates.io cannot be asked
     Given Alice declares the cargo package "ripgrep"
     And cargo holds "ripgrep" at "15.1.0" on Alice's machine
-    And crates.io cannot be reached from Alice's machine
+    And crates.io refuses to list "ripgrep" to Alice's machine with status 503
     When Alice plans
     Then the change set reports 0 changes
     And the change set reports 1 blocked resource
