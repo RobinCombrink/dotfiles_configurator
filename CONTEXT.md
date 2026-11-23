@@ -285,13 +285,15 @@ account at all. Defined by `GitHubAccount`.
 _Avoid_: identity, username, credential, login
 
 **Symlink**:
-Owned by the dotfiles repository of the configuration that declares it. Defined by `Symlink`.
+Owned by the dotfiles repository of the configuration that declares it, or by another repository
+that configuration declares, whose clone it links into and waits for. Defined by `Symlink`.
 _Avoid_: dotfile, config file, rc file, setting
 
 **Dotfiles repository**:
-The repository holding the dotfiles a configuration's symlinks link to, which is the repository
-that configuration was written in. One per configuration rather than one per machine, so a
-machine applying configurations from two repositories links from both.
+The repository holding the dotfiles a configuration's symlinks link to unless a link names another
+repository it declares, which is the repository that configuration was written in. One per
+configuration rather than one per machine, so a machine applying configurations from two
+repositories links from both.
 _Avoid_: config repo, source repo
 
 **Files root**:

@@ -551,6 +551,58 @@ Feature: Applying a change set
     Then ".claude/agents/retired.md" still links to "claude/agents/retired.md" in the dotfiles repository
     And the machine is not reported as converged
 
+  Scenario: A symlink sourced in a declared repository links into that repository's clone
+    Given Alice declares the repository "Alice/notes"
+    And Alice declares the symlink "plugins/common" in "Alice/notes" at ".claude/skills/common"
+    And the clone of "Alice/notes" holds "plugins/common"
+    When Alice applies
+    Then the link ".claude/skills/common" resolves to "plugins/common" inside the clone of "Alice/notes"
+    And the machine is reported as converged
+
+  Scenario: A symlink sourced in a repository that is not yet cloned waits for its clone
+    Given Alice declares the repository "Alice/notes"
+    And Alice declares the symlink "plugins/common" in "Alice/notes" at ".claude/skills/common"
+    When Alice plans
+    Then the change set reports 1 blocked resource
+    And the change set mentions "plugins/common in Alice/notes"
+    And the change set mentions "Alice/notes has not been cloned"
+
+  Scenario: A symlink sourced in a repository already cloned is not held back
+    Given Alice declares the repository "Alice/notes"
+    And Alice declares the symlink "plugins/common" in "Alice/notes" at ".claude/skills/common"
+    And the clone of "Alice/notes" holds "plugins/common"
+    And "Alice/notes" has been cloned on Alice's machine
+    When Alice plans
+    Then the change set reports 0 blocked resources
+
+  Scenario: A symlink whose repository holds nothing at its source fails naming that repository
+    Given Alice declares the repository "Alice/notes"
+    And Alice declares the symlink "plugins/common" in "Alice/notes" at ".claude/skills/common"
+    When Alice applies
+    Then 1 resource is reported as failed
+    And the run reports a failure mentioning "Alice/notes holds nothing at"
+
+  Scenario: Applying removes a dead link into a repository a symlink is sourced in
+    Given Alice declares the repository "Alice/notes"
+    And Alice declares the symlink "plugins/common" in "Alice/notes" at ".claude/skills/common"
+    And the clone of "Alice/notes" holds "plugins/common"
+    And "Alice/notes" has been cloned on Alice's machine
+    And ".claude/skills/retired" links to "plugins/retired" inside the clone of "Alice/notes", which no longer holds it
+    When Alice applies
+    Then nothing is linked at ".claude/skills/retired"
+    And the machine is reported as converged
+
+  Scenario: A dead link into a declared repository no symlink is sourced in is left alone
+    Given Alice declares the repository "Alice/notes"
+    And Alice declares the repository "Alice/archive"
+    And Alice declares the symlink "plugins/common" in "Alice/notes" at ".claude/skills/common"
+    And the clone of "Alice/notes" holds "plugins/common"
+    And "Alice/notes" has been cloned on Alice's machine
+    And "Alice/archive" has been cloned on Alice's machine
+    And ".claude/skills/retired" links to "plugins/retired" inside the clone of "Alice/archive", which no longer holds it
+    When Alice applies
+    Then the link ".claude/skills/retired" resolves to "plugins/retired" inside the clone of "Alice/archive"
+
   Scenario: A repository the work configuration declares is cloned as the work account
     Given Alice's employer's configuration declares the repository "Employer/tooling"
     When Alice applies

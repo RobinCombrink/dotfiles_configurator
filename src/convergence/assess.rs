@@ -573,7 +573,7 @@ fn readiness(
     readings: &SourceReadings,
 ) -> Result<(), Impediment> {
     for requirement in resource.requirements() {
-        if !requirement_is_met(&requirement, resource, machine, readings)? {
+        if !requirement_is_met(&requirement, machine, readings)? {
             return Err(Impediment::Absent(requirement));
         }
     }
@@ -582,15 +582,14 @@ fn readiness(
 
 fn requirement_is_met(
     requirement: &Requirement,
-    resource: &ChangeSetResource,
     machine: &impl ReadMachine,
     readings: &SourceReadings,
 ) -> Result<bool, Impediment> {
     match requirement {
         Requirement::Tool(tool) => Ok(machine.tool_is_present(*tool)),
-        Requirement::DotfilesRepository(_) => Ok(resource
-            .files_root()
-            .is_some_and(|files_root| machine.path_exists(&files_root.join(".git")))),
+        Requirement::ClonedRepository {
+            clone_directory, ..
+        } => Ok(machine.path_exists(&clone_directory.join(".git"))),
         Requirement::CargoBinariesOnSearchPath => Ok(readings
             .search_path()?
             .carries(&machine.cargo_binaries_directory())),

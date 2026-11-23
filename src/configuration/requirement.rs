@@ -1,4 +1,7 @@
-use {super::resource::GitHubRepository, std::fmt::Display};
+use {
+    super::resource::GitHubRepository,
+    std::{fmt::Display, path::PathBuf},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Tool {
@@ -37,7 +40,10 @@ impl Display for Tool {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Requirement {
     Tool(Tool),
-    DotfilesRepository(GitHubRepository),
+    ClonedRepository {
+        repository: GitHubRepository,
+        clone_directory: PathBuf,
+    },
     // ADR 0040
     CargoBinariesOnSearchPath,
     DartBinariesOnSearchPath,
@@ -47,7 +53,7 @@ impl Display for Requirement {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Requirement::Tool(tool) => write!(formatter, "{tool} is not on the path"),
-            Requirement::DotfilesRepository(repository) => {
+            Requirement::ClonedRepository { repository, .. } => {
                 write!(formatter, "{repository} has not been cloned")
             }
             Requirement::CargoBinariesOnSearchPath => {

@@ -337,3 +337,28 @@ Feature: Loading a configuration
     When Alice loads her configurations for a personal machine
     Then loading is refused
     And the refusal mentions "two or three"
+
+  Scenario: A symlink sourced in a repository its configuration declares is read
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines declaring "Alice/notes" and linking ".claude/skills/common" to "plugins/common" in it
+    When Alice loads her configurations for a personal machine
+    Then the desired state links ".claude/skills/common"
+
+  Scenario: A symlink sourced in a repository its configuration does not declare is refused
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines linking ".claude/skills/common" to "plugins/common" in "Alice/notes", which it does not declare
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "Alice/notes, which the configuration does not declare"
+
+  Scenario Outline: A symlink's path outside its repository is refused when the configuration is read
+    Given Alice has a configuration for every machine linking ".gitconfig" to "gitconfig/.gitconfig"
+    And Alice has a configuration for personal machines declaring "Alice/notes" and linking ".claude/skills/common" to "<path>" in it
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "<refusal>"
+
+    Examples:
+      | path              | refusal            |
+      | /plugins/common   | is rooted          |
+      | plugins/../../etc | climbs out through |

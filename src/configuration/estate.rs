@@ -2,7 +2,7 @@ use {
     crate::configuration::{
         Configuration,
         names::{ConfigurationName, GitHubAccount, RepositoryOwner},
-        resource::Symlink,
+        resource::{LinkSource, Symlink},
     },
     github_owner::{NotAnOwner, Owner},
     machine_manifest_document::{Account, EstateName, Estates, EstatesRefused, MANIFEST_DIRECTORY},
@@ -42,13 +42,13 @@ impl Display for OutsideTheRepository {
         match self {
             OutsideTheRepository::Rooted(path) => write!(
                 formatter,
-                "{} is rooted, and a folder of an estate is named relative to the root of the \
-                 dotfiles repository",
+                "{} is rooted, and a path within a repository is named relative to the root of \
+                 that repository",
                 path.display()
             ),
             OutsideTheRepository::Climbing(path) => write!(
                 formatter,
-                "{} climbs out through `..`, and a folder of an estate lies within the dotfiles \
+                "{} climbs out through `..`, and a path within a repository stays inside that \
                  repository",
                 path.display()
             ),
@@ -115,7 +115,7 @@ impl EstateDeclaration {
 
     pub fn link(&self) -> Symlink {
         Symlink {
-            source_path: self.folder.as_path().to_path_buf(),
+            source: LinkSource::DotfilesRepository(self.folder.as_path().to_path_buf()),
             link_path: Self::link_path_of(&self.name),
         }
     }

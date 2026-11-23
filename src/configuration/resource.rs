@@ -1,6 +1,7 @@
 use {
     crate::{
         configuration::{
+            estate::WithinTheRepository,
             names::{
                 ApplicationName, BinaryName, CrateName, CrateVersion, DartPackageName,
                 DotnetToolId, DotnetToolVersion, GitCommit, GitHubAccount, GitReferenceName,
@@ -158,7 +159,7 @@ impl Display for Resource {
                 formatter,
                 "symlink {} -> {}",
                 symlink.link_path.display(),
-                symlink.source_path.display()
+                symlink.source
             ),
             Resource::Registration(registration) => {
                 write!(formatter, "registration {registration}")
@@ -824,20 +825,162 @@ impl Display for SearchPathDirectory {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(try_from = "DeclaredSymlink", into = "DeclaredSymlink")]
+pub struct Symlink {
+    pub source: LinkSource,
+    pub link_path: PathBuf,
+}
+
+// ADR 0048
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkSource {
+    DotfilesRepository(PathBuf),
+    DeclaredRepository(PathInRepository),
+}
+
+impl LinkSource {
+    pub fn declared_repository(&self) -> Option<&GitHubRepository> {
+        match self {
+            LinkSource::DotfilesRepository(_) => None,
+            LinkSource::DeclaredRepository(within) => Some(&within.repository),
+        }
+    }
+}
+
+impl Display for LinkSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LinkSource::DotfilesRepository(source_path) => {
+                Display::fmt(&source_path.display(), formatter)
+            }
+            LinkSource::DeclaredRepository(within) => Display::fmt(within, formatter),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[schemars(
-    description = "A configuration file or directory owned by the dotfiles repository and linked \
-                   into place on the\n\
-                   machine, rather than copied."
+    description = "A path within a repository the same configuration declares, linked from that \
+                   repository's clone."
 )]
-pub struct Symlink {
-    #[schemars(description = "Path within the dotfiles repository that the link points at.")]
-    pub source_path: PathBuf,
+pub struct PathInRepository {
+    pub repository: GitHubRepository,
     #[schemars(
-        description = "Path of the link itself, resolved against the home directory unless it is \
-                       absolute."
+        with = "String",
+        description = "Path within the repository, relative to its root and never climbing out \
+                       of it through `..`."
     )]
-    pub link_path: PathBuf,
+    pub path: WithinTheRepository,
+}
+
+impl Display for PathInRepository {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{} in {}", self.path, self.repository)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct DeclaredSymlink {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<PathInRepository>,
+    link_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnsourcedLink {
+    TwoSources(PathBuf),
+    NoSource(PathBuf),
+}
+
+impl Display for UnsourcedLink {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UnsourcedLink::TwoSources(link_path) => write!(
+                formatter,
+                "the link at {} declares both `source_path` and `source`, and a link has one \
+                 source",
+                link_path.display()
+            ),
+            UnsourcedLink::NoSource(link_path) => write!(
+                formatter,
+                "the link at {} declares no source: `source_path` names a path in the dotfiles \
+                 repository, and `source` a path in a repository the configuration declares",
+                link_path.display()
+            ),
+        }
+    }
+}
+
+impl TryFrom<DeclaredSymlink> for Symlink {
+    type Error = UnsourcedLink;
+
+    fn try_from(declared: DeclaredSymlink) -> Result<Self, Self::Error> {
+        let source = match (declared.source_path, declared.source) {
+            (Some(source_path), None) => LinkSource::DotfilesRepository(source_path),
+            (None, Some(within)) => LinkSource::DeclaredRepository(within),
+            (Some(_), Some(_)) => return Err(UnsourcedLink::TwoSources(declared.link_path)),
+            (None, None) => return Err(UnsourcedLink::NoSource(declared.link_path)),
+        };
+        Ok(Self {
+            source,
+            link_path: declared.link_path,
+        })
+    }
+}
+
+impl From<Symlink> for DeclaredSymlink {
+    fn from(symlink: Symlink) -> Self {
+        let (source_path, source) = match symlink.source {
+            LinkSource::DotfilesRepository(source_path) => (Some(source_path), None),
+            LinkSource::DeclaredRepository(within) => (None, Some(within)),
+        };
+        Self {
+            source_path,
+            source,
+            link_path: symlink.link_path,
+        }
+    }
+}
+
+impl JsonSchema for Symlink {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Symlink".into()
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        concat!(module_path!(), "::Symlink").into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let in_a_declared_repository = generator.subschema_for::<PathInRepository>();
+        schemars::json_schema!({
+            "description": "A configuration file or directory owned by a repository and linked \
+                            into place on the machine, rather than copied. Its source is either \
+                            `source_path` in the dotfiles repository or `source` in a repository \
+                            the same configuration declares, never both.",
+            "type": "object",
+            "properties": {
+                "source_path": {
+                    "description": "Path within the dotfiles repository that the link points at.",
+                    "type": "string",
+                },
+                "source": in_a_declared_repository,
+                "link_path": {
+                    "description": "Path of the link itself, resolved against the home directory \
+                                    unless it is absolute.",
+                    "type": "string",
+                },
+            },
+            "required": ["link_path"],
+            "oneOf": [
+                { "required": ["source_path"] },
+                { "required": ["source"] },
+            ],
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

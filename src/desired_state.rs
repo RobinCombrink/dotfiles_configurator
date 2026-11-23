@@ -3,8 +3,8 @@ use {
         configuration::{
             Application, CargoWorkspace, Configuration, ConfigurationName, Context, CrateName,
             DeclaredNotice, EnvironmentVariable, GitHubAccount, GitHubRepository, Identity,
-            Migration, NotRooted, Notice, Registration, RenderedManifest, Requirement, Resource,
-            ResourceKind, SearchPathDirectory, SearchPathEntry, Tool,
+            LinkSource, Migration, NotRooted, Notice, Registration, RenderedManifest, Requirement,
+            Resource, ResourceKind, SearchPathDirectory, SearchPathEntry, Tool,
         },
         configuration_source::AbsoluteDirectory,
         currency,
@@ -46,9 +46,13 @@ impl FilesRoot {
 
     fn requirement(&self) -> Option<Requirement> {
         match self {
-            FilesRoot::Clone { repository, .. } => {
-                Some(Requirement::DotfilesRepository(repository.clone()))
-            }
+            FilesRoot::Clone {
+                repository,
+                directory,
+            } => Some(Requirement::ClonedRepository {
+                repository: repository.clone(),
+                clone_directory: directory.clone(),
+            }),
             FilesRoot::Checkout(_) => None,
         }
     }
@@ -213,7 +217,13 @@ impl ResolvedResource {
 
     fn files_requirement(&self) -> Option<Requirement> {
         match &self.value {
-            Resource::Symlink(_) => self.origin.files_root.requirement(),
+            Resource::Symlink(symlink) => match &symlink.source {
+                LinkSource::DotfilesRepository(_) => self.origin.files_root.requirement(),
+                LinkSource::DeclaredRepository(within) => Some(Requirement::ClonedRepository {
+                    repository: within.repository.clone(),
+                    clone_directory: self.clone_directory(&within.repository),
+                }),
+            },
             Resource::Repository(_)
             | Resource::Application(_)
             | Resource::Package(_)
@@ -304,15 +314,6 @@ impl ChangeSetResource {
             ChangeSetResource::Member(_) => true,
             #[cfg(target_family = "windows")]
             ChangeSetResource::CargoBinariesFirst => true,
-        }
-    }
-
-    pub fn files_root(&self) -> Option<&Path> {
-        match self {
-            ChangeSetResource::Declared(resource) => Some(resource.files_root()),
-            ChangeSetResource::Member(member) => Some(member.origin.files_root.path()),
-            #[cfg(target_family = "windows")]
-            ChangeSetResource::CargoBinariesFirst => None,
         }
     }
 

@@ -633,6 +633,23 @@
         }
       ]
     },
+    "PathInRepository": {
+      "description": "A path within a repository the same configuration declares, linked from that repository's clone.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Path within the repository, relative to its root and never climbing out of it through `..`.",
+          "type": "string"
+        },
+        "repository": {
+          "$ref": "#/$defs/GitHubRepository"
+        }
+      },
+      "required": [
+        "repository",
+        "path"
+      ]
+    },
     "PresenceCheck": {
       "description": "An author-declared test that establishes whether a resource is already in its desired state,\nused where the machine cannot be asked directly.\n\nThe forms are a fixed set rather than arbitrary shell so that plan's guarantee is precise: plan\ncannot change a machine through anything the tool decides, and can change one only through a\ncheck the configuration's author wrote and declared as a check. Two of the three forms cannot\nchange anything by construction; `CommandOutputContains` is the narrow, deliberate escape\nhatch. See ADR 0006.",
       "oneOf": [
@@ -958,20 +975,34 @@
       ]
     },
     "Symlink": {
-      "description": "A configuration file or directory owned by the dotfiles repository and linked into place on the\nmachine, rather than copied.",
+      "description": "A configuration file or directory owned by a repository and linked into place on the machine, rather than copied. Its source is either `source_path` in the dotfiles repository or `source` in a repository the same configuration declares, never both.",
       "type": "object",
       "properties": {
         "link_path": {
           "description": "Path of the link itself, resolved against the home directory unless it is absolute.",
           "type": "string"
         },
+        "source": {
+          "$ref": "#/$defs/PathInRepository"
+        },
         "source_path": {
           "description": "Path within the dotfiles repository that the link points at.",
           "type": "string"
         }
       },
+      "oneOf": [
+        {
+          "required": [
+            "source_path"
+          ]
+        },
+        {
+          "required": [
+            "source"
+          ]
+        }
+      ],
       "required": [
-        "source_path",
         "link_path"
       ]
     },

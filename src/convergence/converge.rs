@@ -2,9 +2,9 @@ use {
     crate::{
         configuration::{
             Application, ApplicationSource, CargoPackage, CargoSource, ClaudeMcpServer, Command,
-            EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, MachineManifest,
-            Package, PackageCurrency, Registration, ReleasedBinary, RepositoryClone, Resource,
-            Symlink, UvToolPackage, WingetPackage,
+            EnvironmentVariable, GitHubAccount, GitHubRepository, Installer, LinkSource,
+            MachineManifest, Package, PackageCurrency, Registration, ReleasedBinary,
+            RepositoryClone, Resource, Symlink, UvToolPackage, WingetPackage,
         },
         convergence::{Change, SourceReadings, search_path_directory, symlink_location},
         desired_state::{ChangeSetResource, ResolvedResource, WorkspaceMember},
@@ -442,10 +442,17 @@ fn converge_symlink(
     let (link_path, source_path) = symlink_location(symlink, resource, machine);
 
     if !machine.path_exists(&source_path) {
-        bail!(
-            "The dotfiles repository holds nothing at {}",
-            source_path.display()
-        );
+        match &symlink.source {
+            LinkSource::DotfilesRepository(_) => bail!(
+                "The dotfiles repository holds nothing at {}",
+                source_path.display()
+            ),
+            LinkSource::DeclaredRepository(within) => bail!(
+                "{} holds nothing at {}",
+                within.repository,
+                source_path.display()
+            ),
+        }
     }
 
     machine.create_link(&link_path, &source_path)

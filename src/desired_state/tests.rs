@@ -232,7 +232,49 @@ fn a_symlink_out_of_a_clone_waits_for_the_repository_that_holds_it() {
         .expect("the personal configuration declared a symlink");
     assert_eq!(
         symlink.requirements(),
-        vec![Requirement::DotfilesRepository(dotfiles())]
+        vec![Requirement::ClonedRepository {
+            repository: dotfiles(),
+            clone_directory: Path::new(REPOSITORIES_ROOT)
+                .join("Personal")
+                .join("dotfiles"),
+        }]
+    );
+}
+
+const SYMLINK_INTO_NOTES: &str = r#""resources": [
+        { "kind": "repository", "owner": "Alice", "repository": "notes" },
+        {
+            "kind": "symlink",
+            "source": {
+                "repository": { "owner": "Alice", "repository": "notes" },
+                "path": "plugins/common"
+            },
+            "link_path": ".claude/skills/common"
+        }
+    ]"#;
+
+#[test]
+fn a_symlink_sourced_in_a_declared_repository_waits_for_that_repositorys_clone() {
+    let desired_state = merged(vec![
+        read_from_the_dotfiles_repository("everywhere", EMPTY),
+        read_from_a_checkout("personal", SYMLINK_INTO_NOTES),
+    ])
+    .unwrap();
+
+    let symlink = desired_state
+        .resources
+        .iter()
+        .find(|resource| resource.kind() == ResourceKind::Symlink)
+        .expect("the personal configuration declared a symlink");
+    assert_eq!(
+        symlink.requirements(),
+        vec![Requirement::ClonedRepository {
+            repository: GitHubRepository {
+                owner: RepositoryOwner::from("Alice"),
+                repository: RepositoryName::from("notes"),
+            },
+            clone_directory: Path::new(REPOSITORIES_ROOT).join("Personal").join("notes"),
+        }]
     );
 }
 

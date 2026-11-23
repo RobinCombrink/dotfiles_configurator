@@ -18,12 +18,13 @@ use {
             BinaryName, Candidates, CargoWorkspace, ClaudeMcpServer, CloneDepth, Configuration,
             ConfigurationName, Context, CrateName, CrateVersion, DartPackage, DartReference,
             DartSource, DeclaredNotice, DotnetToolPackage, DotnetToolVersion, EnvironmentVariable,
-            EstateName, Estates, GitHubAccount, Installer, MachineClass, MachineManifest, McpScope,
-            McpServerName, Migration, Notice, OLDEST_READABLE_GENERATION, Package, PackageCurrency,
-            PresenceCheck, PythonInterpreter, RecordedRun, RecordedSource, Registration,
-            RepositoryClone, Requirement, Resource, SearchPathDirectory, SearchPathEntry, Shell,
-            Symlink, Tool, UnreportedVersion, UvToolPackage, UvToolVersion, Variable, VariableName,
-            VariableValue, WingetVersion, recorded_run_in,
+            EstateName, Estates, GitHubAccount, Installer, LinkSource, MachineClass,
+            MachineManifest, McpScope, McpServerName, Migration, Notice,
+            OLDEST_READABLE_GENERATION, Package, PackageCurrency, PathInRepository, PresenceCheck,
+            PythonInterpreter, RecordedRun, RecordedSource, Registration, RepositoryClone,
+            Requirement, Resource, SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool,
+            UnreportedVersion, UvToolPackage, UvToolVersion, Variable, VariableName, VariableValue,
+            WingetVersion, WithinTheRepository, recorded_run_in,
         },
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -886,9 +887,67 @@ fn declare_notice(world: &mut MachineWorld, message: String) {
 #[given(expr = "Alice declares the symlink {string} at {string}")]
 fn declare_symlink(world: &mut MachineWorld, source_path: String, link_path: String) {
     world.resources.push(Resource::Symlink(Symlink {
-        source_path: PathBuf::from(source_path),
+        source: LinkSource::DotfilesRepository(PathBuf::from(source_path)),
         link_path: PathBuf::from(link_path),
     }));
+}
+
+#[given(expr = "Alice declares the symlink {string} in {string} at {string}")]
+fn declare_symlink_in_a_repository(
+    world: &mut MachineWorld,
+    path: String,
+    owner_and_name: String,
+    link_path: String,
+) {
+    world.resources.push(Resource::Symlink(Symlink {
+        source: LinkSource::DeclaredRepository(PathInRepository {
+            repository: named_repository(&owner_and_name),
+            path: WithinTheRepository::try_from(PathBuf::from(path))
+                .expect("a scenario names a path within the repository"),
+        }),
+        link_path: PathBuf::from(link_path),
+    }));
+}
+
+#[given(expr = "the clone of {string} holds {string}")]
+fn clone_holds(world: &mut MachineWorld, owner_and_name: String, path: String) {
+    world
+        .machine
+        .add_own_file(inside_the_clone_of(&owner_and_name, &path));
+}
+
+#[given(expr = "{string} has been cloned on Alice's machine")]
+fn repository_has_been_cloned(world: &mut MachineWorld, owner_and_name: String) {
+    world
+        .machine
+        .add_own_file(clone_directory_of(&owner_and_name).join(".git"));
+}
+
+#[given(expr = "{string} links to {string} inside the clone of {string}, which no longer holds it")]
+fn link_into_a_clone_dangles(
+    world: &mut MachineWorld,
+    link_path: String,
+    held: String,
+    owner_and_name: String,
+) {
+    let link_path = world.machine.resolve_against_home(Path::new(&link_path));
+    world
+        .machine
+        .add_link(link_path, inside_the_clone_of(&owner_and_name, &held));
+}
+
+#[then(expr = "the link {string} resolves to {string} inside the clone of {string}")]
+fn link_resolves_inside_a_clone(
+    world: &mut MachineWorld,
+    link_path: String,
+    held: String,
+    owner_and_name: String,
+) {
+    let resolved = world.machine.resolve_against_home(Path::new(&link_path));
+    assert_eq!(
+        world.machine.link_at(&resolved),
+        Some(inside_the_clone_of(&owner_and_name, &held))
+    );
 }
 
 #[given(expr = "Alice's configurations come from the dotfiles repository")]
@@ -1555,6 +1614,62 @@ fn symlink(link_path: &str, source_path: &str) -> String {
     format!(
         r#"[{{ "kind": "symlink", "source_path": "{source_path}", "link_path": "{link_path}" }}]"#
     )
+}
+
+fn link_in_a_repository(link_path: &str, path: &str, owner_and_name: &str) -> String {
+    let repository = named_repository(owner_and_name);
+    format!(
+        r#"{{ "kind": "symlink",
+              "source": {{
+                  "repository": {{ "owner": "{}", "repository": "{}" }},
+                  "path": "{path}"
+              }},
+              "link_path": "{link_path}" }}"#,
+        repository.owner, repository.repository
+    )
+}
+
+#[given(
+    expr = "Alice has a configuration for personal machines declaring {string} and linking \
+            {string} to {string} in it"
+)]
+fn personal_configuration_linking_into_a_declared_repository(
+    world: &mut MachineWorld,
+    owner_and_name: String,
+    link_path: String,
+    path: String,
+) {
+    let repository = named_repository(&owner_and_name);
+    world.documents.push(document(
+        &BUILD_GENERATION.to_string(),
+        "personal",
+        &format!(
+            r#"[{{ "kind": "repository", "owner": "{}", "repository": "{}" }}, {}]"#,
+            repository.owner,
+            repository.repository,
+            link_in_a_repository(&link_path, &path, &owner_and_name)
+        ),
+    ));
+}
+
+#[given(
+    expr = "Alice has a configuration for personal machines linking {string} to {string} in \
+            {string}, which it does not declare"
+)]
+fn personal_configuration_linking_into_an_undeclared_repository(
+    world: &mut MachineWorld,
+    link_path: String,
+    path: String,
+    owner_and_name: String,
+) {
+    world.documents.push(document(
+        &BUILD_GENERATION.to_string(),
+        "personal",
+        &format!(
+            "[{}]",
+            link_in_a_repository(&link_path, &path, &owner_and_name)
+        ),
+    ));
 }
 
 fn document(version: &str, applies_to: &str, resources: &str) -> String {

@@ -10,7 +10,7 @@ Resource kinds:
 - **Repository** — cloned from GitHub
 - **Application** — installed by downloading and running an installer, from a URL or a GitHub release asset
 - **Package** — installed by a package manager (winget, cargo, uv as a tool kept at the newest version that resolves, or dotnet as a global tool)
-- **Symlink** — a file or directory in the dotfiles repository, linked into place
+- **Symlink** — a file or directory in the dotfiles repository, or in a repository the same configuration declares, linked into place
 - **Registration** — a record this machine holds in another tool's configuration
 - **Command** — an arbitrary shell invocation (Bash, PowerShell, Command Prompt, WSL), the escape hatch
 

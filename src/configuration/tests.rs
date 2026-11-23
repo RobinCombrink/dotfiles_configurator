@@ -300,3 +300,41 @@ fn kinds_converge_in_the_order_that_keeps_applications_ahead_of_symlinks() {
         ]
     );
 }
+
+const NOTES: &str = r#"{ "kind": "repository", "owner": "Alice", "repository": "notes" }"#;
+
+const LINK_INTO_NOTES: &str = r#"{
+        "kind": "symlink",
+        "source": {
+            "repository": { "owner": "Alice", "repository": "notes" },
+            "path": "plugins/common"
+        },
+        "link_path": ".claude/skills/common"
+    }"#;
+
+#[test]
+fn a_symlink_sourced_in_a_repository_the_configuration_declares_is_read() {
+    let configuration = parse(&format!(r#""resources": [{NOTES}, {LINK_INTO_NOTES}]"#)).unwrap();
+
+    assert_eq!(
+        configuration.links_only_into_declared_repositories(),
+        Ok(())
+    );
+}
+
+#[test]
+fn a_symlink_sourced_in_a_repository_the_configuration_does_not_declare_is_refused() {
+    let refusal = parse(&format!(r#""resources": [{LINK_INTO_NOTES}]"#)).unwrap_err();
+
+    let expected = UndeclaredLinkSource {
+        link_path: std::path::PathBuf::from(".claude/skills/common"),
+        repository: GitHubRepository {
+            owner: RepositoryOwner::from("Alice"),
+            repository: RepositoryName::from("notes"),
+        },
+    };
+    assert_eq!(
+        refusal.to_string(),
+        format!("the test configuration: {expected}")
+    );
+}

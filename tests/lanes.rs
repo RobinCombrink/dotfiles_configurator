@@ -14,9 +14,9 @@ use {
         configuration::{
             Application, ApplicationName, ApplicationSource, BinaryName, CargoPackage, CargoSource,
             CargoWorkspace, ClaudeMcpServer, Command, CrateName, EnvironmentVariable, Installer,
-            McpScope, McpServerName, Package, PackageCurrency, PresenceCheck, Registration,
-            ReleasedBinary, Resource, Shell, Symlink, UvToolPackage, UvToolVersion, Variable,
-            VariableName, VariableValue, WingetPackage,
+            LinkSource, McpScope, McpServerName, Package, PackageCurrency, PresenceCheck,
+            Registration, ReleasedBinary, Resource, Shell, Symlink, UvToolPackage, UvToolVersion,
+            Variable, VariableName, VariableValue, WingetPackage,
         },
         confirmation::Operator,
         convergence::{ApplyOutcome, Enactment, apply::apply},
@@ -93,7 +93,7 @@ fn one_entry_of_every_kind() -> Vec<Resource> {
             value: VariableValue::from("nvim"),
         })),
         Resource::Symlink(Symlink {
-            source_path: PathBuf::from("nvim"),
+            source: LinkSource::DotfilesRepository(PathBuf::from("nvim")),
             link_path: PathBuf::from(".config/nvim"),
         }),
         Resource::Registration(Registration::ClaudeMcpServer(ClaudeMcpServer {

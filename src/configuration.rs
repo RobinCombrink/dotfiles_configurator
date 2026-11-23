@@ -56,10 +56,11 @@ pub use {
     resource::{
         Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,
         ClaudeMcpServer, CloneDepth, Command, DartPackage, DartReference, DartSource,
-        DotnetToolPackage, EnvironmentVariable, GitHubRepository, Installer, McpScope, Package,
-        Registration, ReleasedBinary, RenderedManifest, RepositoryClone, Resource, ResourceKind,
-        SearchPathDirectory, SearchPathEntry, Shell, Symlink, UnreportedVersion, UvToolPackage,
-        Variable, VersionInvocation, VersionWord, WingetPackage, recorded_run_in,
+        DotnetToolPackage, EnvironmentVariable, GitHubRepository, Installer, LinkSource, McpScope,
+        Package, PathInRepository, Registration, ReleasedBinary, RenderedManifest, RepositoryClone,
+        Resource, ResourceKind, SearchPathDirectory, SearchPathEntry, Shell, Symlink,
+        UnreportedVersion, UvToolPackage, Variable, VersionInvocation, VersionWord, WingetPackage,
+        recorded_run_in,
     },
     slots_per_bank::{SlotsPerBankDeclaredTwice, resolve_slots_per_bank},
     unreadable::Unreadable,
@@ -266,27 +267,92 @@ pub fn parse_configuration(
         });
     }
 
-    if required == OLDEST_READABLE_GENERATION {
-        let outgoing: migration::OutgoingConfiguration = serde_path_to_error::deserialize(document)
-            .with_context(|| format!("{source} is not a valid generation {required} configuration"))
-            .map_err(Unreadable::Malformed)?;
+    let reading = match required == OLDEST_READABLE_GENERATION {
+        true => {
+            let outgoing: migration::OutgoingConfiguration =
+                serde_path_to_error::deserialize(document)
+                    .with_context(|| {
+                        format!("{source} is not a valid generation {required} configuration")
+                    })
+                    .map_err(Unreadable::Malformed)?;
 
-        let (configuration, from) = outgoing.migrated();
-        return Ok(Reading {
-            configuration,
-            migrated_from: Some(from),
-        });
+            let (configuration, from) = outgoing.migrated();
+            Reading {
+                configuration,
+                migrated_from: Some(from),
+            }
+        }
+        false => serde_path_to_error::deserialize(document)
+            .with_context(|| {
+                format!("{source} is not a valid generation {BUILD_GENERATION} configuration")
+            })
+            .map(|configuration| Reading {
+                configuration,
+                migrated_from: None,
+            })
+            .map_err(Unreadable::Malformed)?,
+    };
+
+    reading
+        .configuration
+        .links_only_into_declared_repositories()
+        .map_err(|refusal| anyhow!("{source}: {refusal}"))?;
+    Ok(reading)
+}
+
+// ADR 0048
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndeclaredLinkSource {
+    pub link_path: std::path::PathBuf,
+    pub repository: GitHubRepository,
+}
+
+impl Display for UndeclaredLinkSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the link at {} is sourced in {}, which the configuration does not declare as a \
+             repository. Declare it, so that its clone is made before the link.",
+            self.link_path.display(),
+            self.repository
+        )
+    }
+}
+
+impl std::error::Error for UndeclaredLinkSource {}
+
+impl Configuration {
+    fn symlinks(&self) -> impl Iterator<Item = &Symlink> {
+        self.resources.iter().filter_map(|resource| match resource {
+            Resource::Symlink(symlink) => Some(symlink),
+            _ => None,
+        })
     }
 
-    serde_path_to_error::deserialize(document)
-        .with_context(|| {
-            format!("{source} is not a valid generation {BUILD_GENERATION} configuration")
-        })
-        .map_err(Unreadable::Malformed)
-        .map(|configuration| Reading {
-            configuration,
-            migrated_from: None,
-        })
+    pub fn links_only_into_declared_repositories(&self) -> Result<(), UndeclaredLinkSource> {
+        let declared: std::collections::BTreeSet<&GitHubRepository> = self
+            .resources
+            .iter()
+            .filter_map(|resource| match resource {
+                Resource::Repository(clone) => Some(&clone.repository),
+                _ => None,
+            })
+            .collect();
+
+        match self.symlinks().find_map(|symlink| {
+            symlink
+                .source
+                .declared_repository()
+                .filter(|repository| !declared.contains(repository))
+                .map(|repository| (symlink, repository))
+        }) {
+            None => Ok(()),
+            Some((symlink, repository)) => Err(UndeclaredLinkSource {
+                link_path: symlink.link_path.clone(),
+                repository: repository.clone(),
+            }),
+        }
+    }
 }
 
 #[cfg(test)]

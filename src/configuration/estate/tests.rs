@@ -190,7 +190,7 @@ fn an_estate_links_its_folder_at_its_estate_directory() {
     assert_eq!(
         declaration.link(),
         Symlink {
-            source_path: PathBuf::from("estates/personal"),
+            source: LinkSource::DotfilesRepository(PathBuf::from("estates/personal")),
             link_path: Path::new(".dotconfig").join("estates").join("personal"),
         }
     );

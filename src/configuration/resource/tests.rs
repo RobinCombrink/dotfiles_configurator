@@ -1,5 +1,6 @@
 use {
     super::*,
+    crate::configuration::estate::OutsideTheRepository,
     github_owner::Owner,
     machine_manifest_document::{
         Account, EstateName, Estates, MachineClass, RepositoriesDirectory,
@@ -239,4 +240,138 @@ fn the_manifest_is_written_into_the_configuration_directory_under_the_home_direc
         MachineManifest::path_within(Path::new("/home/alice")),
         Path::new("/home/alice/.dotconfig/machine.json")
     );
+}
+
+fn symlink_resource(source_fields: &str) -> Result<Resource, serde_json::Error> {
+    let written: serde_json::Value = serde_json::from_str(&format!(
+        r#"{{ "kind": "symlink", {source_fields}, "link_path": ".claude/skills/common" }}"#
+    ))
+    .expect("a test writes valid JSON");
+    serde_json::from_value(written)
+}
+
+fn sourced_in_notes(path: &str) -> String {
+    format!(
+        r#""source": {{ "repository": {{ "owner": "Alice", "repository": "notes" }},
+                        "path": "{path}" }}"#
+    )
+}
+
+fn notes() -> GitHubRepository {
+    GitHubRepository {
+        owner: RepositoryOwner::from("Alice"),
+        repository: RepositoryName::from("notes"),
+    }
+}
+
+#[test]
+fn a_symlink_sourced_in_a_repository_is_read_as_a_path_within_that_repository() {
+    let resource = symlink_resource(&sourced_in_notes("plugins/common")).unwrap();
+
+    assert_eq!(
+        resource,
+        Resource::Symlink(Symlink {
+            source: LinkSource::DeclaredRepository(PathInRepository {
+                repository: notes(),
+                path: WithinTheRepository::try_from(PathBuf::from("plugins/common")).unwrap(),
+            }),
+            link_path: PathBuf::from(".claude/skills/common"),
+        })
+    );
+}
+
+#[test]
+fn a_symlink_declaring_a_source_path_is_read_as_a_path_in_the_dotfiles_repository() {
+    let resource = symlink_resource(r#""source_path": "claude/skills""#).unwrap();
+
+    assert_eq!(
+        resource,
+        Resource::Symlink(Symlink {
+            source: LinkSource::DotfilesRepository(PathBuf::from("claude/skills")),
+            link_path: PathBuf::from(".claude/skills/common"),
+        })
+    );
+}
+
+#[test]
+fn a_symlink_sourced_in_a_repository_at_a_rooted_path_is_refused() {
+    let refusal = symlink_resource(&sourced_in_notes("/plugins/common")).unwrap_err();
+
+    assert_eq!(
+        refusal.to_string(),
+        OutsideTheRepository::Rooted(PathBuf::from("/plugins/common")).to_string()
+    );
+}
+
+#[test]
+fn a_symlink_sourced_in_a_repository_at_a_path_climbing_out_of_it_is_refused() {
+    let refusal = symlink_resource(&sourced_in_notes("plugins/../../etc")).unwrap_err();
+
+    assert_eq!(
+        refusal.to_string(),
+        OutsideTheRepository::Climbing(PathBuf::from("plugins/../../etc")).to_string()
+    );
+}
+
+#[test]
+fn a_symlink_declaring_both_sources_is_refused() {
+    let both = format!(
+        r#""source_path": "claude/skills", {}"#,
+        sourced_in_notes("plugins/common")
+    );
+
+    assert_eq!(
+        symlink_resource(&both).unwrap_err().to_string(),
+        UnsourcedLink::TwoSources(PathBuf::from(".claude/skills/common")).to_string()
+    );
+}
+
+#[test]
+fn a_symlink_declaring_no_source_is_refused() {
+    assert_eq!(
+        symlink_resource(r#""kind_of_source": "none""#)
+            .unwrap_err()
+            .to_string(),
+        UnsourcedLink::NoSource(PathBuf::from(".claude/skills/common")).to_string()
+    );
+}
+
+#[test]
+fn a_symlink_is_written_back_with_the_one_source_it_declares() {
+    let sourced_in_a_repository = symlink_resource(&sourced_in_notes("plugins/common")).unwrap();
+    let in_the_dotfiles_repository = symlink_resource(r#""source_path": "claude/skills""#).unwrap();
+
+    let written_in_a_repository = serde_json::to_value(&sourced_in_a_repository).unwrap();
+    let written_in_the_dotfiles_repository =
+        serde_json::to_value(&in_the_dotfiles_repository).unwrap();
+
+    assert_eq!(
+        written_in_a_repository,
+        serde_json::json!({
+            "kind": "symlink",
+            "source": {
+                "repository": { "owner": "Alice", "repository": "notes" },
+                "path": "plugins/common"
+            },
+            "link_path": ".claude/skills/common"
+        })
+    );
+    assert_eq!(
+        written_in_the_dotfiles_repository,
+        serde_json::json!({
+            "kind": "symlink",
+            "source_path": "claude/skills",
+            "link_path": ".claude/skills/common"
+        })
+    );
+}
+
+#[test]
+fn a_symlink_sourced_in_a_repository_shows_its_path_in_that_repository() {
+    let resource = symlink_resource(&sourced_in_notes("plugins/common")).unwrap();
+
+    let Resource::Symlink(symlink) = resource else {
+        panic!("the declaration is a symlink");
+    };
+    assert_eq!(symlink.source.to_string(), "plugins/common in Alice/notes");
 }

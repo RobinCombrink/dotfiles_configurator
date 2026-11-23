@@ -1,9 +1,9 @@
 use {
     crate::{
         configuration::{
-            AnsweringCandidate, CrateVersion, DotnetToolVersion, GitHubRepository, Migration,
-            Notice, PresenceCheck, Requirement, Resource, Symlink, UvToolVersion, VariableValue,
-            WingetVersion,
+            AnsweringCandidate, CrateVersion, DotnetToolVersion, GitHubRepository, LinkSource,
+            Migration, Notice, PresenceCheck, Requirement, Resource, Symlink, UvToolVersion,
+            VariableValue, WingetVersion,
         },
         desired_state::{
             ChangeSetResource, DesiredState, Precedence, ResolvedResource, ResolvedWorkspace,
@@ -324,9 +324,15 @@ pub(crate) fn symlink_location(
     resource: &ResolvedResource,
     machine: &impl crate::machine::ReadMachine,
 ) -> (std::path::PathBuf, std::path::PathBuf) {
+    let source_path = match &symlink.source {
+        LinkSource::DotfilesRepository(source_path) => resource.files_root().join(source_path),
+        LinkSource::DeclaredRepository(within) => resource
+            .clone_directory(&within.repository)
+            .join(within.path.as_path()),
+    };
     (
         machine.resolve_against_home(&symlink.link_path),
-        resource.files_root().join(&symlink.source_path),
+        source_path,
     )
 }
 
@@ -519,23 +525,33 @@ fn planned_unlinks(
             _ => None,
         })
         .collect();
-    let repositories: BTreeSet<PathBuf> = desired_state
-        .resources
-        .iter()
-        .map(|resource| resource.files_root().to_path_buf())
-        .chain(
-            desired_state
-                .workspaces
-                .iter()
-                .map(|workspace| workspace.files_root().to_path_buf()),
-        )
-        .chain(
-            desired_state
-                .notices
-                .iter()
-                .map(|notice| notice.files_root().to_path_buf()),
-        )
-        .collect();
+    let repositories: BTreeSet<PathBuf> =
+        desired_state
+            .resources
+            .iter()
+            .map(|resource| resource.files_root().to_path_buf())
+            .chain(desired_state.resources.iter().filter_map(
+                |resource| match resource.declared() {
+                    Resource::Symlink(Symlink {
+                        source: LinkSource::DeclaredRepository(within),
+                        ..
+                    }) => Some(resource.clone_directory(&within.repository)),
+                    _ => None,
+                },
+            ))
+            .chain(
+                desired_state
+                    .workspaces
+                    .iter()
+                    .map(|workspace| workspace.files_root().to_path_buf()),
+            )
+            .chain(
+                desired_state
+                    .notices
+                    .iter()
+                    .map(|notice| notice.files_root().to_path_buf()),
+            )
+            .collect();
 
     dangling_links(
         declared_links.iter().map(PathBuf::as_path),
