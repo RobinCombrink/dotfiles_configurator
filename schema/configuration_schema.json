@@ -420,6 +420,38 @@
       "description": "A message for a person about something the tool cannot do. Not a resource — it never\nconverges, is reported by every change set, and is never applied.",
       "type": "string"
     },
+    "DotnetToolId": {
+      "description": "The NuGet package id a .NET global tool is published under, compared without regard to case as NuGet compares ids.",
+      "type": "string"
+    },
+    "DotnetToolPackage": {
+      "description": "A .NET global tool dotnet installs from NuGet, kept at the newest version NuGet publishes\nunless it declares one version.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/DotnetToolId"
+        },
+        "version": {
+          "description": "The one version dotnet keeps the tool at, newer and older versions alike being drift. Absent, the tool is kept at the newest version NuGet publishes.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DotnetToolVersion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "DotnetToolVersion": {
+      "description": "The exact version dotnet installs the tool at, written as MAJOR.MINOR.PATCH. A version that does not parse is refused.",
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+([-+].+)?$"
+    },
     "EnvironmentVariable": {
       "oneOf": [
         {
@@ -582,6 +614,19 @@
             }
           },
           "$ref": "#/$defs/DartPackage",
+          "required": [
+            "manager"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "manager": {
+              "type": "string",
+              "const": "dotnet_tool"
+            }
+          },
+          "$ref": "#/$defs/DotnetToolPackage",
           "required": [
             "manager"
           ]

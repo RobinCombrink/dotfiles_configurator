@@ -1,8 +1,8 @@
 use {
     crate::{
         configuration::{
-            CrateName, GitHubRepository, Tool, UnreportedVersion, UvToolName, VersionInvocation,
-            WingetPackageId,
+            CrateName, DotnetToolId, GitHubRepository, Tool, UnreportedVersion, UvToolName,
+            VersionInvocation, WingetPackageId,
         },
         convergence::Impediment,
         machine::{
@@ -133,6 +133,13 @@ pub enum UnreadableReason {
     UvNamesNoNewerVersion {
         name: UvToolName,
     },
+    DotnetListsAnUnreadableVersion {
+        id: DotnetToolId,
+        line: String,
+    },
+    DotnetSearchFindsNoTool {
+        id: DotnetToolId,
+    },
     NoClone {
         clone_directory: PathBuf,
     },
@@ -204,6 +211,14 @@ impl Display for UnreadableReason {
                 formatter,
                 "uv listed {name} as behind without naming the version it is behind"
             ),
+            UnreadableReason::DotnetListsAnUnreadableVersion { id, line } => write!(
+                formatter,
+                "dotnet listed {id} without a version this program can read: {line}"
+            ),
+            UnreadableReason::DotnetSearchFindsNoTool { id } => write!(
+                formatter,
+                "dotnet tool search lists no tool whose package id is {id}"
+            ),
             UnreadableReason::NoClone { clone_directory } => write!(
                 formatter,
                 "{} holds no clone, so its members cannot be read",
@@ -232,6 +247,7 @@ pub enum ReadSource {
     CargoWorkspace(PathBuf),
     LatestRelease(GitHubRepository),
     CratesIndex(CrateName),
+    DotnetToolSearch(DotnetToolId),
 }
 
 impl ReadSource {
@@ -255,6 +271,9 @@ impl Display for ReadSource {
             }
             ReadSource::CratesIndex(crate_name) => {
                 write!(formatter, "what crates.io lists for {crate_name}")
+            }
+            ReadSource::DotnetToolSearch(id) => {
+                write!(formatter, "what NuGet publishes for {id}")
             }
         }
     }

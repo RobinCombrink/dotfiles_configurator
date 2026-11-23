@@ -9,6 +9,7 @@ pub enum Tool {
     Git,
     Uv,
     Dart,
+    Dotnet,
 }
 
 impl Tool {
@@ -21,6 +22,7 @@ impl Tool {
             Tool::Git => "git",
             Tool::Uv => "uv",
             Tool::Dart => "dart",
+            Tool::Dotnet => "dotnet",
         }
     }
 }

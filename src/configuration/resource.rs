@@ -2,10 +2,11 @@ use {
     crate::{
         configuration::{
             names::{
-                ApplicationName, BinaryName, CrateName, CrateVersion, DartPackageName, GitCommit,
-                GitHubAccount, GitReferenceName, GitRemoteUrl, McpServerName, PythonInterpreter,
-                RepositoryName, RepositoryOwner, RepositorySubdirectory, UvToolName, UvToolVersion,
-                VariableName, VariableValue, WingetPackageId, WingetVersion,
+                ApplicationName, BinaryName, CrateName, CrateVersion, DartPackageName,
+                DotnetToolId, DotnetToolVersion, GitCommit, GitHubAccount, GitReferenceName,
+                GitRemoteUrl, McpServerName, PythonInterpreter, RepositoryName, RepositoryOwner,
+                RepositorySubdirectory, UvToolName, UvToolVersion, VariableName, VariableValue,
+                WingetPackageId, WingetVersion,
             },
             package_currency::PackageCurrency,
             presence_check::PresenceCheck,
@@ -73,6 +74,7 @@ impl Resource {
             Resource::Package(Package::Cargo(package)) => package.crate_name.to_string(),
             Resource::Package(Package::UvTool(package)) => package.name.to_string(),
             Resource::Package(Package::Dart(package)) => package.name.to_string(),
+            Resource::Package(Package::DotnetTool(package)) => package.id.to_string(),
             Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => {
                 variable.name.to_string()
             }
@@ -117,6 +119,7 @@ impl Resource {
                 Requirement::DartBinariesOnSearchPath,
             ],
             Resource::Package(Package::Cargo(_)) => vec![Requirement::Tool(Tool::Cargo)],
+            Resource::Package(Package::DotnetTool(_)) => vec![Requirement::Tool(Tool::Dotnet)],
             Resource::EnvironmentVariable(_) | Resource::Symlink(_) => Vec::new(),
             Resource::Registration(_) => vec![Requirement::Tool(Tool::Claude)],
             Resource::Command(command) => {
@@ -574,6 +577,7 @@ pub enum Package {
     Cargo(CargoPackage),
     UvTool(UvToolPackage),
     Dart(DartPackage),
+    DotnetTool(DotnetToolPackage),
 }
 
 impl Display for Package {
@@ -583,6 +587,7 @@ impl Display for Package {
             Package::Cargo(package) => write!(formatter, "cargo {}", package.crate_name),
             Package::UvTool(package) => write!(formatter, "uv tool {}", package.name),
             Package::Dart(package) => write!(formatter, "dart {}", package.name),
+            Package::DotnetTool(package) => write!(formatter, "dotnet tool {}", package.id),
         }
     }
 }
@@ -615,6 +620,23 @@ pub struct UvToolPackage {
                        newest version that resolves."
     )]
     pub version: PackageCurrency<UvToolVersion>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[schemars(
+    description = "A .NET global tool dotnet installs from NuGet, kept at the newest version \
+                   NuGet publishes\n\
+                   unless it declares one version."
+)]
+pub struct DotnetToolPackage {
+    pub id: DotnetToolId,
+    #[serde(default, skip_serializing_if = "PackageCurrency::is_latest")]
+    #[schemars(
+        description = "The one version dotnet keeps the tool at, newer and older versions alike \
+                       being drift. Absent, the tool is kept at the newest version NuGet \
+                       publishes."
+    )]
+    pub version: PackageCurrency<DotnetToolVersion>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

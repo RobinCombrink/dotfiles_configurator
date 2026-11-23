@@ -87,6 +87,41 @@ fn a_registry_crate_declaring_no_version_is_written_back_without_one() {
     assert!(!written.contains("version"), "{written}");
 }
 
+fn dotnet_tool(fields: &str) -> Result<Resource, serde_json::Error> {
+    serde_json::from_str(&format!(
+        r#"{{ "kind": "package", "manager": "dotnet_tool", "id": "dotnet-stryker"{fields} }}"#
+    ))
+}
+
+#[test]
+fn a_dotnet_tool_declaring_no_version_is_kept_at_the_latest() {
+    assert_eq!(
+        dotnet_tool("").unwrap(),
+        Resource::Package(Package::DotnetTool(DotnetToolPackage {
+            id: DotnetToolId::from("dotnet-stryker"),
+            version: PackageCurrency::Latest,
+        }))
+    );
+}
+
+#[test]
+fn a_dotnet_tool_declaring_an_exact_version_is_pinned_to_it() {
+    assert_eq!(
+        dotnet_tool(r#", "version": "5.0.0""#).unwrap(),
+        Resource::Package(Package::DotnetTool(DotnetToolPackage {
+            id: DotnetToolId::from("dotnet-stryker"),
+            version: PackageCurrency::Exactly(DotnetToolVersion::try_from("5.0.0").unwrap()),
+        }))
+    );
+}
+
+#[test]
+fn a_dotnet_tool_pinned_to_a_version_that_does_not_parse_is_not_read() {
+    let refusal = dotnet_tool(r#", "version": "5.0""#).unwrap_err();
+
+    assert!(refusal.to_string().contains("\"5.0\""), "{refusal}");
+}
+
 #[test]
 fn an_archive_entry_is_known_by_a_name_carrying_no_platform_executable_suffix() {
     let entry = ArchiveEntry::try_from(format!("bin/rg{}", std::env::consts::EXE_SUFFIX)).unwrap();

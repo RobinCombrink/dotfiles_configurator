@@ -266,6 +266,59 @@ Feature: Planning what a machine needs
     And the change set reports 1 blocked resource
     And the change set does not report the machine as converged
 
+  Scenario: A .NET tool installed at a newer version than declared is a change naming both versions
+    Given Alice declares the .NET tool "dotnet-stryker" at "5.0.0"
+    And dotnet holds "dotnet-stryker" at "5.1.0" on Alice's machine
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set reports "dotnet-stryker" at "5.1.0" where "5.0.0" is declared
+
+  Scenario: A .NET tool installed at an older version than declared is a change naming both versions
+    Given Alice declares the .NET tool "dotnet-stryker" at "5.0.0"
+    And dotnet holds "dotnet-stryker" at "4.8.1" on Alice's machine
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set reports "dotnet-stryker" at "4.8.1" where "5.0.0" is declared
+
+  Scenario: A .NET tool at its declared version is converged whatever newer version NuGet publishes
+    Given Alice declares the .NET tool "dotnet-stryker" at "5.0.0"
+    And dotnet holds "dotnet-stryker" at "5.0.0" on Alice's machine
+    And NuGet publishes "dotnet-stryker" at "5.1.0" at the newest
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A .NET tool declaring no version behind the newest NuGet publishes is a change naming both versions
+    Given Alice declares the .NET tool "csharp-ls"
+    And dotnet holds "csharp-ls" at "0.28.0" on Alice's machine
+    And NuGet publishes "csharp-ls" at "0.29.0" at the newest
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set reports "csharp-ls" at "0.28.0" where NuGet publishes "0.29.0" at the newest
+
+  Scenario: A .NET tool declaring no version at the newest NuGet publishes is converged, whatever tools its id is part of
+    Given Alice declares the .NET tool "csharp-ls"
+    And dotnet holds "csharp-ls" at "0.29.0" on Alice's machine
+    And NuGet publishes "csharp-ls" at "0.29.0" at the newest
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports the machine as converged
+
+  Scenario: A .NET tool dotnet does not hold is reported as a change
+    Given Alice declares the .NET tool "csharp-ls"
+    And NuGet publishes "csharp-ls" at "0.29.0" at the newest
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "csharp-ls"
+
+  Scenario: A .NET tool declaring no version whose package NuGet does not list is blocked rather than converged
+    Given Alice declares the .NET tool "csharp-ls"
+    And dotnet holds "csharp-ls" at "0.29.0" on Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports 1 blocked resource
+    And the change set does not report the machine as converged
+
   Scenario: A dart package dart has not installed is reported as a change
     Given Alice declares the dart package "coderabbit_findings" from "tools/coderabbit-findings" of "https://github.com/Alice/dotfiles.git" at "main"
     And the directory dart install writes to is on Alice's search path

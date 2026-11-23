@@ -4,11 +4,12 @@ use {
     crate::{
         configuration::{
             Application, ApplicationSource, BinaryName, CargoPackage, CargoSource, ClaudeMcpServer,
-            Command, CrateName, CrateVersion, DartPackage, EnvironmentVariable, GitHubAccount,
-            GitHubRepository, Installer, MachineManifest, Package, PackageCurrency, Registration,
-            ReleasedBinary, RenderedManifest, RepositoryClone, Requirement, Resource,
-            SearchPathEntry, Symlink, Tool, UvToolName, UvToolPackage, UvToolVersion, Variable,
-            WingetPackage, WingetPackageId, WingetVersion,
+            Command, CrateName, CrateVersion, DartPackage, DotnetToolId, DotnetToolPackage,
+            DotnetToolVersion, EnvironmentVariable, GitHubAccount, GitHubRepository, Installer,
+            MachineManifest, Package, PackageCurrency, Registration, ReleasedBinary,
+            RenderedManifest, RepositoryClone, Requirement, Resource, SearchPathEntry, Symlink,
+            Tool, UvToolName, UvToolPackage, UvToolVersion, Variable, WingetPackage,
+            WingetPackageId, WingetVersion,
         },
         convergence::{
             Assessment, DriftReason, Finding, Impediment, ReadSource, SourceReading,
@@ -38,6 +39,8 @@ pub struct SourceReadings {
     cargo_crates: SourceReading<String>,
     uv_tools: SourceReading<String>,
     uv_outdated_tools: SourceReading<String>,
+    dotnet_tools: SourceReading<String>,
+    newest_dotnet_tools: BTreeMap<DotnetToolId, SourceReading<DotnetToolVersion>>,
     workspaces: BTreeMap<PathBuf, SourceReading<Option<WorkspaceReading>>>,
     own_copies: BTreeMap<PathBuf, OwnCopies>,
     releases: BTreeMap<GitHubRepository, SourceReading<Option<ReleaseReading>>>,
@@ -50,6 +53,8 @@ impl SourceReadings {
         let mut winget_is_needed = false;
         let mut winget_upgrades_are_needed = false;
         let mut uv_is_needed = false;
+        let mut dotnet_is_needed = false;
+        let mut searched_dotnet_tools: BTreeSet<DotnetToolId> = BTreeSet::new();
         let mut cargo_is_needed = !desired_state.workspaces.is_empty();
         let mut search_path_is_needed = false;
         let mut released_from: BTreeMap<GitHubRepository, GitHubAccount> = BTreeMap::new();
@@ -70,6 +75,12 @@ impl SourceReadings {
                     }
                 }
                 Resource::Package(Package::UvTool(_)) => uv_is_needed = true,
+                Resource::Package(Package::DotnetTool(package)) => {
+                    dotnet_is_needed = true;
+                    if package.version.is_latest() {
+                        searched_dotnet_tools.insert(package.id.clone());
+                    }
+                }
                 Resource::Package(Package::Dart(_)) => search_path_is_needed = true,
                 Resource::EnvironmentVariable(EnvironmentVariable::SearchPathEntry(_)) => {
                     search_path_is_needed = true;
@@ -118,6 +129,14 @@ impl SourceReadings {
             newest_crates.insert(crate_name, reading);
         }
 
+        let newest_dotnet_tools = searched_dotnet_tools
+            .into_iter()
+            .map(|id| {
+                let reading = read_newest_dotnet_tool(&id, machine);
+                (id, reading)
+            })
+            .collect();
+
         let mut workspaces = BTreeMap::new();
         let mut own_copies = BTreeMap::new();
         for workspace in &desired_state.workspaces {
@@ -150,6 +169,12 @@ impl SourceReadings {
             ),
             uv_tools: read_listing(uv_is_needed, ReadInvocation::UvInstalledTools, machine),
             uv_outdated_tools: read_listing(uv_is_needed, ReadInvocation::UvOutdatedTools, machine),
+            dotnet_tools: read_listing(
+                dotnet_is_needed,
+                ReadInvocation::DotnetInstalledTools,
+                machine,
+            ),
+            newest_dotnet_tools,
             workspaces,
             own_copies,
             releases,
@@ -335,6 +360,20 @@ impl SourceReadings {
         self.cargo_crates.read().map(String::as_str)
     }
 
+    fn installed_dotnet_tool(
+        &self,
+        id: &DotnetToolId,
+    ) -> Result<Option<DotnetToolVersion>, Impediment> {
+        listed_dotnet_tool(self.dotnet_tools.read()?, id).map_err(Impediment::ActualStateUnreadable)
+    }
+
+    fn newest_dotnet_tool(&self, id: &DotnetToolId) -> Result<&DotnetToolVersion, Impediment> {
+        match self.newest_dotnet_tools.get(id) {
+            Some(reading) => reading.read(),
+            None => Err(ReadSource::DotnetToolSearch(id.clone()).was_not_read()),
+        }
+    }
+
     // ADR 0040
     fn own_copies(
         &self,
@@ -366,6 +405,85 @@ fn read_listing(
             failure: FailedExit::from(&output),
         }),
         Err(failure) => SourceReading::Unreadable(UnreadableReason::read_failed(failure)),
+    }
+}
+
+// ADR 0047
+fn read_newest_dotnet_tool(
+    id: &DotnetToolId,
+    machine: &impl ReadMachine,
+) -> SourceReading<DotnetToolVersion> {
+    let search = ReadInvocation::DotnetToolSearch { id: id.clone() };
+    let listing = match read_listing(true, search, machine) {
+        SourceReading::Read(listing) => listing,
+        SourceReading::Unreadable(reason) => return SourceReading::Unreadable(reason),
+        SourceReading::NotRequested(source) => return SourceReading::NotRequested(source),
+    };
+
+    match listed_dotnet_tool(&listing, id) {
+        Ok(Some(newest)) => SourceReading::Read(newest),
+        Ok(None) => {
+            SourceReading::Unreadable(UnreadableReason::DotnetSearchFindsNoTool { id: id.clone() })
+        }
+        Err(reason) => SourceReading::Unreadable(reason),
+    }
+}
+
+fn listed_dotnet_tool(
+    listing: &str,
+    id: &DotnetToolId,
+) -> Result<Option<DotnetToolVersion>, UnreadableReason> {
+    let Some(line) = listing
+        .lines()
+        .skip_while(|line| !line.starts_with('-'))
+        .skip(1)
+        .find(|line| {
+            line.split_whitespace()
+                .next()
+                .is_some_and(|listed| id.is_listed_as(listed))
+        })
+    else {
+        return Ok(None);
+    };
+
+    match line
+        .split_whitespace()
+        .nth(1)
+        .map(DotnetToolVersion::try_from)
+    {
+        Some(Ok(version)) => Ok(Some(version)),
+        Some(Err(_)) | None => Err(UnreadableReason::DotnetListsAnUnreadableVersion {
+            id: id.clone(),
+            line: line.trim().to_owned(),
+        }),
+    }
+}
+
+fn assess_dotnet_tool(package: &DotnetToolPackage, readings: &SourceReadings) -> Assessment {
+    let installed = match readings.installed_dotnet_tool(&package.id) {
+        Ok(Some(installed)) => installed,
+        Ok(None) => return Assessment::Drifted(DriftReason::DotnetHoldsNothing),
+        Err(impediment) => return Assessment::Unassessable(impediment),
+    };
+
+    match &package.version {
+        PackageCurrency::Exactly(declared) if installed == *declared => Assessment::Converged,
+        PackageCurrency::Exactly(declared) => {
+            Assessment::Drifted(DriftReason::DotnetAtAnotherVersion {
+                installed,
+                declared: declared.clone(),
+            })
+        }
+        PackageCurrency::Latest => match readings.newest_dotnet_tool(&package.id) {
+            Ok(newest) if installed < *newest => {
+                Assessment::Drifted(DriftReason::DotnetBehindNewest {
+                    installed,
+                    newest: newest.clone(),
+                })
+            }
+            Ok(_) => Assessment::Converged,
+            Err(impediment) => Assessment::Unassessable(impediment),
+        },
     }
 }
 
@@ -426,6 +544,7 @@ fn assess_declared(
             assess_winget_package(package, machine, readings)
         }
         Resource::Package(Package::UvTool(package)) => assess_uv_tool(package, readings),
+        Resource::Package(Package::DotnetTool(package)) => assess_dotnet_tool(package, readings),
         Resource::Package(Package::Dart(package)) => assess_dart_package(package, machine),
         Resource::Package(Package::Cargo(package)) => {
             assess_declared_cargo_package(package, machine, readings)

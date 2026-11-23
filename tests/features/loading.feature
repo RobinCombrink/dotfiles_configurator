@@ -168,6 +168,13 @@ Feature: Loading a configuration
     Then loading is refused
     And the refusal mentions "^27"
 
+  Scenario: A .NET tool pinned to a version that does not parse is refused
+    Given Alice has a configuration declaring the .NET tool "dotnet-stryker" at "5.0"
+    And Alice has a configuration for personal machines linking ".npmrc" to "npm/.npmrc"
+    When Alice loads her configurations for a personal machine
+    Then loading is refused
+    And the refusal mentions "5.0"
+
   Scenario: An estate's owners are the keys of the owners object in its estate file
     Given Alice has a configuration for every machine declaring the estate "personal"
     And the estate "personal" keys the owners "Alice, Bob"

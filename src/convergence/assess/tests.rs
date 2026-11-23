@@ -568,3 +568,95 @@ fn a_pinned_tool_is_still_read_at_the_version_it_is_installed_at() {
         Some((UvToolVersion::from("1.5.3"), None))
     );
 }
+
+// 2026-11-23: taken verbatim from `dotnet tool list --global`, .NET SDK 10.0.102 on Windows 11.
+const DOTNET_TOOLS: &str = concat!(
+    "Package Id          Version      Commands      \n",
+    "-----------------------------------------------\n",
+    "csharp-ls           0.28.0       csharp-ls     \n",
+    "dotnet-stryker      5.0.0        dotnet-stryker\n",
+);
+
+// 2026-11-23: the first rows of `dotnet tool search csharp-ls`, abridged to four columns. .NET SDK
+// 10.0.102 on Windows 11.
+const DOTNET_SEARCH: &str = concat!(
+    "Package ID                    Latest Version      Authors                       Downloads\n",
+    "------------------------------------------------------------------------------------------\n",
+    "csharp-ls                     0.29.0              Saulius Menkevičius           1778652  \n",
+    "csharp-ls-vs                  1.2.5               Zach Christmas (Fork)         4344     \n",
+    "csharplspadapter              1.0.2               agasper                       1154     \n",
+);
+
+fn dotnet_version(version: &str) -> DotnetToolVersion {
+    DotnetToolVersion::try_from(version).unwrap()
+}
+
+#[test]
+fn a_dotnet_tool_is_read_at_the_version_dotnet_lists_it_installed_at() {
+    assert_eq!(
+        listed_dotnet_tool(DOTNET_TOOLS, &DotnetToolId::from("dotnet-stryker")).unwrap(),
+        Some(dotnet_version("5.0.0"))
+    );
+}
+
+#[test]
+fn a_dotnet_tool_declared_in_another_case_is_read_at_the_version_dotnet_lists() {
+    assert_eq!(
+        listed_dotnet_tool(DOTNET_TOOLS, &DotnetToolId::from("CSharp-LS")).unwrap(),
+        Some(dotnet_version("0.28.0"))
+    );
+}
+
+#[test]
+fn a_dotnet_tool_dotnet_does_not_list_is_not_installed() {
+    assert_eq!(
+        listed_dotnet_tool(DOTNET_TOOLS, &DotnetToolId::from("dotnet-ef")).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn the_newest_version_searched_is_the_one_listed_against_the_exact_package_id() {
+    assert_eq!(
+        listed_dotnet_tool(DOTNET_SEARCH, &DotnetToolId::from("csharp-ls")).unwrap(),
+        Some(dotnet_version("0.29.0"))
+    );
+}
+
+#[test]
+fn a_search_listing_only_ids_holding_the_declared_one_lists_no_version_of_it() {
+    assert_eq!(
+        listed_dotnet_tool(DOTNET_SEARCH, &DotnetToolId::from("csharp")).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn a_search_finding_nothing_lists_no_version() {
+    assert_eq!(
+        listed_dotnet_tool(
+            "Could not find any results.\n",
+            &DotnetToolId::from("csharp-ls")
+        )
+        .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn a_dotnet_tool_listed_at_a_version_that_does_not_parse_is_unreadable_rather_than_absent() {
+    let listing = concat!(
+        "Package Id          Version      Commands\n",
+        "-----------------------------------------\n",
+        "csharp-ls           preview      csharp-ls\n",
+    );
+
+    assert!(
+        matches!(
+            listed_dotnet_tool(listing, &DotnetToolId::from("csharp-ls")),
+            Err(UnreadableReason::DotnetListsAnUnreadableVersion { .. })
+        ),
+        "{:?}",
+        listed_dotnet_tool(listing, &DotnetToolId::from("csharp-ls"))
+    );
+}

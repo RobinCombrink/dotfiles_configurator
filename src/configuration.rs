@@ -46,9 +46,9 @@ pub use {
     migration::Migration,
     names::{
         ApplicationName, BinaryName, ConfigurationName, CrateName, CrateVersion, DartPackageName,
-        GitCommit, GitHubAccount, GitReferenceName, GitRemoteUrl, McpServerName, PythonInterpreter,
-        RepositoryName, RepositoryOwner, RepositorySubdirectory, UvToolName, UvToolVersion,
-        VariableName, VariableValue, WingetPackageId, WingetVersion,
+        DotnetToolId, DotnetToolVersion, GitCommit, GitHubAccount, GitReferenceName, GitRemoteUrl,
+        McpServerName, PythonInterpreter, RepositoryName, RepositoryOwner, RepositorySubdirectory,
+        UvToolName, UvToolVersion, VariableName, VariableValue, WingetPackageId, WingetVersion,
     },
     package_currency::PackageCurrency,
     presence_check::{Answer, AnsweringCandidate, Candidates, PresenceCheck},
@@ -56,8 +56,8 @@ pub use {
     resource::{
         Application, ApplicationSource, ArchiveEntry, AssetPattern, CargoPackage, CargoSource,
         ClaudeMcpServer, CloneDepth, Command, DartPackage, DartReference, DartSource,
-        EnvironmentVariable, GitHubRepository, Installer, McpScope, Package, Registration,
-        ReleasedBinary, RenderedManifest, RepositoryClone, Resource, ResourceKind,
+        DotnetToolPackage, EnvironmentVariable, GitHubRepository, Installer, McpScope, Package,
+        Registration, ReleasedBinary, RenderedManifest, RepositoryClone, Resource, ResourceKind,
         SearchPathDirectory, SearchPathEntry, Shell, Symlink, UnreportedVersion, UvToolPackage,
         Variable, VersionInvocation, VersionWord, WingetPackage, recorded_run_in,
     },

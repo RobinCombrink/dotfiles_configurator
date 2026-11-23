@@ -75,6 +75,16 @@ pub async fn converge(
             )
             .await;
         }
+        Resource::Package(Package::DotnetTool(package)) => {
+            return placed_unless_held(
+                &WriteInvocation::UpdateDotnetTool {
+                    id: package.id.clone(),
+                    version: package.version.exact().cloned(),
+                },
+                machine,
+            )
+            .await;
+        }
         Resource::EnvironmentVariable(EnvironmentVariable::Variable(variable)) => machine
             .set_environment_variable(&variable.name, &variable.value)
             .with_context(|| format!("Could not set {}", variable.name)),

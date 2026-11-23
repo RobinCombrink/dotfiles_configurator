@@ -139,6 +139,28 @@ Feature: Applying a change set
     Then uv holds "serena-agent" at "1.5.3" on Alice's machine
     And the machine is reported as converged
 
+  Scenario: A .NET tool dotnet does not hold is installed at the newest version NuGet publishes
+    Given Alice declares the .NET tool "csharp-ls"
+    And NuGet publishes "csharp-ls" at "0.29.0" at the newest
+    When Alice applies
+    Then dotnet holds "csharp-ls" at "0.29.0" on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A .NET tool declaring no version behind the newest NuGet publishes is updated to it
+    Given Alice declares the .NET tool "csharp-ls"
+    And dotnet holds "csharp-ls" at "0.28.0" on Alice's machine
+    And NuGet publishes "csharp-ls" at "0.29.0" at the newest
+    When Alice applies
+    Then dotnet holds "csharp-ls" at "0.29.0" on Alice's machine
+    And the machine is reported as converged
+
+  Scenario: A .NET tool installed at a newer version than declared is moved back to the declared one
+    Given Alice declares the .NET tool "dotnet-stryker" at "5.0.0"
+    And dotnet holds "dotnet-stryker" at "5.1.0" on Alice's machine
+    When Alice applies
+    Then dotnet holds "dotnet-stryker" at "5.0.0" on Alice's machine
+    And the machine is reported as converged
+
   Scenario: A cargo package pinned to a version is installed at that version
     Given Alice declares the cargo package "cargo-mutants" at "27.1.0"
     When Alice applies

@@ -503,10 +503,11 @@ async fn attempt(
             })
             .collect()
     };
-    let (cargo, install, uv, dart, instant) = (
+    let (cargo, install, uv, dotnet, dart, instant) = (
         work_in(Lane::Cargo),
         work_in(Lane::Install),
         work_in(Lane::Uv),
+        work_in(Lane::Dotnet),
         work_in(Lane::Dart),
         work_in(Lane::Instant),
     );
@@ -520,7 +521,7 @@ async fn attempt(
             .collect()
     };
 
-    let ((cargo, uninstalled), install, uv, dart, (instant, unlinked)) = tokio::join!(
+    let ((cargo, uninstalled), install, uv, dotnet, dart, (instant, unlinked)) = tokio::join!(
         cargo_lane(
             cargo,
             withdrawals_in(Lane::Cargo),
@@ -530,6 +531,7 @@ async fn attempt(
         ),
         install_lane(install, readings, machine, report),
         in_order(uv, readings, machine, report),
+        in_order(dotnet, readings, machine, report),
         in_order(dart, readings, machine, report),
         instant_lane(
             instant,
@@ -545,6 +547,7 @@ async fn attempt(
             .into_iter()
             .chain(install)
             .chain(uv)
+            .chain(dotnet)
             .chain(dart)
             .chain(instant),
     );

@@ -17,13 +17,13 @@ use {
             Application, ApplicationName, ApplicationSource, AssetPattern, BUILD_GENERATION,
             BinaryName, Candidates, CargoWorkspace, ClaudeMcpServer, CloneDepth, Configuration,
             ConfigurationName, Context, CrateName, CrateVersion, DartPackage, DartReference,
-            DartSource, DeclaredNotice, EnvironmentVariable, EstateName, Estates, GitHubAccount,
-            Installer, MachineClass, MachineManifest, McpScope, McpServerName, Migration, Notice,
-            OLDEST_READABLE_GENERATION, Package, PackageCurrency, PresenceCheck, PythonInterpreter,
-            RecordedRun, RecordedSource, Registration, RepositoryClone, Requirement, Resource,
-            SearchPathDirectory, SearchPathEntry, Shell, Symlink, Tool, UnreportedVersion,
-            UvToolPackage, UvToolVersion, Variable, VariableName, VariableValue, WingetVersion,
-            recorded_run_in,
+            DartSource, DeclaredNotice, DotnetToolPackage, DotnetToolVersion, EnvironmentVariable,
+            EstateName, Estates, GitHubAccount, Installer, MachineClass, MachineManifest, McpScope,
+            McpServerName, Migration, Notice, OLDEST_READABLE_GENERATION, Package, PackageCurrency,
+            PresenceCheck, PythonInterpreter, RecordedRun, RecordedSource, Registration,
+            RepositoryClone, Requirement, Resource, SearchPathDirectory, SearchPathEntry, Shell,
+            Symlink, Tool, UnreportedVersion, UvToolPackage, UvToolVersion, Variable, VariableName,
+            VariableValue, WingetVersion, recorded_run_in,
         },
         configuration_source::{AbsoluteDirectory, ConfigurationSource, load_desired_state},
         confirmation::{Confirm, Confirmation, Operator},
@@ -714,6 +714,75 @@ fn uv_built_tool_with(world: &mut MachineWorld, name: String, python: String) {
         world.machine.uv_tool_interpreter(&name.into()),
         Some(PythonInterpreter::from(python))
     );
+}
+
+fn dotnet_tool_version(version: &str) -> DotnetToolVersion {
+    DotnetToolVersion::try_from(version).expect("a version")
+}
+
+fn declare_dotnet_tool(
+    world: &mut MachineWorld,
+    id: String,
+    version: PackageCurrency<DotnetToolVersion>,
+) {
+    world
+        .resources
+        .push(Resource::Package(Package::DotnetTool(DotnetToolPackage {
+            id: id.into(),
+            version,
+        })));
+}
+
+#[given(expr = "Alice declares the .NET tool {string}")]
+fn declare_unversioned_dotnet_tool(world: &mut MachineWorld, id: String) {
+    declare_dotnet_tool(world, id, PackageCurrency::Latest);
+}
+
+#[given(expr = "Alice declares the .NET tool {string} at {string}")]
+fn declare_pinned_dotnet_tool(world: &mut MachineWorld, id: String, version: String) {
+    declare_dotnet_tool(
+        world,
+        id,
+        PackageCurrency::Exactly(dotnet_tool_version(&version)),
+    );
+}
+
+#[given(expr = "dotnet holds {string} at {string} on Alice's machine")]
+fn dotnet_holds_tool(world: &mut MachineWorld, id: String, version: String) {
+    world
+        .machine
+        .install_dotnet_tool(&id.into(), &dotnet_tool_version(&version));
+}
+
+#[given(expr = "NuGet publishes {string} at {string} at the newest")]
+fn nuget_publishes_tool(world: &mut MachineWorld, id: String, version: String) {
+    world
+        .machine
+        .publish_dotnet_tool(&id.into(), &dotnet_tool_version(&version));
+}
+
+#[then(expr = "dotnet holds {string} at {string} on Alice's machine")]
+fn dotnet_now_holds_tool(world: &mut MachineWorld, id: String, version: String) {
+    assert_eq!(
+        world.machine.dotnet_tool_version(&id.into()),
+        Some(dotnet_tool_version(&version))
+    );
+}
+
+#[given(expr = "Alice has a configuration declaring the .NET tool {string} at {string}")]
+fn configuration_declaring_a_pinned_dotnet_tool(
+    world: &mut MachineWorld,
+    id: String,
+    version: String,
+) {
+    world.documents.push(document(
+        &BUILD_GENERATION.to_string(),
+        "everywhere",
+        &format!(
+            r#"[{{ "kind": "package", "manager": "dotnet_tool", "id": "{id}",
+                   "version": "{version}" }}]"#
+        ),
+    ));
 }
 
 fn declared_mcp_server(name: &str) -> ClaudeMcpServer {
@@ -2792,6 +2861,10 @@ fn change_set_reports_another_version_than_declared(
             *held == UvToolVersion::from(installed.as_str())
                 && *wanted == UvToolVersion::from(declared.as_str())
         }
+        DriftReason::DotnetAtAnotherVersion {
+            installed: held,
+            declared: wanted,
+        } => *held == dotnet_tool_version(&installed) && *wanted == dotnet_tool_version(&declared),
         DriftReason::CargoAtAnotherVersion {
             installed: held,
             wanted: WantedVersion::Declared(wanted),
@@ -2824,6 +2897,27 @@ fn change_set_reports_a_uv_tool_behind(
     };
     assert_eq!(*held, UvToolVersion::from(installed.as_str()));
     assert_eq!(*resolving, UvToolVersion::from(newest.as_str()));
+}
+
+#[then(
+    expr = "the change set reports {string} at {string} where NuGet publishes {string} at the newest"
+)]
+fn change_set_reports_a_dotnet_tool_behind(
+    world: &mut MachineWorld,
+    id: String,
+    installed: String,
+    newest: String,
+) {
+    let reason = world.drift_of(&id);
+    let DriftReason::DotnetBehindNewest {
+        installed: held,
+        newest: published,
+    } = reason
+    else {
+        panic!("{reason:?}");
+    };
+    assert_eq!(*held, dotnet_tool_version(&installed));
+    assert_eq!(*published, dotnet_tool_version(&newest));
 }
 
 #[then(

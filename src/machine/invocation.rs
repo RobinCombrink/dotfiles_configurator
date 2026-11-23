@@ -1,9 +1,9 @@
 use {
     crate::{
         configuration::{
-            ClaudeMcpServer, CrateName, CrateVersion, DartPackage, DartSource, GitHubAccount,
-            GitHubRepository, McpServerName, PythonInterpreter, Tool, UvToolName, UvToolVersion,
-            WingetPackageId, WingetVersion,
+            ClaudeMcpServer, CrateName, CrateVersion, DartPackage, DartSource, DotnetToolId,
+            DotnetToolVersion, GitHubAccount, GitHubRepository, McpServerName, PythonInterpreter,
+            Tool, UvToolName, UvToolVersion, WingetPackageId, WingetVersion,
         },
         machine::{
             CommandOutput, Exited, HeldReason, Replacement,
@@ -28,6 +28,8 @@ pub enum ReadInvocation {
     ClaudeMcpServer { name: McpServerName },
     UvInstalledTools,
     UvOutdatedTools,
+    DotnetInstalledTools,
+    DotnetToolSearch { id: DotnetToolId },
 }
 
 impl ReadInvocation {
@@ -39,6 +41,9 @@ impl ReadInvocation {
             ReadInvocation::CargoInstalledCrates => Tool::Cargo,
             ReadInvocation::ClaudeMcpServer { .. } => Tool::Claude,
             ReadInvocation::UvInstalledTools | ReadInvocation::UvOutdatedTools => Tool::Uv,
+            ReadInvocation::DotnetInstalledTools | ReadInvocation::DotnetToolSearch { .. } => {
+                Tool::Dotnet
+            }
         }
     }
 
@@ -99,6 +104,19 @@ impl ReadInvocation {
                 "--outdated".to_owned(),
                 "--no-offline".to_owned(),
             ],
+            // 2026-11-23: prints a heading row, a row of dashes, and one row per global tool
+            // opening on its package id and the version it is installed at. .NET SDK 10.0.102 on
+            // Windows 11.
+            ReadInvocation::DotnetInstalledTools => {
+                vec!["tool".to_owned(), "list".to_owned(), "--global".to_owned()]
+            }
+            // 2026-11-23: matches the term against ids and descriptions alike, so searching
+            // csharp-ls also listed csharp-ls-vs and csharplspmcp, each in a row opening on its
+            // package id and the newest stable version NuGet publishes; with nothing matching it
+            // prints "Could not find any results." and exits 0. .NET SDK 10.0.102 on Windows 11.
+            ReadInvocation::DotnetToolSearch { id } => {
+                vec!["tool".to_owned(), "search".to_owned(), id.to_string()]
+            }
         }
     }
 }
@@ -127,6 +145,10 @@ pub enum WriteInvocation {
     },
     InstallDartPackage {
         package: Box<DartPackage>,
+    },
+    UpdateDotnetTool {
+        id: DotnetToolId,
+        version: Option<DotnetToolVersion>,
     },
 }
 
@@ -362,6 +384,7 @@ impl WriteInvocation {
             | WriteInvocation::UpgradeUvTool { .. }
             | WriteInvocation::ReinstallUvToolAtLatest { .. } => Tool::Uv,
             WriteInvocation::InstallDartPackage { .. } => Tool::Dart,
+            WriteInvocation::UpdateDotnetTool { .. } => Tool::Dotnet,
         }
     }
 
@@ -373,7 +396,8 @@ impl WriteInvocation {
             | WriteInvocation::UpgradeWingetPackage { .. }
             | WriteInvocation::InstallUvTool { .. }
             | WriteInvocation::UpgradeUvTool { .. }
-            | WriteInvocation::ReinstallUvToolAtLatest { .. } => Vec::new(),
+            | WriteInvocation::ReinstallUvToolAtLatest { .. }
+            | WriteInvocation::UpdateDotnetTool { .. } => Vec::new(),
         }
     }
 
@@ -457,6 +481,26 @@ impl WriteInvocation {
                     "--overwrite".to_owned(),
                 ]
             }
+            // 2026-11-23: `dotnet tool update` installed a tool it did not hold, and moved one it
+            // held up to the newest version or to the one `--version` named; a lower version than
+            // the one installed it refused with exit 1 unless `--allow-downgrade` was passed. .NET
+            // SDK 10.0.102 on Windows 11.
+            WriteInvocation::UpdateDotnetTool { id, version } => {
+                let mut arguments = vec![
+                    "tool".to_owned(),
+                    "update".to_owned(),
+                    "--global".to_owned(),
+                    id.to_string(),
+                ];
+                if let Some(version) = version {
+                    arguments.extend([
+                        "--version".to_owned(),
+                        version.to_string(),
+                        "--allow-downgrade".to_owned(),
+                    ]);
+                }
+                arguments
+            }
         }
     }
 
@@ -469,7 +513,8 @@ impl WriteInvocation {
             WriteInvocation::UpdateWingetSources
             | WriteInvocation::InstallWingetPackage { .. }
             | WriteInvocation::UpgradeWingetPackage { .. }
-            | WriteInvocation::InstallDartPackage { .. } => None,
+            | WriteInvocation::InstallDartPackage { .. }
+            | WriteInvocation::UpdateDotnetTool { .. } => None,
             WriteInvocation::InstallUvTool { .. }
             | WriteInvocation::UpgradeUvTool { .. }
             | WriteInvocation::ReinstallUvToolAtLatest { .. } => output
@@ -497,7 +542,8 @@ impl WriteInvocation {
                 .map(|line| HeldReason::ReportedInUse(line.trim().to_owned())),
             WriteInvocation::UpdateWingetSources
             | WriteInvocation::InstallUvTool { .. }
-            | WriteInvocation::UpgradeUvTool { .. } => None,
+            | WriteInvocation::UpgradeUvTool { .. }
+            | WriteInvocation::UpdateDotnetTool { .. } => None,
         }
     }
 }

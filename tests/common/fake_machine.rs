@@ -7,10 +7,11 @@ use {
     dotfiles_configurator::{
         configuration::{
             Answer, ApplicationName, ApplicationSource, BinaryName, ClaudeMcpServer, CloneDepth,
-            CrateName, CrateVersion, DartPackage, DartPackageName, GitHubAccount, GitHubRepository,
-            Installer, MachineClass, MachineManifest, McpServerName, Migration, PresenceCheck,
-            PythonInterpreter, ReleasedBinary, RepositoryClone, Shell, Tool, UvToolName,
-            UvToolVersion, VariableName, VariableValue, WingetPackageId, WingetVersion,
+            CrateName, CrateVersion, DartPackage, DartPackageName, DotnetToolId, DotnetToolVersion,
+            GitHubAccount, GitHubRepository, Installer, MachineClass, MachineManifest,
+            McpServerName, Migration, PresenceCheck, PythonInterpreter, ReleasedBinary,
+            RepositoryClone, Shell, Tool, UvToolName, UvToolVersion, VariableName, VariableValue,
+            WingetPackageId, WingetVersion,
         },
         configuration_source::{EnvironmentFailure, WriteSource},
         currency::{own_currency, own_release_asset_name, own_release_repository},
@@ -80,6 +81,8 @@ struct MachineState {
     uv_running_launchers: BTreeMap<PathBuf, LauncherCopy>,
     uv_tools_failing_to_upgrade: BTreeSet<UvToolName>,
     uv_pinned_tools: BTreeSet<UvToolName>,
+    dotnet_tools: BTreeMap<DotnetToolId, DotnetToolVersion>,
+    dotnet_newest_versions: BTreeMap<DotnetToolId, DotnetToolVersion>,
     failing_applications: BTreeSet<ApplicationName>,
     silent_applications: BTreeSet<ApplicationName>,
     install_attempts: Vec<ApplicationName>,
@@ -238,6 +241,7 @@ impl Default for FakeMachine {
                     Tool::Git,
                     Tool::Uv,
                     Tool::Dart,
+                    Tool::Dotnet,
                 ]),
                 ..MachineState::default()
             }),
@@ -660,6 +664,24 @@ impl FakeMachine {
                              process. (os error 32)\n",
                             uv_environment_launcher_path(name).display(),
                             launcher.display()
+                        );
+                    }
+                }
+            }
+            WriteInvocation::UpdateDotnetTool {
+                id,
+                version: Some(version),
+            } => {
+                state.dotnet_tools.insert(id.clone(), version.clone());
+            }
+            WriteInvocation::UpdateDotnetTool { id, version: None } => {
+                match state.dotnet_newest_versions.get(id).cloned() {
+                    Some(newest) => {
+                        state.dotnet_tools.insert(id.clone(), newest);
+                    }
+                    None => {
+                        standard_error = format!(
+                            "{id} is not found in NuGet feeds https://api.nuget.org/v3/index.json."
                         );
                     }
                 }
@@ -1087,6 +1109,24 @@ impl FakeMachine {
         self.state.borrow().uv_tools.get(name).cloned()
     }
 
+    pub fn install_dotnet_tool(&self, id: &DotnetToolId, version: &DotnetToolVersion) {
+        self.state
+            .borrow_mut()
+            .dotnet_tools
+            .insert(id.clone(), version.clone());
+    }
+
+    pub fn publish_dotnet_tool(&self, id: &DotnetToolId, version: &DotnetToolVersion) {
+        self.state
+            .borrow_mut()
+            .dotnet_newest_versions
+            .insert(id.clone(), version.clone());
+    }
+
+    pub fn dotnet_tool_version(&self, id: &DotnetToolId) -> Option<DotnetToolVersion> {
+        self.state.borrow().dotnet_tools.get(id).cloned()
+    }
+
     pub fn uv_tool_interpreter(&self, name: &UvToolName) -> Option<PythonInterpreter> {
         self.state
             .borrow()
@@ -1213,6 +1253,8 @@ impl FakeMachine {
             uv_running_launchers,
             uv_tools_failing_to_upgrade,
             uv_pinned_tools,
+            dotnet_tools,
+            dotnet_newest_versions,
             failing_applications,
             silent_applications,
             install_attempts,
@@ -1270,7 +1312,8 @@ impl FakeMachine {
              {winget_versions:?}|{winget_offers:?}|{winget_upgrade_refusals:?}|\
              {dart_readings:?}|{dart_install_refusals:?}|{uv_tools:?}|\
              {uv_newest_versions:?}|{uv_tool_interpreters:?}|{uv_running_launchers:?}|\
-             {uv_tools_failing_to_upgrade:?}|{uv_pinned_tools:?}|{failing_applications:?}|\
+             {uv_tools_failing_to_upgrade:?}|{uv_pinned_tools:?}|{dotnet_tools:?}|\
+             {dotnet_newest_versions:?}|{failing_applications:?}|\
              {silent_applications:?}|\
              {install_attempts:?}|{installed_as:?}|{commands_run:?}|{repository_contents:?}|\
              {unreadable_presence_checks:?}|{unreadable_releases:?}|{cargo_workspaces:?}|\
@@ -1399,6 +1442,45 @@ fn uv_outdated_tool_listing(state: &MachineState) -> String {
                 .then(|| format!("{name} v{installed} [latest: {newest}]\n- {name}\n"))
         })
         .collect()
+}
+
+fn dotnet_tool_listing(state: &MachineState) -> String {
+    let rows: String = state
+        .dotnet_tools
+        .iter()
+        .map(|(id, installed)| {
+            format!(
+                "{:20}{:13}{}\n",
+                id.as_ref().to_lowercase(),
+                installed.to_string(),
+                id.as_ref().to_lowercase()
+            )
+        })
+        .collect();
+    format!(
+        "Package Id          Version      Commands\n{}\n{rows}",
+        "-".repeat(47)
+    )
+}
+
+const DOTNET_SEARCH_FINDS_NOTHING: &str = "Could not find any results.\n";
+
+const DOTNET_SEARCH_DECOY_VERSION: &str = "99.0.0";
+
+fn dotnet_tool_search_listing(state: &MachineState, id: &DotnetToolId) -> String {
+    let Some(newest) = state.dotnet_newest_versions.get(id) else {
+        return DOTNET_SEARCH_FINDS_NOTHING.to_owned();
+    };
+    let decoy = format!("{id}-vs");
+    format!(
+        "Package ID                    Latest Version      Authors      Downloads      Verified\n\
+         {}\n\
+         {decoy:30}{DOTNET_SEARCH_DECOY_VERSION:20}A fork       4344\n\
+         {:30}{:20}An author    1778652\n",
+        "-".repeat(100),
+        id.as_ref(),
+        newest.to_string()
+    )
 }
 
 const WINGET_FINDS_NO_PACKAGE: &str = "No installed package found matching input criteria.\n";
@@ -1620,6 +1702,13 @@ impl ReadMachine for FakeMachine {
             ReadInvocation::UvOutdatedTools => {
                 (succeeded, uv_outdated_tool_listing(&self.state.borrow()))
             }
+            ReadInvocation::DotnetInstalledTools => {
+                (succeeded, dotnet_tool_listing(&self.state.borrow()))
+            }
+            ReadInvocation::DotnetToolSearch { id } => (
+                succeeded,
+                dotnet_tool_search_listing(&self.state.borrow(), id),
+            ),
             ReadInvocation::ClaudeMcpServer { name } => {
                 match self.state.borrow().claude_mcp_servers.get(name) {
                     None => {
@@ -2262,6 +2351,7 @@ fn work_of(invocation: &WriteInvocation) -> String {
         | WriteInvocation::UpgradeUvTool { name }
         | WriteInvocation::ReinstallUvToolAtLatest { name, .. } => format!("uv {name}"),
         WriteInvocation::InstallDartPackage { package } => format!("dart install {}", package.name),
+        WriteInvocation::UpdateDotnetTool { id, .. } => format!("dotnet tool update {id}"),
     }
 }
 

@@ -228,6 +228,94 @@ name!(UvToolVersion);
 
 name!(
     #[schemars(
+        description = "The NuGet package id a .NET global tool is published under, compared \
+                       without regard to case as NuGet compares ids."
+    )]
+    DotnetToolId
+);
+
+impl DotnetToolId {
+    /// Whether dotnet names this tool by the id it lists, which it may spell in another case.
+    ///
+    /// ```
+    /// # use dotfiles_configurator::configuration::DotnetToolId;
+    /// assert!(DotnetToolId::from("Dotnet-Stryker").is_listed_as("dotnet-stryker"));
+    /// assert!(!DotnetToolId::from("csharp-ls").is_listed_as("csharp-ls-vs"));
+    /// ```
+    pub fn is_listed_as(&self, listed: &str) -> bool {
+        self.0.eq_ignore_ascii_case(listed)
+    }
+}
+
+/// The one version of a .NET global tool a configuration pins, or the version dotnet reports one
+/// installed or published at, ordered as versions written as MAJOR.MINOR.PATCH are ordered.
+///
+/// ```
+/// # use dotfiles_configurator::configuration::DotnetToolVersion;
+/// assert!(DotnetToolVersion::try_from("5.0.0").is_ok());
+/// assert!(DotnetToolVersion::try_from("5.0").is_err());
+/// assert!(
+///     DotnetToolVersion::try_from("0.28.0").unwrap()
+///         < DotnetToolVersion::try_from("0.29.0").unwrap()
+/// );
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct DotnetToolVersion(semver::Version);
+
+impl TryFrom<&str> for DotnetToolVersion {
+    type Error = String;
+
+    fn try_from(stated: &str) -> Result<Self, Self::Error> {
+        semver::Version::parse(stated).map(Self).map_err(|reason| {
+            format!(
+                "\"{stated}\" is not an exact version ({reason}); a .NET tool is pinned to one \
+                 version written as MAJOR.MINOR.PATCH"
+            )
+        })
+    }
+}
+
+impl Display for DotnetToolVersion {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, formatter)
+    }
+}
+
+impl Serialize for DotnetToolVersion {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for DotnetToolVersion {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let stated = String::deserialize(deserializer)?;
+        Self::try_from(stated.as_str()).map_err(serde::de::Error::custom)
+    }
+}
+
+impl JsonSchema for DotnetToolVersion {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "DotnetToolVersion".into()
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        concat!(module_path!(), "::DotnetToolVersion").into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": r"^\d+\.\d+\.\d+([-+].+)?$",
+            "description": "The exact version dotnet installs the tool at, written as \
+                            MAJOR.MINOR.PATCH. A version that does not parse is refused.",
+        })
+    }
+}
+
+name!(
+    #[schemars(
         description = "The Python interpreter uv builds a tool's environment with when it first \
                        installs it, in any form `uv tool install --python` accepts."
     )]

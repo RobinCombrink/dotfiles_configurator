@@ -1,8 +1,9 @@
 use {
     crate::{
         configuration::{
-            AnsweringCandidate, CrateVersion, GitHubRepository, Migration, Notice, PresenceCheck,
-            Requirement, Resource, Symlink, UvToolVersion, VariableValue, WingetVersion,
+            AnsweringCandidate, CrateVersion, DotnetToolVersion, GitHubRepository, Migration,
+            Notice, PresenceCheck, Requirement, Resource, Symlink, UvToolVersion, VariableValue,
+            WingetVersion,
         },
         desired_state::{
             ChangeSetResource, DesiredState, Precedence, ResolvedResource, ResolvedWorkspace,
@@ -134,6 +135,15 @@ pub enum DriftReason {
         installed: UvToolVersion,
         newest: UvToolVersion,
     },
+    DotnetHoldsNothing,
+    DotnetAtAnotherVersion {
+        installed: DotnetToolVersion,
+        declared: DotnetToolVersion,
+    },
+    DotnetBehindNewest {
+        installed: DotnetToolVersion,
+        newest: DotnetToolVersion,
+    },
     CargoHoldsNothing,
     CargoAtAnotherVersion {
         installed: CrateVersion,
@@ -232,6 +242,20 @@ impl Display for DriftReason {
             DriftReason::UvBehindNewest { installed, newest } => write!(
                 formatter,
                 "{installed} is installed, and the newest version that resolves is {newest}"
+            ),
+            DriftReason::DotnetHoldsNothing => {
+                formatter.write_str("dotnet has not installed it as a global tool")
+            }
+            DriftReason::DotnetAtAnotherVersion {
+                installed,
+                declared,
+            } => write!(
+                formatter,
+                "{installed} is installed, and the version declared is {declared}"
+            ),
+            DriftReason::DotnetBehindNewest { installed, newest } => write!(
+                formatter,
+                "{installed} is installed, and the newest version NuGet publishes is {newest}"
             ),
             DriftReason::CargoHoldsNothing => formatter.write_str("cargo has not installed it"),
             DriftReason::CargoAtAnotherVersion { installed, wanted } => {
