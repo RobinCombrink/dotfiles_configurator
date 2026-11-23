@@ -242,6 +242,8 @@ impl Default for FakeMachine {
                     Tool::Uv,
                     Tool::Dart,
                     Tool::Dotnet,
+                    Tool::Bash,
+                    Tool::PowerShell,
                 ]),
                 ..MachineState::default()
             }),

@@ -438,6 +438,20 @@ Feature: Planning what a machine needs
     Then the change set reports 0 changes
     And the change set reports the machine as converged
 
+  Scenario: A command run in PowerShell is blocked without pwsh, which is what runs it
+    Given Alice declares the command "refresh-completions" run in PowerShell with no presence check
+    And pwsh is absent from Alice's machine
+    When Alice plans
+    Then the change set reports 0 changes
+    And the change set reports "refresh-completions" as blocked because pwsh is not on the path
+    And the change set does not report the machine as converged
+
+  Scenario: A command run in PowerShell is a change when pwsh is there to run it
+    Given Alice declares the command "refresh-completions" run in PowerShell with no presence check
+    When Alice plans
+    Then the change set reports 1 change
+    And the change set mentions "refresh-completions"
+
   Scenario: A workspace crate whose content matches the repository is converged
     Given Alice declares the cargo workspace in the dotfiles repository
     And the dotfiles repository has been cloned on Alice's machine

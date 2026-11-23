@@ -375,3 +375,71 @@ fn a_symlink_sourced_in_a_repository_shows_its_path_in_that_repository() {
     };
     assert_eq!(symlink.source.to_string(), "plugins/common in Alice/notes");
 }
+
+fn command_run_in(shell: Shell, presence_check: Option<PresenceCheck>) -> Resource {
+    Resource::Command(Command {
+        shell,
+        args: vec!["refresh-completions".to_owned()],
+        presence_check,
+    })
+}
+
+fn output_check_in(shell: Shell) -> PresenceCheck {
+    PresenceCheck::CommandOutputContains {
+        shell,
+        args: vec!["completions".to_owned(), "--status".to_owned()],
+        contains: "ready".to_owned(),
+    }
+}
+
+#[test]
+fn a_command_run_in_power_shell_requires_pwsh() {
+    assert_eq!(
+        command_run_in(Shell::PowerShell, None).tool_requirements(),
+        vec![Requirement::Tool(Tool::PowerShell)]
+    );
+}
+
+#[test]
+fn a_command_run_in_bash_requires_bash() {
+    assert_eq!(
+        command_run_in(Shell::Bash, None).tool_requirements(),
+        vec![Requirement::Tool(Tool::Bash)]
+    );
+}
+
+#[test]
+fn a_command_run_in_wsl_requires_wsl() {
+    assert_eq!(
+        command_run_in(Shell::Wsl, None).tool_requirements(),
+        vec![Requirement::Tool(Tool::Wsl)]
+    );
+}
+
+#[test]
+fn a_command_run_in_the_command_prompt_requires_no_tool() {
+    assert_eq!(
+        command_run_in(Shell::CommandPrompt, None).tool_requirements(),
+        Vec::new()
+    );
+}
+
+#[test]
+fn a_command_checked_in_power_shell_requires_pwsh_for_its_check() {
+    assert_eq!(
+        command_run_in(
+            Shell::CommandPrompt,
+            Some(output_check_in(Shell::PowerShell))
+        )
+        .tool_requirements(),
+        vec![Requirement::Tool(Tool::PowerShell)]
+    );
+}
+
+#[test]
+fn the_power_shell_requirement_names_pwsh_as_the_program_absent() {
+    assert_eq!(
+        Requirement::Tool(Tool::PowerShell).to_string(),
+        "pwsh is not on the path"
+    );
+}

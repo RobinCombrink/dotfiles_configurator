@@ -1009,6 +1009,17 @@ fn declare_command_checked_through_wsl(world: &mut MachineWorld, command: String
     ));
 }
 
+#[given(expr = "Alice declares the command {string} run in PowerShell with no presence check")]
+fn declare_command_run_in_power_shell(world: &mut MachineWorld, command: String) {
+    world.resources.push(Resource::Command(
+        dotfiles_configurator::configuration::Command {
+            shell: Shell::PowerShell,
+            args: vec![command],
+            presence_check: None,
+        },
+    ));
+}
+
 #[given(expr = "the check {string} already passes on Alice's machine")]
 fn the_check_already_passes(world: &mut MachineWorld, invocation: String) {
     world
@@ -1295,6 +1306,11 @@ fn dart_now_holds_package_currently(world: &mut MachineWorld, name: String) {
 #[given(expr = "wsl is absent from Alice's machine")]
 fn wsl_is_absent(world: &mut MachineWorld) {
     world.machine.remove_tool(Tool::Wsl);
+}
+
+#[given(expr = "pwsh is absent from Alice's machine")]
+fn pwsh_is_absent(world: &mut MachineWorld) {
+    world.machine.remove_tool(Tool::PowerShell);
 }
 
 #[given(expr = "the dotfiles repository holds {string}")]
@@ -3174,6 +3190,15 @@ fn change_set_reports_a_bin_directory_absent(world: &mut MachineWorld, name: Str
         panic!("{impediment:?}");
     };
     assert_eq!(*absent, requirement);
+}
+
+#[then(expr = "the change set reports {string} as blocked because pwsh is not on the path")]
+fn change_set_reports_pwsh_absent(world: &mut MachineWorld, name: String) {
+    let impediment = world.impediment_of(&name);
+    let Impediment::Absent(absent) = impediment else {
+        panic!("{impediment:?}");
+    };
+    assert_eq!(*absent, Requirement::Tool(Tool::PowerShell));
 }
 
 #[then(expr = "the change set reports {string} as set to {string}")]

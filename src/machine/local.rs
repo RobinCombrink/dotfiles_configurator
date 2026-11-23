@@ -1534,14 +1534,17 @@ impl WriteSource for LocalMachine<'_, '_> {
 fn shell_invocation(shell: Shell, args: &[String]) -> (String, Vec<String>) {
     let command = args.join(" ");
     match shell {
-        Shell::Bash => ("bash".to_owned(), vec!["-c".to_owned(), command]),
+        Shell::Bash => (
+            Tool::Bash.program().to_owned(),
+            vec!["-c".to_owned(), command],
+        ),
         Shell::CommandPrompt => ("cmd".to_owned(), vec!["/C".to_owned(), command]),
         Shell::PowerShell => (
-            "pwsh".to_owned(),
+            Tool::PowerShell.program().to_owned(),
             vec!["-NoProfile".to_owned(), "-Command".to_owned(), command],
         ),
         Shell::Wsl => (
-            "wsl".to_owned(),
+            Tool::Wsl.program().to_owned(),
             vec!["--".to_owned(), "bash".to_owned(), "-c".to_owned(), command],
         ),
     }

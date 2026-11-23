@@ -13,6 +13,8 @@ pub enum Tool {
     Uv,
     Dart,
     Dotnet,
+    Bash,
+    PowerShell,
 }
 
 impl Tool {
@@ -26,6 +28,8 @@ impl Tool {
             Tool::Uv => "uv",
             Tool::Dart => "dart",
             Tool::Dotnet => "dotnet",
+            Tool::Bash => "bash",
+            Tool::PowerShell => "pwsh",
         }
     }
 }

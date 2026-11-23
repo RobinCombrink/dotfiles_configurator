@@ -143,8 +143,10 @@ fn check_requirements(check: Option<&PresenceCheck>) -> Vec<Requirement> {
 
 fn shell_requirement(shell: Shell) -> Option<Requirement> {
     match shell {
+        Shell::Bash => Some(Requirement::Tool(Tool::Bash)),
+        Shell::PowerShell => Some(Requirement::Tool(Tool::PowerShell)),
         Shell::Wsl => Some(Requirement::Tool(Tool::Wsl)),
-        Shell::Bash | Shell::CommandPrompt | Shell::PowerShell => None,
+        Shell::CommandPrompt => None,
     }
 }
 
