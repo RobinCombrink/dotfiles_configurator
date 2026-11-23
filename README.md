@@ -30,6 +30,8 @@ Alongside them, **notices** carry messages about things the tool cannot do. They
 
 Requires the GitHub CLI (`gh`) to be installed and authenticated wherever a run reaches GitHub: reading configurations from a `github:` source, cloning a repository, or installing an application from a release. Credentials are obtained at the moment they are needed, so planning against a `local:` source asks for none.
 
+A configuration declaring a command or check in the `power_shell` shell requires PowerShell 7 (`pwsh`) on the path, not Windows PowerShell 5.1; one declaring the `bash` shell requires `bash`, and one declaring `wsl` requires `wsl`. Where the program is absent, that entry is planned as blocked rather than failed.
+
 Every apply records the class of machine it ran for — `personal` or `work` — in the machine manifest with the sources it read. A plan or an apply naming no machine runs what the last apply recorded, and refuses on a machine no apply has recorded; it never assumes a class. Each configuration declares which machines it is for — `everywhere`, `personal` or `work` — so where they are read from cannot change which of them apply.
 
 ```bash
