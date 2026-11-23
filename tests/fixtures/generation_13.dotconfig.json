@@ -1,12 +1,10 @@
 {
-    "version": "11",
+    "version": "13",
     "applies_to": "personal",
     "github_account": "Alice",
     "estate": {
         "name": "personal",
-        "owners": [
-            "AliceTools"
-        ]
+        "folder": "estates/personal"
     },
     "slots_per_bank": 2,
     "workspaces": [
@@ -22,11 +20,6 @@
             "kind": "symlink",
             "source_path": "gitconfig/.gitconfig",
             "link_path": ".gitconfig"
-        },
-        {
-            "kind": "symlink",
-            "source_path": "estates/personal",
-            "link_path": ".dotconfig/estates/personal"
         },
         {
             "kind": "package",

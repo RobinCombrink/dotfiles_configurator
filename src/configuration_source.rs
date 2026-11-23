@@ -1,12 +1,11 @@
 use {
     crate::{
         configuration::{
-            BUILD_GENERATION, Configuration, ConfigurationName, Context, EstateConflict,
-            EstateDeclaration, EstateFile, GitCommit, GitHubAccount, GitHubRepository,
-            MachineClass, MachineManifest, Migration, Notice, ReadEstate, Reading, RecordedRun,
-            RecordedSource, RenderedManifest, RepositoriesDirectory, RepositoryName,
-            RepositoryOwner, SlotsPerBankDeclaredTwice, Unreadable, parse_configuration,
-            resolve_estates, resolve_slots_per_bank,
+            Configuration, ConfigurationName, Context, EstateConflict, EstateDeclaration,
+            EstateFile, GitCommit, GitHubAccount, GitHubRepository, MachineClass, MachineManifest,
+            Migration, Notice, ReadEstate, Reading, RecordedRun, RecordedSource, RenderedManifest,
+            RepositoriesDirectory, RepositoryName, RepositoryOwner, SlotsPerBankDeclaredTwice,
+            Unreadable, parse_configuration, resolve_estates, resolve_slots_per_bank,
         },
         desired_state::{DesiredState, Irreconcilable, ResolvedConfiguration, SourceLocation},
         github::{self, GitHubAccess},
@@ -812,25 +811,18 @@ impl ParsedConfiguration {
             Some(declaration) => Some(read_estate(declaration, read_from, github).await?),
         };
 
-        let pending = match reading.migration {
+        let pending = match reading.migrated_from {
             None => Pending::Nothing,
-            Some(migration) => {
-                let from = migration.completed(estate.as_ref()).map_err(|refused| {
-                    Unreadable::Malformed(anyhow::Error::new(refused).context(format!(
-                        "{name} cannot be migrated to generation {BUILD_GENERATION}"
-                    )))
-                })?;
-                match written {
-                    Written::Locally(path) => Pending::Rewriting(
-                        Migration::of(&path, &reading.configuration, from)
-                            .map_err(Unreadable::Malformed)?,
-                    ),
-                    Written::OnGitHub => Pending::Announcing(Notice::SourceCannotBeRewritten {
-                        source: name.clone(),
-                        from,
-                    }),
-                }
-            }
+            Some(from) => match written {
+                Written::Locally(path) => Pending::Rewriting(
+                    Migration::of(&path, &reading.configuration, from)
+                        .map_err(Unreadable::Malformed)?,
+                ),
+                Written::OnGitHub => Pending::Announcing(Notice::SourceCannotBeRewritten {
+                    source: name.clone(),
+                    from,
+                }),
+            },
         };
 
         Ok(LoadedConfiguration {
