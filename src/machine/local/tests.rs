@@ -372,6 +372,37 @@ fn a_binary_kept_aside_through_an_uninstall_is_back_under_its_name_with_its_byte
     );
 }
 
+#[cfg(target_family = "windows")]
+#[test]
+fn a_running_binary_kept_aside_through_an_uninstall_is_back_under_its_name_with_its_bytes() {
+    let directory = tempfile::tempdir().unwrap();
+    let binary = directory.path().join("github-service.exe");
+    fs::copy(std::env::var("ComSpec").unwrap(), &binary).unwrap();
+    let image = fs::read(&binary).unwrap();
+    let mut running = std::process::Command::new(&binary)
+        .args(["/c", "set /p waiting="])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let kept = kept_aside(std::slice::from_ref(&binary)).unwrap();
+
+    let uninstalled = fs::remove_file(&binary);
+    let put_back = kept.put_back();
+    running.kill().unwrap();
+    running.wait().unwrap();
+
+    assert_eq!(
+        (
+            uninstalled.is_ok(),
+            put_back.is_ok(),
+            fs::read(&binary).unwrap() == image,
+            incoming_name(&binary).exists()
+        ),
+        (true, true, true, false)
+    );
+}
+
 #[test]
 fn a_recorded_binary_already_gone_is_stood_in_for_by_an_empty_file_the_uninstall_takes() {
     let directory = tempfile::tempdir().unwrap();

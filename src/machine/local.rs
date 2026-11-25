@@ -543,7 +543,7 @@ fn removed_or_displaced(path: &Path) -> Result<Option<PathBuf>> {
 
 #[derive(Debug, Default)]
 struct KeptAside {
-    copies: Vec<(PathBuf, PathBuf)>,
+    moved: Vec<(PathBuf, PathBuf)>,
     placeholders: Vec<PathBuf>,
 }
 
@@ -552,11 +552,11 @@ impl KeptAside {
         for placeholder in &self.placeholders {
             let _ = fs::remove_file(placeholder);
         }
-        for (copy, file) in &self.copies {
-            fs::rename(copy, file).with_context(|| {
+        for (aside, file) in &self.moved {
+            fs::rename(aside, file).with_context(|| {
                 format!(
                     "Could not move {} back onto {}",
-                    copy.display(),
+                    aside.display(),
                     file.display()
                 )
             })?;
@@ -565,13 +565,7 @@ impl KeptAside {
     }
 
     fn discard(self) {
-        for path in self
-            .placeholders
-            .iter()
-            .chain(self.copies.iter().map(|(copy, _)| copy))
-        {
-            let _ = fs::remove_file(path);
-        }
+        let _ = self.put_back();
     }
 }
 
@@ -579,20 +573,26 @@ impl KeptAside {
 // "error: corrupt metadata, `<path>` does not exist when it should" on its standard error,
 // exiting 101, and removes nothing; an empty file written at that path lets it through. cargo
 // 1.99.0 on Windows 11.
+// 2026-11-25: Windows refuses to delete the image of a running process but lets it be renamed,
+// so each binary is moved aside rather than copied, and the uninstall deletes a placeholder.
+// Windows 11.
 fn kept_aside(files: &[PathBuf]) -> Result<KeptAside> {
     let mut kept = KeptAside::default();
     for file in files {
         let held = match file.symlink_metadata() {
             Ok(_) => {
-                let copy = incoming_name(file);
-                fs::copy(file, &copy)
-                    .map(|_| kept.copies.push((copy, file.clone())))
-                    .with_context(|| format!("Could not copy {} aside", file.display()))
+                let aside = incoming_name(file);
+                fs::rename(file, &aside)
+                    .map(|()| kept.moved.push((aside, file.clone())))
+                    .with_context(|| format!("Could not move {} aside", file.display()))
             }
-            Err(_) => fs::write(file, [])
+            Err(_) => Ok(()),
+        }
+        .and_then(|()| {
+            fs::write(file, [])
                 .map(|()| kept.placeholders.push(file.clone()))
-                .with_context(|| format!("Could not write a placeholder at {}", file.display())),
-        };
+                .with_context(|| format!("Could not write a placeholder at {}", file.display()))
+        });
         if let Err(failure) = held {
             kept.discard();
             return Err(failure);
