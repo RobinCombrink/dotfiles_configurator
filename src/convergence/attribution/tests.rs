@@ -190,17 +190,16 @@ fn an_attributed_binary_a_member_declares_is_kept() {
 
 #[test]
 fn a_binary_in_no_clone_is_kept_and_named_with_its_stamp() {
-    let decided = decided(
-        vec![unclaimed("session-census", in_no_clone())],
-        &declaring(&["stop-gate"]),
-    );
+    let binary = unclaimed("session-census", in_no_clone());
+    let path = binary.path.clone();
+    let decided = decided(vec![binary], &declaring(&["stop-gate"]));
 
     assert_eq!(
         decided,
         Decided {
             withdrawals: Vec::new(),
             notices: vec![Notice::UnattributedBinary {
-                path: PathBuf::from("C:\\Users\\Alice\\.cargo\\bin\\session-census.exe"),
+                path,
                 binary: BinaryName::from("session-census"),
                 commit: COMMIT.to_owned(),
             }],
